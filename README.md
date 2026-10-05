@@ -76,9 +76,10 @@ curl -X POST "https://SEU_PROJETO.supabase.co/functions/v1/iot-gateway" \
 ### Firmware ESP32
 
 1. Abra [`firmware/esp32_nexushome/esp32_nexushome.ino`](firmware/esp32_nexushome/esp32_nexushome.ino) na Arduino IDE (com o core ESP32 instalado).
-2. Preencha `WIFI_SSID`, `WIFI_PASSWORD`, `GATEWAY_URL` e `DEVICE_SECRET`.
-3. Com `SIMULATE_SENSORS true` funciona sem hardware; para sensores reais, mude para `false` e ligue SCT-013 (energia), YF-S201 (fluxo) e DHT22 (clima) nos pinos indicados.
-4. Grave na placa (ESP32 DevKit, 115200 baud).
+2. Preencha `WIFI_SSID`, `WIFI_PASSWORD` e `DEVICE_SECRET` (a `GATEWAY_URL` já vem configurada para este projeto).
+3. Com `SIMULATE_SENSORS true` funciona sem hardware; para sensores reais, mude para `false` e ligue SCT-013 (energia) e YF-S201 (fluxo) nos pinos indicados.
+4. **DHT22/AM2302 (opcional, clima real)**: ligue VCC→3.3V, DATA→GPIO4 (pull-up de 10kΩ para 3.3V — muitos módulos já incluem) e GND→GND; instale **"DHT sensor library" (Adafruit)** + **"Adafruit Unified Sensor"** pela Library Manager e deixe `HAS_DHT22 true` no topo do sketch. Com `HAS_DHT22 false`, temperatura/umidade seguem simuladas e nenhum código DHT é compilado. Leituras falhas são logadas no Serial e a métrica é pulada naquele ciclo; o clima é publicado no dispositivo **Ar-Condicionado** e também faz merge em `devices.status` (`ambient_temperature`/`ambient_humidity`).
+5. Grave na placa (ESP32 DevKit, 115200 baud).
 
 ## Deploy na Vercel
 
