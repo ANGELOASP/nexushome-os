@@ -59,6 +59,11 @@
 
       <div class="flex-1"></div>
 
+      <button id="btn-floorplan" class="fp-open-btn" title="Abrir o Editor de Planta">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 8.5V21h14V8.5"/><path d="M9 21v-5h6v5"/><path d="M9 12h6"/></svg>
+        <span class="hidden sm:inline">Planta</span>
+      </button>
+
       <span id="conn-badge" class="conn-badge conn-demo"><span class="conn-dot"></span> Demo</span>
 
       <div id="health-badge" class="health-badge health-safe">
@@ -234,6 +239,63 @@
           Criar e ativar
         </button>
       </form>
+    </div>
+  </div>
+
+  <!-- ======================= MODAL: EDITOR DE PLANTA ======================= -->
+  <div id="editor-planta" class="modal">
+    <div class="modal-card fp-card glass rounded-2xl">
+      <div class="fp-toolbar">
+        <div class="flex items-center gap-2 min-w-0">
+          <svg class="w-4 h-4 text-cyan-300 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 8.5V21h14V8.5"/><path d="M9 21v-5h6v5"/></svg>
+          <div class="min-w-0">
+            <h3 class="text-base font-bold gradient-text truncate">Editor de Planta</h3>
+            <p class="text-[10px] text-slate-500 leading-none mt-0.5">1 célula = 0,5 m · arraste para mover · duplo-clique edita</p>
+          </div>
+        </div>
+        <div class="fp-actions">
+          <button id="btn-fp-add" type="button" class="fp-btn fp-btn-ghost">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Adicionar cômodo
+          </button>
+          <button id="btn-fp-reset" type="button" class="fp-btn fp-btn-ghost">Restaurar padrão</button>
+          <button id="btn-fp-save" type="button" class="fp-btn fp-btn-primary">Salvar planta</button>
+          <button id="btn-fp-close" type="button" class="fp-btn fp-btn-ghost" aria-label="Fechar editor">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            Fechar
+          </button>
+        </div>
+      </div>
+
+      <div class="fp-body">
+        <div class="fp-canvas-wrap">
+          <canvas id="fp-canvas"></canvas>
+        </div>
+
+        <form id="fp-form" class="fp-form hidden" onsubmit="return false">
+          <h4 class="text-[11px] font-semibold uppercase tracking-widest text-cyan-300">Cômodo selecionado</h4>
+          <div>
+            <label class="form-label" for="fp-in-name">Nome</label>
+            <input id="fp-in-name" type="text" class="form-input" maxlength="40" placeholder="Ex.: Escritório" />
+          </div>
+          <div>
+            <label class="form-label" for="fp-in-color">Cor</label>
+            <input id="fp-in-color" type="color" class="fp-color-input" />
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="form-label" for="fp-in-sx">Largura (m)</label>
+              <input id="fp-in-sx" type="number" class="form-input" step="0.5" min="1" max="12" />
+            </div>
+            <div>
+              <label class="form-label" for="fp-in-sz">Profundidade (m)</label>
+              <input id="fp-in-sz" type="number" class="form-input" step="0.5" min="1" max="12" />
+            </div>
+          </div>
+          <button id="btn-fp-delete" type="button" class="fp-btn fp-btn-danger w-full">Excluir cômodo</button>
+          <p class="text-[10px] text-slate-500 leading-snug">As mudanças só são aplicadas ao clicar em <strong>Salvar planta</strong>.</p>
+        </form>
+      </div>
     </div>
   </div>
 
