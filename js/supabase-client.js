@@ -9,7 +9,6 @@
 // O mock implementa a MESMA superfície de API usada pelo app:
 //   from(table).select() / .insert() / .update().eq() / .order() / .limit()
 //   channel(name).on('postgres_changes', {table}, cb).subscribe()
-//   auth.getSession / signInWithPassword / signUp / signOut / onAuthStateChange
 // ============================================================
 
 import { emit } from './state.js';
@@ -207,6 +206,35 @@ class MockAuth {
     try { sessionStorage.removeItem('nh_demo_session'); } catch { /* noop */ }
     this._notify('SIGNED_OUT', null);
     return { error: null };
+  }
+
+  // Recuperação de senha (demo): resolve sem enviar e-mail de verdade.
+  // A UI exibe uma nota âmbar avisando que o fluxo é apenas simulado.
+  async resetPasswordForEmail(email, _opts = {}) {
+    if (!email || !String(email).includes('@')) {
+      return { data: {}, error: { message: 'Informe um e-mail válido' } };
+    }
+    return { data: {}, error: null };
+  }
+
+  // Redefinição de senha (demo): valida e entra direto (sem e-mail real,
+  // o link de recovery nunca chega — esta chamada só ocorre por teste manual).
+  async updateUser({ password } = {}) {
+    if (!password || String(password).length < 6) {
+      return { data: { user: null }, error: { message: 'Senha deve ter ao menos 6 caracteres' } };
+    }
+    let session = this._sessionFromStorage();
+    if (!session) {
+      session = {
+        access_token: 'demo-' + uuid(),
+        token_type: 'bearer',
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        user: { id: uuid(), email: 'demo@nexushome.local', aud: 'authenticated', role: 'authenticated' },
+      };
+      try { sessionStorage.setItem('nh_demo_session', JSON.stringify(session)); } catch { /* modo restrito */ }
+      this._notify('SIGNED_IN', session);
+    }
+    return { data: { user: session.user }, error: null };
   }
 
   onAuthStateChange(cb) {

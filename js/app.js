@@ -3,15 +3,17 @@
 // ------------------------------------------------------------
 // Fluxo:
 //   boot() → cria cliente (real/demo) → getSession()
+//     · hash #type=recovery (link de e-mail) → showResetView()
 //     · sessão válida  → enterApp() direto (pula o login)
 //     · sem sessão     → showLogin()
 //   onAuthStateChange: SIGNED_IN → enterApp / SIGNED_OUT → leaveApp
+//                      PASSWORD_RECOVERY → showResetView
 // ============================================================
 
 import { state, on, emit } from './state.js';
 import { createNexusClient } from './supabase-client.js';
 import { toast } from './toasts.js';
-import { initAuthUI, showLogin, hideLogin } from './auth.js';
+import { initAuthUI, showLogin, hideLogin, showResetView } from './auth.js';
 import { initScene3D, selectRoom } from './scene3d.js';
 import { initDevicesPanel } from './panels/devices.js';
 import { initMonitorPanel, loadInitialMonitorData, subscribeTelemetry, updateHealthBadge } from './panels/monitor.js';
@@ -23,6 +25,7 @@ let panelsReady = false;
 let sceneReady = false;
 let activeChannels = [];      // canais realtime para teardown no logout
 let entering = false;
+let recoveryPending = false;  // link de recuperação de senha aberto (bloqueia enterApp)
 
 async function boot() {
   startClock();
@@ -30,25 +33,58 @@ async function boot() {
 
   // UI de login pronta imediatamente (fica sob o overlay de loading)
   const clientReady = createNexusClient();
-  initAuthUI({ getClient: () => clientReady });
+  initAuthUI({ getClient: () => clientReady, onPasswordUpdated });
 
   // conexão: Supabase real ou Modo Demonstração (transparente)
   client = await clientReady;
   state.mode = client.nexusMode || 'demo';
   if (state.mode === 'demo') document.getElementById('demo-banner')?.classList.remove('hidden');
 
-  // sessão persistida? pula a tela de login
-  const { data: { session } } = await client.auth.getSession();
+  // Link de recuperação de senha abriu o app? (só com Supabase real: no modo
+  // demo nenhum e-mail é enviado, então um hash #type=recovery não tem origem
+  // válida e é descartado — jamais engole um fluxo live, pois aqui o modo já
+  // é conhecido após o probe de conexão)
+  if (window.location.hash.includes('type=recovery')) {
+    if (state.mode !== 'demo') {
+      recoveryPending = true;
+    } else {
+      try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch { /* noop */ }
+    }
+  }
 
+  // listener registrado ANTES do getSession: o supabase-js processa o hash de
+  // recovery na inicialização e dispara PASSWORD_RECOVERY de forma assíncrona
   client.auth.onAuthStateChange((event, s) => {
-    if (event === 'SIGNED_IN' && s) enterApp(s.user);
-    if (event === 'SIGNED_OUT') leaveApp();
+    if (event === 'PASSWORD_RECOVERY') { recoveryPending = true; showResetView(); return; }
+    if (event === 'SIGNED_IN' && s) {
+      if (recoveryPending) { showResetView(); return; } // sessão de recovery: não entrar no app ainda
+      enterApp(s.user);
+    }
+    if (event === 'SIGNED_OUT') { recoveryPending = false; leaveApp(); }
   });
 
-  if (session) await enterApp(session.user);
+  // sessão persistida? pula a tela de login (exceto em fluxo de recuperação)
+  const { data: { session } } = await client.auth.getSession();
+
+  if (recoveryPending) showResetView();
+  else if (session) await enterApp(session.user);
   else showLogin();
 
   document.getElementById('loading')?.classList.add('loading-done');
+}
+
+// ------------------------------------------------------------
+// Senha redefinida com sucesso (auth.js → após updateUser):
+// limpa o estado de recovery e entra na central já autenticado
+// ------------------------------------------------------------
+
+function onPasswordUpdated(user) {
+  recoveryPending = false;
+  if (user) { enterApp(user); return; }
+  // fallback: reconsulta a sessão se o retorno não trouxe o usuário
+  client.auth.getSession().then(({ data }) => {
+    if (data?.session) enterApp(data.session.user);
+  });
 }
 
 // ------------------------------------------------------------
@@ -57,6 +93,9 @@ async function boot() {
 
 async function enterApp(user) {
   if (entering) return;
+  // já autenticado (ex.: demo updateUser dispara SIGNED_IN e o fluxo de
+  // redefinição também chama onPasswordUpdated → enterApp)
+  if (document.body.classList.contains('authenticated')) return;
   entering = true;
   try {
     hideLogin();
