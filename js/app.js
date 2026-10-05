@@ -15,6 +15,7 @@ import { createNexusClient } from './supabase-client.js';
 import { toast } from './toasts.js';
 import { initAuthUI, showLogin, hideLogin, showResetView } from './auth.js';
 import { initScene3D, selectRoom } from './scene3d.js';
+import { initFloorplan, loadRooms, subscribeRooms } from './floorplan.js';
 import { initDevicesPanel } from './panels/devices.js';
 import { initMonitorPanel, loadInitialMonitorData, subscribeTelemetry, updateHealthBadge } from './panels/monitor.js';
 import { initAutomationsPanel, loadAutomations, subscribeAutomations } from './panels/automations.js';
@@ -34,6 +35,7 @@ async function boot() {
   // UI de login pronta imediatamente (fica sob o overlay de loading)
   const clientReady = createNexusClient();
   initAuthUI({ getClient: () => clientReady, onPasswordUpdated });
+  initFloorplan({ getClient: () => clientReady });
 
   // conexão: Supabase real ou Modo Demonstração (transparente)
   client = await clientReady;
@@ -102,6 +104,9 @@ async function enterApp(user) {
     document.body.classList.add('authenticated');
     updateUserChip(user);
 
+    // planta da residência primeiro: painéis e cena 3D dependem dela
+    await loadRooms(client);
+
     // painéis e cena são inicializados uma única vez
     if (!panelsReady) {
       initDevicesPanel(client);
@@ -120,7 +125,7 @@ async function enterApp(user) {
 
     // realtime (re)assinatura
     activeChannels.forEach((ch) => { try { client.removeChannel?.(ch); } catch { /* noop */ } });
-    activeChannels = [...subscribeTelemetry(), ...subscribeAutomations()];
+    activeChannels = [...subscribeTelemetry(), ...subscribeAutomations(), ...subscribeRooms(client)];
 
     // cena 3D
     if (!sceneReady) {

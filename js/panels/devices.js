@@ -4,7 +4,7 @@
 // válvula (abrir/fechar), medidor/sensor (leituras).
 // ============================================================
 
-import { state, on, emit, ROOM_ORDER, getDevice, upsertDevice } from '../state.js';
+import { state, on, emit, getRoomNames, getDevice, upsertDevice } from '../state.js';
 import { toast, escapeHtml } from '../toasts.js';
 
 let client = null;
@@ -25,6 +25,7 @@ export function initDevicesPanel(nexusClient) {
   render();
 
   on('devices-changed', render);
+  on('rooms-changed', render); // planta editada → reagrupa os dispositivos
   on('room-selected', (room) => highlightRoom(room));
 }
 
@@ -33,7 +34,10 @@ function render() {
   const devices = state.devices;
   listEl.innerHTML = '';
 
-  for (const room of ROOM_ORDER) {
+  // cômodos da planta + eventuais grupos órfãos (cômodo renomeado/excluído)
+  const names = getRoomNames();
+  const orphans = [...new Set(devices.map((d) => d.room).filter((r) => r && !names.includes(r)))];
+  for (const room of [...names, ...orphans]) {
     const roomDevices = devices.filter((d) => d.room === room);
     if (!roomDevices.length) continue;
 
