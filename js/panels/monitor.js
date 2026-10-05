@@ -230,28 +230,38 @@ export async function loadInitialMonitorData() {
 }
 
 export function subscribeTelemetry() {
-  client.channel('telemetry-feed')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'telemetry_logs' }, (payload) => {
-      const row = payload.new;
-      emit('telemetry', { metric: row.metric_type, value: Number(row.value), deviceId: row.device_id });
-    })
-    .subscribe();
+  const channels = [];
 
-  client.channel('alerts-feed')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'alerts' }, (payload) => {
-      prependAlert(payload.new);
-      const a = payload.new;
-      toast(a.severity === 'critical' ? 'Alerta crítico' : a.severity === 'warning' ? 'Atenção' : 'Informação',
-        a.message, a.severity === 'info' ? 'info' : a.severity);
-    })
-    .subscribe();
+  channels.push(
+    client.channel('telemetry-feed')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'telemetry_logs' }, (payload) => {
+        const row = payload.new;
+        emit('telemetry', { metric: row.metric_type, value: Number(row.value), deviceId: row.device_id });
+      })
+      .subscribe()
+  );
 
-  client.channel('devices-feed')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'devices' }, (payload) => {
-      if (payload.eventType === 'DELETE') return;
-      // mescla status para não perder campos
-      const prev = state.devices.find((d) => d.id === payload.new.id);
-      upsertDevice({ ...prev, ...payload.new, status: { ...(prev?.status || {}), ...(payload.new.status || {}) } });
-    })
-    .subscribe();
+  channels.push(
+    client.channel('alerts-feed')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'alerts' }, (payload) => {
+        prependAlert(payload.new);
+        const a = payload.new;
+        toast(a.severity === 'critical' ? 'Alerta crítico' : a.severity === 'warning' ? 'Atenção' : 'Informação',
+          a.message, a.severity === 'info' ? 'info' : a.severity);
+      })
+      .subscribe()
+  );
+
+  channels.push(
+    client.channel('devices-feed')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'devices' }, (payload) => {
+        if (payload.eventType === 'DELETE') return;
+        // mescla status para não perder campos
+        const prev = state.devices.find((d) => d.id === payload.new.id);
+        upsertDevice({ ...prev, ...payload.new, status: { ...(prev?.status || {}), ...(payload.new.status || {}) } });
+      })
+      .subscribe()
+  );
+
+  return channels;
 }

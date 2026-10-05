@@ -276,14 +276,16 @@ export async function loadAutomations() {
 }
 
 export function subscribeAutomations() {
-  client.channel('automations-feed')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'automations' }, (payload) => {
-      if (payload.eventType === 'DELETE') {
-        state.automations = state.automations.filter((a) => a.id !== payload.old?.id);
-        emit('automations-changed', state.automations);
-        return;
-      }
-      upsertAutomation(payload.new);
-    })
-    .subscribe();
+  return [
+    client.channel('automations-feed')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'automations' }, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          state.automations = state.automations.filter((a) => a.id !== payload.old?.id);
+          emit('automations-changed', state.automations);
+          return;
+        }
+        upsertAutomation(payload.new);
+      })
+      .subscribe(),
+  ];
 }
