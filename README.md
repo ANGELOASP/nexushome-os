@@ -6,7 +6,8 @@ Sistema operacional de casa inteligente em tempo real — SPA com visualização
 
 ## Visão geral
 
-- **Casa 3D interativa** (Three.js): 4 cômodos clicáveis — Sala de Estar, Quarto Principal, Cozinha e Área Externa — que reagem visualmente ao estado dos dispositivos (brilho/cor da luz, tonalidade fria do AC, válvula, medidor).
+- **Casa 3D interativa** (Three.js): cômodos clicáveis que reagem visualmente ao estado dos dispositivos (brilho/cor da luz, tonalidade fria do AC, válvula, medidor). A casa **não é fixa no código** — ela é construída a partir da planta salva no Supabase.
+- **Editor de Planta** (novo na v1.3.0): botão **Planta** na barra superior abre um editor 2D top-down para desenhar a residência — criar, mover, redimensionar, renomear e excluir cômodos, com grade de 0,5 m, snap, prevenção de sobreposição e sincronização imediata com a cena 3D e o painel de dispositivos.
 - **Login obrigatório** (Supabase Auth e-mail/senha): todo o app fica bloqueado atrás de uma tela de login; no Modo Demonstração um banner âmbar avisa que qualquer credencial entra.
 - **Telemetria em tempo real**: energia (W) e fluxo de água (L/h) com sparklines, badge de saúde (Seguro/Atenção/Crítico) e feed de alertas.
 - **Segurança hídrica**: detecção de vazamento (fluxo > 0 por mais de 30 s com tudo desligado) e botão de emergência **FECHAR VÁLVULA DE ÁGUA GERAL**.
@@ -29,6 +30,7 @@ Sem nenhuma configuração, o app entra em **Modo Demonstração**: um cliente S
 2. **SQL Editor** → execute as migrações **em ordem**:
    1. [`supabase/migrations/001_init.sql`](supabase/migrations/001_init.sql) — cria as tabelas (`devices`, `automations`, `telemetry_logs`, `alerts`), realtime e seeds.
    2. [`supabase/migrations/002_auth_rls.sql`](supabase/migrations/002_auth_rls.sql) — **endurece o RLS**: revoga o acesso anônimo e restringe as 4 tabelas a usuários autenticados.
+   3. [`supabase/migrations/003_rooms.sql`](supabase/migrations/003_rooms.sql) — **planta da residência**: tabela `rooms` (nome, posição, tamanho, cor), RLS autenticado, realtime e os 4 cômodos padrão como seeds. Sem ela, o app carrega a planta padrão embutida e o salvamento falha.
 3. Copie [`js/config.example.js`](js/config.example.js) para `js/config.js` e preencha:
 
    ```js
@@ -52,6 +54,17 @@ O app exige autenticação por e-mail/senha via **Supabase Auth** (`signInWithPa
 - **RLS endurecido**: a migração `002_auth_rls.sql` remove as políticas anônimas permissivas da `001` e cria políticas `for all to authenticated`. Sem login, a chave anon não lê nem escreve nada.
 - **Modo Demonstração**: sem credenciais Supabase configuradas, o login é simulado — um **banner âmbar visível** avisa que qualquer e-mail/senha entra e que os dados são locais. A recuperação de senha também é simulada (nenhum e-mail é enviado; a view de recuperação exibe uma **nota âmbar** explicando isso). A segurança real vale assim que o Supabase é conectado.
 - **service_role key**: a Edge Function `iot-gateway` usa `SUPABASE_SERVICE_ROLE_KEY`, que **ignora o RLS por design** (é o que mantém a ingestão do ESP32 funcionando). Essa chave **nunca** deve aparecer no frontend nem ser commitada. A autenticação dos dispositivos IoT é o header `x-device-key` (segredo `IOT_DEVICE_SECRET`).
+
+## Editor de Planta
+
+A casa 3D é gerada a partir da tabela `rooms` (migração 003) — posições e tamanhos em **metros** (no 3D, 1 m = 1,9 unidade de cena). O botão **Planta** na barra superior abre o editor 2D:
+
+- **Grade de 0,5 m** com snap: arraste um cômodo para mover e use a alça azul no canto inferior direito para redimensionar.
+- **Duplo-clique** (ou selecionar) abre o formulário lateral: nome, cor, largura e profundidade. **Adicionar cômodo** cria um novo retângulo 3 × 3 m no primeiro espaço livre; **Excluir** pede confirmação; **Restaurar padrão** volta aos 4 cômodos originais.
+- **Sobreposição é bloqueada**: se um cômodo ficar sobre outro, a posição/tamanho volta atrás com um flash vermelho.
+- **Salvar planta** persiste no Supabase (ou no `localStorage` no Modo Demonstração) e **reconstrói a cena 3D e o painel de dispositivos na hora**, sem recarregar. Mudanças feitas em outra aba chegam via realtime.
+- Renomear ou excluir um cômodo **não move os dispositivos** automaticamente — eles aparecem num grupo próprio no painel e um toast avisa quais ficaram com o cômodo antigo.
+- Os 4 cômodos padrão têm mobiliário temático (sofá, cama, bancada, painel solar); cômodos com outros nomes ganham um mobiliário genérico.
 
 ## Ponte IoT (ESP32 → Supabase)
 
@@ -103,7 +116,8 @@ nexushome-os/
 │   ├── config.example.js       # modelo versionado
 │   ├── supabase-client.js      # fábrica: Supabase real OU mock demo (inclui auth mock)
 │   ├── state.js                # store + pub/sub
-│   ├── scene3d.js              # casa 3D isométrica (Three.js)
+│   ├── scene3d.js              # casa 3D isométrica (Three.js), construída da planta
+│   ├── floorplan.js            # Editor de Planta 2D (canvas): desenha/edita a planta
 │   ├── charts.js               # sparklines em canvas
 │   ├── toasts.js               # notificações
 │   └── panels/
@@ -113,6 +127,7 @@ nexushome-os/
 ├── supabase/
 │   ├── migrations/001_init.sql # esquema + RLS inicial + realtime + seeds
 │   ├── migrations/002_auth_rls.sql # RLS apenas para usuários autenticados
+│   ├── migrations/003_rooms.sql  # planta da residência (tabela rooms + seeds)
 │   └── functions/iot-gateway/  # Edge Function (Deno)
 └── firmware/esp32_nexushome/   # firmware Arduino/ESP32
 ```

@@ -419,6 +419,86 @@ body:not(.authenticated) aside.panel {
 .logout-btn:hover { background: rgba(251, 113, 133, 0.16); }
 .logout-btn:disabled { opacity: 0.5; cursor: wait; }
 
+/* ---------- editor de planta (v1.3.0) ---------- */
+.fp-open-btn {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.34rem 0.75rem; border-radius: 999px;
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.03em; color: #a5b4fc;
+  border: 1px solid rgba(129, 140, 248, 0.35); background: rgba(129, 140, 248, 0.08);
+  transition: all 0.2s; cursor: pointer;
+}
+.fp-open-btn:hover { background: rgba(129, 140, 248, 0.18); color: #c7d2fe; }
+
+.fp-card {
+  width: min(62rem, calc(100vw - 2rem));
+  height: min(38rem, calc(100vh - 3rem));
+  display: flex; flex-direction: column;
+  padding: 0; overflow: hidden;
+}
+.modal-open .fp-card { transform: none; }
+
+.fp-toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.8rem;
+  padding: 0.85rem 1.1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-wrap: wrap;
+}
+.fp-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
+.fp-btn {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.42rem 0.8rem; border-radius: 0.65rem;
+  font-size: 0.72rem; font-weight: 700; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: all 0.2s;
+}
+.fp-btn:disabled { opacity: 0.55; cursor: wait; }
+.fp-btn-ghost { color: #cbd5e1; background: rgba(255, 255, 255, 0.05); }
+.fp-btn-ghost:hover { background: rgba(255, 255, 255, 0.1); }
+.fp-btn-primary {
+  color: #fff; border-color: transparent;
+  background: linear-gradient(90deg, #6366f1, #06b6d4);
+  box-shadow: 0 6px 18px rgba(67, 56, 202, 0.35);
+}
+.fp-btn-primary:hover { filter: brightness(1.12); }
+.fp-btn-danger {
+  justify-content: center; color: #fda4af;
+  border-color: rgba(251, 113, 133, 0.35); background: rgba(251, 113, 133, 0.08);
+}
+.fp-btn-danger:hover { background: rgba(251, 113, 133, 0.18); }
+
+.fp-body { display: flex; flex: 1; min-height: 0; }
+.fp-canvas-wrap {
+  position: relative; flex: 1; min-width: 0;
+  background: #0a0f1e;
+}
+#fp-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+.fp-form {
+  width: 15rem; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 0.8rem;
+  padding: 1rem; border-left: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  overflow-y: auto;
+}
+.fp-color-input {
+  width: 100%; height: 2.2rem; padding: 0.15rem;
+  border-radius: 0.65rem; cursor: pointer;
+  background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* flash vermelho de sobreposição (reforço visual além do canvas) */
+.fp-canvas-wrap.room-overlap-flash #fp-canvas { animation: fp-flash 0.65s ease; }
+@keyframes fp-flash {
+  0%, 100% { box-shadow: inset 0 0 0 0 rgba(239, 68, 68, 0); }
+  35% { box-shadow: inset 0 0 0 3px rgba(239, 68, 68, 0.85), inset 0 0 42px rgba(239, 68, 68, 0.35); }
+}
+
+@media (max-width: 700px) {
+  .fp-body { flex-direction: column; }
+  .fp-form { width: 100%; border-left: none; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+  .fp-canvas-wrap { min-height: 16rem; }
+}
+
 /* ---------- responsivo ---------- */
 @media (max-width: 767px) {
   #panel-devices, #panel-monitor, #panel-automations {
