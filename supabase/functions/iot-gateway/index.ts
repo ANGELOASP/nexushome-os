@@ -17,6 +17,15 @@
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY  (provisionadas automaticamente)
 //   IOT_DEVICE_SECRET                        (segredo compartilhado com o firmware)
 //
+// SEGURANÇA:
+//   · A SERVICE_ROLE KEY ignora o RLS por design — é o que permite à
+//     função gravar telemetria mesmo com as políticas "apenas
+//     autenticados" da migração 002_auth_rls.sql. Por isso ela
+//     NUNCA deve ser exposta ao frontend (nem commitada).
+//   · O mecanismo de autenticação dos dispositivos IoT é o header
+//     x-device-key (segredo compartilhado, definido em IOT_DEVICE_SECRET).
+//     Não use a anon key no ESP32: o fluxo do firmware não muda.
+//
 // Deploy:  supabase functions deploy iot-gateway
 // ============================================================
 
