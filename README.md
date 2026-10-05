@@ -47,8 +47,10 @@ Sem nenhuma configuração, o app entra em **Modo Demonstração**: um cliente S
 O app exige autenticação por e-mail/senha via **Supabase Auth** (`signInWithPassword` / `signUp` / `signOut`), com sessão persistida (ao recarregar, entra direto) e botão **Sair** no chip do usuário na barra superior. Toda a interface — cena 3D e painéis — permanece oculta e inerte até o login, e a simulação de telemetria só inicia depois da autenticação.
 
 - **Primeiro usuário**: use a aba **Criar conta** da tela de login. O provedor de e-mail já vem ativado no Supabase Auth. Para login imediato sem confirmação, desative **Confirm email** em *Authentication → Providers → Email* (opcional; se ativo, o app avisa para confirmar o e-mail).
+- **Recuperação de senha**: o link **Esqueci minha senha** (aba Entrar) abre a view de recuperação, que chama `resetPasswordForEmail` com `redirectTo` dinâmico (origem atual — funciona em `localhost` e na Vercel sem alterar código). A confirmação é neutra de propósito ("Se o e-mail estiver cadastrado, você receberá um link…") para não permitir enumeração de usuários, e erros HTTP 429 de rate limit viram "Muitas tentativas. Aguarde alguns minutos e tente novamente.". Ao clicar no link do e-mail, o app detecta o evento `PASSWORD_RECOVERY` (ou o hash `#type=recovery`) e abre a view **Definir nova senha** em vez da central; após `updateUser({ password })`, o hash é limpo da URL e o usuário entra autenticado.
+  - **Configuração obrigatória no dashboard Supabase**: em *Authentication → URL Configuration*, adicione às **Redirect URLs** tanto `http://localhost:7100/` (desenvolvimento) quanto a URL de produção (ex.: `https://<projeto>.vercel.app/`); a **Site URL** deve ser a URL de produção. O template de e-mail **Reset Password** pode ser personalizado em *Authentication → Email Templates*.
 - **RLS endurecido**: a migração `002_auth_rls.sql` remove as políticas anônimas permissivas da `001` e cria políticas `for all to authenticated`. Sem login, a chave anon não lê nem escreve nada.
-- **Modo Demonstração**: sem credenciais Supabase configuradas, o login é simulado — um **banner âmbar visível** avisa que qualquer e-mail/senha entra e que os dados são locais. A segurança real vale assim que o Supabase é conectado.
+- **Modo Demonstração**: sem credenciais Supabase configuradas, o login é simulado — um **banner âmbar visível** avisa que qualquer e-mail/senha entra e que os dados são locais. A recuperação de senha também é simulada (nenhum e-mail é enviado; a view de recuperação exibe uma **nota âmbar** explicando isso). A segurança real vale assim que o Supabase é conectado.
 - **service_role key**: a Edge Function `iot-gateway` usa `SUPABASE_SERVICE_ROLE_KEY`, que **ignora o RLS por design** (é o que mantém a ingestão do ESP32 funcionando). Essa chave **nunca** deve aparecer no frontend nem ser commitada. A autenticação dos dispositivos IoT é o header `x-device-key` (segredo `IOT_DEVICE_SECRET`).
 
 ## Ponte IoT (ESP32 → Supabase)
@@ -92,10 +94,10 @@ vercel        # o vercel.json já configura a SPA estática
 ```
 nexushome-os/
 ├── index.html                  # SPA (CDN: Tailwind, Three r128, supabase-js v2)
-├── css/styles.css              # glassmorphism, switches, sliders, toasts, modal, login
+├── css/styles.css              # glassmorphism, switches, sliders, toasts, modal
 ├── js/
 │   ├── app.js                  # bootstrap + gate de autenticação
-│   ├── auth.js                 # tela de login (Supabase Auth / demo)
+│   ├── auth.js                 # tela de login: entrar/criar conta + recuperação de senha (Supabase Auth / demo)
 │   ├── config.js               # (gitignored) credenciais locais
 │   ├── config.example.js       # modelo versionado
 │   ├── supabase-client.js      # fábrica: Supabase real OU mock demo (inclui auth mock)
