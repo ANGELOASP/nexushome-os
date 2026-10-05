@@ -1,26 +1,23 @@
 // ============================================================
 // NexusHome OS — Motor 3D (Three.js r128 via CDN)
-// Casa isométrica com 4 cômodos clicáveis que reagem ao estado
-// dos dispositivos (luz, ar-condicionado, válvula, medidor).
+// A casa é construída a partir da planta em state.rooms
+// (tabela rooms / localStorage no demo) — nada é fixo no código.
+// Editou a planta no Editor de Planta? O evento 'rooms-changed'
+// reconstrói os cômodos dinamicamente, sem recarregar a página.
 // ============================================================
 
 import { state, on, emit } from './state.js';
 
-const ROOM_DEFS = [
-  { name: 'Sala de Estar',    pos: [-3.05, 0,  3.05], outdoor: false },
-  { name: 'Cozinha',          pos: [ 3.05, 0,  3.05], outdoor: false },
-  { name: 'Quarto Principal', pos: [-3.05, 0, -3.05], outdoor: false },
-  { name: 'Área Externa',     pos: [ 3.05, 0, -3.05], outdoor: true  },
-];
-const ROOM_SIZE = 5.7;
+const METER = 1.9;          // unidades de cena por metro (3.0 m → 5.7 un., paridade com o layout original)
 const WALL_H = 2.5;
 const WALL_T = 0.16;
 
 let scene, camera, renderer, controls, raycaster, pointer;
 let container, labelRoot;
 let onRoomSelectCb = null;
-const rooms = {};           // nome -> { group, floor, walls[], highlight, label, lights:{}, fx:{} }
-const pickMeshes = [];
+let planGroup = null;        // grupo reconstruível: base + cômodos
+let rooms = {};              // nome -> { group, floor, walls[], highlight, label, lights:{}, fx:{} }
+let pickMeshes = [];
 let selectedRoom = null;
 let lastInteraction = 0;
 let desiredTarget = null;
@@ -63,7 +60,7 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
 
   buildLights(THREE);
   buildGround(THREE);
-  ROOM_DEFS.forEach((def) => buildRoom(THREE, def));
+  buildPlan(THREE);
 
   // interação de clique (sem confundir arrasto de câmera com clique)
   renderer.domElement.addEventListener('pointerdown', (e) => { downPos = [e.clientX, e.clientY]; });
@@ -83,6 +80,9 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
     devices.forEach((d) => applyDeviceState(d));
     updateLabelBadges(devices);
   });
+
+  // planta editada → reconstrói os cômodos sem recarregar a página
+  on('rooms-changed', () => rebuildPlan());
 
   animate();
   return api;
@@ -126,15 +126,77 @@ function buildGround(THREE) {
   grid.material.transparent = true;
   grid.material.opacity = 0.55;
   scene.add(grid);
+}
 
-  // base elevada da casa
-  const base = new THREE.Mesh(
-    new THREE.BoxGeometry(ROOM_SIZE * 2 + 0.7, 0.28, ROOM_SIZE * 2 + 0.7),
-    new THREE.MeshStandardMaterial({ color: 0x131c33, roughness: 0.9 })
-  );
-  base.position.y = 0.02;
-  base.receiveShadow = true; base.castShadow = true;
-  scene.add(base);
+// ------------------------------------------------------------
+// Planta: constrói (e reconstrói) base + cômodos de state.rooms
+// ------------------------------------------------------------
+
+function roomDefFromRow(row) {
+  return {
+    name: row.name,
+    pos: [Number(row.pos_x) * METER || 0, 0, Number(row.pos_z) * METER || 0],
+    sizeX: Math.max(1, Number(row.size_x) || 3) * METER,
+    sizeZ: Math.max(1, Number(row.size_z) || 3) * METER,
+    color: row.color || '#818cf8',
+    outdoor: row.name === 'Área Externa',
+  };
+}
+
+function buildPlan(THREE) {
+  planGroup = new THREE.Group();
+  scene.add(planGroup);
+
+  // base elevada da casa, dimensionada pelos limites da planta
+  if (state.rooms.length) {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    state.rooms.forEach((r) => {
+      const x = Number(r.pos_x) * METER || 0, z = Number(r.pos_z) * METER || 0;
+      const hw = (Math.max(1, Number(r.size_x) || 3) * METER) / 2;
+      const hd = (Math.max(1, Number(r.size_z) || 3) * METER) / 2;
+      minX = Math.min(minX, x - hw); maxX = Math.max(maxX, x + hw);
+      minZ = Math.min(minZ, z - hd); maxZ = Math.max(maxZ, z + hd);
+    });
+    const base = new THREE.Mesh(
+      new THREE.BoxGeometry((maxX - minX) + 0.7, 0.28, (maxZ - minZ) + 0.7),
+      new THREE.MeshStandardMaterial({ color: 0x131c33, roughness: 0.9 })
+    );
+    base.position.set((minX + maxX) / 2, 0.02, (minZ + maxZ) / 2);
+    base.receiveShadow = true; base.castShadow = true;
+    planGroup.add(base);
+  }
+
+  state.rooms.forEach((row) => buildRoom(THREE, roomDefFromRow(row)));
+}
+
+// Reconstrói a planta inteira (dispose correto de geometrias/materiais)
+function rebuildPlan() {
+  const THREE = window.THREE;
+  if (!THREE || !scene) return;
+
+  if (planGroup) {
+    planGroup.traverse((obj) => {
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) {
+        (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach((m) => m.dispose());
+      }
+    });
+    scene.remove(planGroup);
+    planGroup = null;
+  }
+  Object.values(rooms).forEach((r) => r.label?.remove());
+  rooms = {};
+  pickMeshes = [];
+
+  buildPlan(THREE);
+
+  // reaplica o estado dos dispositivos nos meshes recém-criados
+  state.devices.forEach((d) => applyDeviceState(d));
+  updateLabelBadges(state.devices);
+
+  // seleção pode ter ficado órfã (cômodo renomeado/removido)
+  if (selectedRoom && !rooms[selectedRoom]) selectRoom(null);
+  else if (selectedRoom) selectRoom(selectedRoom); // reancora o highlight/label
 }
 
 function mat(THREE, color, opts = {}) {
@@ -151,14 +213,16 @@ function box(THREE, w, h, d, material, x = 0, y = 0, z = 0, castShadow = true) {
 function buildRoom(THREE, def) {
   const g = new THREE.Group();
   g.position.set(def.pos[0], 0.16, def.pos[2]);
-  scene.add(g);
+  planGroup.add(g);
 
   const room = { group: g, def, walls: [], lights: {}, fx: {}, floorMat: null, wallMats: [] };
+  const SX = def.sizeX, SZ = def.sizeZ;
 
-  // piso
-  const floorColor = def.outdoor ? 0x1b3a2a : 0x1a2440;
+  // piso: cor do cômodo misturada ao escuro do tema
+  const baseHex = def.outdoor ? 0x14301f : 0x111a30;
+  const floorColor = new THREE.Color(def.color).lerp(new THREE.Color(baseHex), 0.78);
   const floorMat = mat(THREE, floorColor, { roughness: def.outdoor ? 1 : 0.7 });
-  const floor = box(THREE, ROOM_SIZE, 0.12, ROOM_SIZE, floorMat, 0, 0, 0);
+  const floor = box(THREE, SX, 0.12, SZ, floorMat, 0, 0, 0);
   floor.userData.roomName = def.name;
   g.add(floor);
   room.floor = floor; room.floorMat = floorMat;
@@ -174,27 +238,27 @@ function buildRoom(THREE, def) {
       g.add(m); room.walls.push(m); room.wallMats.push(wm); pickMeshes.push(m);
       return m;
     };
-    const S = ROOM_SIZE / 2;
+    const HX = SX / 2, HZ = SZ / 2;
     // decide as paredes externas conforme o quadrante
-    const backZ = def.pos[2] > 0 ? S : -S;   // parede no lado "de fora" em z
-    const backX = def.pos[0] > 0 ? S : -S;   // parede no lado "de fora" em x
-    mkWall(ROOM_SIZE + WALL_T, WALL_H, WALL_T, 0, WALL_H / 2, backZ);
-    mkWall(WALL_T, WALL_H, ROOM_SIZE + WALL_T, backX, WALL_H / 2, 0);
-    // meias paredes internas (para sugerir divisão sem fechar a vista)
-    mkWall(ROOM_SIZE * 0.55, WALL_H * 0.55, WALL_T, -backX * 0.22, WALL_H * 0.275, -backZ, false);
+    const backZ = def.pos[2] > 0 ? HZ : -HZ;   // parede no lado "de fora" em z
+    const backX = def.pos[0] > 0 ? HX : -HX;   // parede no lado "de fora" em x
+    mkWall(SX + WALL_T, WALL_H, WALL_T, 0, WALL_H / 2, backZ);
+    mkWall(WALL_T, WALL_H, SZ + WALL_T, backX, WALL_H / 2, 0);
+    // meia parede interna (para sugerir divisão sem fechar a vista)
+    mkWall(SX * 0.55, WALL_H * 0.55, WALL_T, -backX * 0.22, WALL_H * 0.275, -backZ);
   } else {
     // Área externa: cerca baixa em dois lados
     const fenceMat = mat(THREE, 0x2d3a55);
-    const S = ROOM_SIZE / 2;
-    const f1 = box(THREE, ROOM_SIZE, 0.7, 0.08, fenceMat, 0, 0.35, -S);
-    const f2 = box(THREE, 0.08, 0.7, ROOM_SIZE, fenceMat, S, 0.35, 0);
+    const HX = SX / 2, HZ = SZ / 2;
+    const f1 = box(THREE, SX, 0.7, 0.08, fenceMat, 0, 0.35, -HZ);
+    const f2 = box(THREE, 0.08, 0.7, SZ, fenceMat, HX, 0.35, 0);
     f1.userData.roomName = def.name; f2.userData.roomName = def.name;
     g.add(f1, f2); room.walls.push(f1, f2); pickMeshes.push(f1, f2);
   }
 
   // moldura de seleção (highlight)
   const hl = new THREE.Mesh(
-    new THREE.BoxGeometry(ROOM_SIZE + 0.25, WALL_H + 0.4, ROOM_SIZE + 0.25),
+    new THREE.BoxGeometry(SX + 0.25, WALL_H + 0.4, SZ + 0.25),
     new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.1, depthWrite: false })
   );
   hl.position.y = (WALL_H + 0.4) / 2 - 0.1;
@@ -202,16 +266,22 @@ function buildRoom(THREE, def) {
   g.add(hl);
   room.highlight = hl;
 
-  // mobiliário específico do cômodo
+  // mobiliário específico do cômodo (ou genérico para nomes fora do padrão)
   if (def.name === 'Sala de Estar') furnishLiving(THREE, g, room);
-  if (def.name === 'Quarto Principal') furnishBedroom(THREE, g, room);
-  if (def.name === 'Cozinha') furnishKitchen(THREE, g, room);
-  if (def.name === 'Área Externa') furnishOutdoor(THREE, g, room);
+  else if (def.name === 'Quarto Principal') furnishBedroom(THREE, g, room);
+  else if (def.name === 'Cozinha') furnishKitchen(THREE, g, room);
+  else if (def.outdoor) furnishOutdoor(THREE, g, room);
+  else furnishGeneric(THREE, g, room);
 
-  // rótulo flutuante (div sobreposta)
+  // rótulo flutuante (div sobreposta) — bolinha na cor do cômodo
   const label = document.createElement('div');
   label.className = 'room-label';
-  label.innerHTML = `<span class="room-label-dot"></span><span>${def.name}</span>`;
+  const dot = document.createElement('span');
+  dot.className = 'room-label-dot';
+  dot.style.background = def.color;
+  const txt = document.createElement('span');
+  txt.textContent = def.name;
+  label.append(dot, txt);
   labelRoot.appendChild(label);
   room.label = label;
 
@@ -246,7 +316,7 @@ function furnishLiving(THREE, g, room) {
 
   // brilho quente no teto/ambiente
   const glowMat = mat(THREE, 0x1a2440, { emissive: 0xffc887, emissiveIntensity: 0 });
-  const glow = box(THREE, ROOM_SIZE - 0.3, 0.04, ROOM_SIZE - 0.3, glowMat, 0, WALL_H - 0.05, 0, false);
+  const glow = box(THREE, room.def.sizeX - 0.3, 0.04, room.def.sizeZ - 0.3, glowMat, 0, WALL_H - 0.05, 0, false);
   g.add(glow);
   room.fx.ceilingGlow = glowMat;
 }
@@ -283,7 +353,7 @@ function furnishBedroom(THREE, g, room) {
 
   // tonalidade fria do ambiente quando ligado
   const coolMat = mat(THREE, 0x1a2440, { emissive: 0x2563eb, emissiveIntensity: 0 });
-  const cool = box(THREE, ROOM_SIZE - 0.3, 0.04, ROOM_SIZE - 0.3, coolMat, 0, WALL_H - 0.05, 0, false);
+  const cool = box(THREE, room.def.sizeX - 0.3, 0.04, room.def.sizeZ - 0.3, coolMat, 0, WALL_H - 0.05, 0, false);
   g.add(cool);
   room.fx.coolGlow = coolMat;
 }
@@ -354,6 +424,14 @@ function furnishOutdoor(THREE, g, room) {
   const water = box(THREE, 2.3, 0.05, 0.16, waterMat, 0.4, 0.22, 0.9, false);
   g.add(water);
   room.fx.water = water;
+}
+
+// ---- Cômodo genérico (nome fora dos quatro padrões): tapete na cor do cômodo + mesa
+function furnishGeneric(THREE, g, room) {
+  const d = room.def;
+  g.add(box(THREE, Math.min(d.sizeX - 0.6, 2.6), 0.04, Math.min(d.sizeZ - 0.6, 2.0),
+    mat(THREE, d.color, { roughness: 1 }), 0, 0.04, 0, false));
+  g.add(box(THREE, 0.9, 0.42, 0.6, mat(THREE, 0x475569), 0.3, 0.27, 0.2));
 }
 
 // ------------------------------------------------------------
