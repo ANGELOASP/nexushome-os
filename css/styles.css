@@ -295,6 +295,104 @@ select.form-input { appearance: none; background-image: url("data:image/svg+xml,
 #loading { transition: opacity 0.5s ease; }
 #loading.loading-done { opacity: 0; pointer-events: none; }
 
+/* ---------- gate de autenticação ---------- */
+/* app inerte/invisível até body.authenticated */
+#scene-container, #room-labels, .vignette, header, aside.panel { transition: opacity 0.45s ease; }
+body:not(.authenticated) #scene-container,
+body:not(.authenticated) #room-labels,
+body:not(.authenticated) .vignette,
+body:not(.authenticated) header,
+body:not(.authenticated) aside.panel {
+  opacity: 0; visibility: hidden; pointer-events: none;
+}
+
+.login-screen {
+  position: fixed; inset: 0; z-index: 58;
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+  background:
+    radial-gradient(900px 500px at 50% 0%, rgba(99, 102, 241, 0.12), transparent 60%),
+    rgba(11, 17, 32, 0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+.login-screen.login-hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+.login-card { animation: login-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes login-rise { from { opacity: 0; transform: translateY(16px) scale(0.98); } to { opacity: 1; transform: none; } }
+
+.login-tabs {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem;
+  padding: 0.25rem; border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.login-tab {
+  padding: 0.5rem 0.75rem; border-radius: 0.55rem;
+  font-size: 0.78rem; font-weight: 600; color: #94a3b8;
+  transition: all 0.2s; cursor: pointer;
+}
+.login-tab:hover { color: #cbd5e1; }
+.login-tab-active {
+  color: #fff;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.5), rgba(34, 211, 238, 0.4));
+  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.3);
+}
+
+.password-toggle {
+  position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%);
+  padding: 0.3rem; border-radius: 0.45rem; color: #64748b;
+  transition: color 0.2s, background 0.2s; cursor: pointer;
+}
+.password-toggle:hover { color: #e2e8f0; background: rgba(255, 255, 255, 0.06); }
+
+.login-error {
+  font-size: 0.72rem; font-weight: 600; color: #fda4af;
+  background: rgba(251, 113, 133, 0.08);
+  border: 1px solid rgba(251, 113, 133, 0.3);
+  border-radius: 0.6rem; padding: 0.5rem 0.7rem;
+}
+.login-info {
+  font-size: 0.72rem; font-weight: 600; color: #67e8f9;
+  background: rgba(34, 211, 238, 0.08);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  border-radius: 0.6rem; padding: 0.5rem 0.7rem;
+}
+.shake { animation: shake 0.4s ease; }
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+.login-spinner {
+  width: 0.95rem; height: 0.95rem; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35); border-top-color: #fff;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* chip do usuário (barra superior) */
+.user-chip {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.25rem 0.4rem 0.25rem 0.25rem; border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.05);
+}
+.user-avatar {
+  width: 1.6rem; height: 1.6rem; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; font-weight: 800; color: #0b1120;
+  background: linear-gradient(135deg, #818cf8, #22d3ee);
+}
+.logout-btn {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.3rem 0.55rem; border-radius: 999px;
+  font-size: 0.65rem; font-weight: 700; color: #fda4af;
+  border: 1px solid rgba(251, 113, 133, 0.3); background: rgba(251, 113, 133, 0.06);
+  transition: all 0.2s; cursor: pointer;
+}
+.logout-btn:hover { background: rgba(251, 113, 133, 0.16); }
+.logout-btn:disabled { opacity: 0.5; cursor: wait; }
+
 /* ---------- responsivo ---------- */
 @media (max-width: 767px) {
   #panel-devices, #panel-monitor, #panel-automations {
