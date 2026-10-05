@@ -6,7 +6,21 @@
 // Também aciona um relé conectado à válvula solenoide de água.
 //
 // Placa alvo: ESP32 DevKit (Arduino Core 2.x+)
-// Bibliotecas: WiFi, HTTPClient (built-in), ArduinoJson 7 (opcional)
+// Bibliotecas: WiFi, HTTPClient (built-in do core ESP32).
+//   Nenhuma biblioteca JSON é necessária — o payload é montado
+//   com snprintf. Se um dia quiser parsear respostas, use
+//   ArduinoJson v6 (compatível com Arduino IDE 1.8/2.x).
+//
+// Contrato HTTP da Edge Function (supabase/functions/iot-gateway):
+//   POST <GATEWAY_URL>
+//   Headers: Content-Type: application/json
+//            x-device-key: <IOT_DEVICE_SECRET>
+//   Body:    {"device_id":"<uuid>","metric_type":"energy_watts|
+//            water_flow_lph|temperature|humidity","value":<n>,
+//            "status":{...}}   // "status" opcional: faz merge em
+//                              // devices.status (ex.: {"watts":X})
+//   Respostas: 200 ok · 400 payload inválido · 401 chave errada
+//              500 falha ao gravar · 207 telemetria ok, status falhou
 //
 // Para começar rápido, deixe SIMULATE_SENSORS = true: o firmware
 // gera leituras plausíveis sem nenhum hardware ligado.
@@ -17,19 +31,33 @@
 #include <math.h>
 
 // ---------- Configuração do usuário ----------
+// ATENÇÃO: o ESP32 só enxerga redes Wi-Fi 2.4 GHz (não funciona
+// em redes 5 GHz nem em SSIDs combinados sem banda 2.4 GHz ativa).
 #define WIFI_SSID        "SUA_REDE_WIFI"
 #define WIFI_PASSWORD    "SUA_SENHA_WIFI"
 
-// URL da Edge Function (Supabase Dashboard → Edge Functions)
-#define GATEWAY_URL      "https://SEU_PROJETO.supabase.co/functions/v1/iot-gateway"
-#define DEVICE_SECRET    "MESMO_SEGREDO_DE_IOT_DEVICE_SECRET"
+// URL da Edge Function iot-gateway (projeto NexusHome OS)
+#define GATEWAY_URL      "https://gfjxcsvxhaojbtuixpjh.supabase.co/functions/v1/iot-gateway"
+// Mesmo segredo configurado no Supabase via:
+//   supabase secrets set IOT_DEVICE_SECRET=<segredo>
+#define DEVICE_SECRET    "SUA_IOT_DEVICE_SECRET"
 
-// UUID do dispositivo na tabela devices (ver supabase/migrations/001_init.sql)
+// UUIDs dos dispositivos na tabela `devices`
+// (seeds de supabase/migrations/001_init.sql — iguais ao Modo Demo):
+//   a1111111-1111-4111-8111-111111111111  Luz da Sala            (light)
+//   a2222222-2222-4222-8222-222222222222  Ar-Condicionado        (ac)
+//   a3333333-3333-4333-8333-333333333333  Válvula de Água Geral  (valve)
+//   a4444444-4444-4444-8444-444444444444  Medidor de Energia     (meter) ← padrão
 #define DEVICE_ID_METER  "a4444444-4444-4444-8444-444444444444"  // Medidor de Energia
+#define DEVICE_ID_AC     "a2222222-2222-4222-8222-222222222222"  // Ar-Condicionado (temp/umidade)
 #define DEVICE_ID_VALVE  "a3333333-3333-4333-8333-333333333333"  // Válvula de Água Geral
 
 #define SIMULATE_SENSORS true
 #define PUBLISH_INTERVAL_MS 5000
+
+// Retry com backoff exponencial: 1s, 2s, 4s entre tentativas
+#define POST_MAX_RETRIES    3
+#define POST_RETRY_BASE_MS  1000
 
 // Pinos
 #define PIN_VALVE_RELAY  26   // relé da válvula solenoide (ativo em HIGH)
@@ -43,9 +71,8 @@ volatile uint32_t flowPulses = 0;
 void IRAM_ATTR onFlowPulse() { flowPulses++; }
 
 // ---------- Publicação ----------
-bool postTelemetry(const char* deviceId, const char* metric, float value, const char* statusJson) {
-  if (WiFi.status() != WL_CONNECTED) return false;
-
+// Uma tentativa de POST. Retorna o código HTTP (ou <0 em erro de rede).
+int postTelemetryOnce(const char* deviceId, const char* metric, float value, const char* statusJson) {
   HTTPClient http;
   http.begin(GATEWAY_URL);
   http.addHeader("Content-Type", "application/json");
@@ -64,9 +91,34 @@ bool postTelemetry(const char* deviceId, const char* metric, float value, const 
   }
 
   int code = http.POST(body);
-  Serial.printf("[iot] %s = %.2f → HTTP %d\n", metric, value, code);
+  if (code > 0 && code != 200) {
+    // loga o corpo da resposta para facilitar diagnóstico (401/400/500/207)
+    String resp = http.getString();
+    Serial.printf("[iot] resposta (%d): %s\n", code, resp.c_str());
+  }
   http.end();
-  return code >= 200 && code < 300;
+  return code;
+}
+
+// POST com retry e backoff exponencial (1s → 2s → 4s).
+bool postTelemetry(const char* deviceId, const char* metric, float value, const char* statusJson) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.printf("[iot] %s = %.2f → sem Wi-Fi, descartado\n", metric, value);
+    return false;
+  }
+
+  for (int attempt = 0; attempt <= POST_MAX_RETRIES; attempt++) {
+    int code = postTelemetryOnce(deviceId, metric, value, statusJson);
+    bool ok = (code >= 200 && code < 300);
+    Serial.printf("[iot] %s = %.2f → HTTP %d%s\n", metric, value, code,
+                  ok ? "" : (attempt < POST_MAX_RETRIES ? " (retry)" : " (falha final)"));
+    if (ok) return true;
+    if (code == 401 || code == 400) break;  // erro de contrato/credencial: retry não ajuda
+    if (attempt < POST_MAX_RETRIES) {
+      delay(POST_RETRY_BASE_MS << attempt);  // backoff exponencial
+    }
+  }
+  return false;
 }
 
 // ---------- Leituras ----------
@@ -151,10 +203,12 @@ void loop() {
   float temp  = readTemperature();
   float hum   = readHumidity();
 
+  // O medidor publica energia e já atualiza devices.status ({"watts": X})
+  // no formato que o painel 3D espera; temp/umidade pertencem ao AC.
   char statusJson[64];
   snprintf(statusJson, sizeof(statusJson), "{\"watts\":%.0f}", watts);
   postTelemetry(DEVICE_ID_METER, "energy_watts", watts, statusJson);
   postTelemetry(DEVICE_ID_VALVE, "water_flow_lph", flow, nullptr);
-  postTelemetry(DEVICE_ID_METER, "temperature", temp, nullptr);
-  postTelemetry(DEVICE_ID_METER, "humidity", hum, nullptr);
+  postTelemetry(DEVICE_ID_AC, "temperature", temp, nullptr);
+  postTelemetry(DEVICE_ID_AC, "humidity", hum, nullptr);
 }
