@@ -9,6 +9,7 @@
 // O mock implementa a MESMA superfície de API usada pelo app:
 //   from(table).select() / .insert() / .update().eq() / .order() / .limit()
 //   channel(name).on('postgres_changes', {table}, cb).subscribe()
+//   auth.getSession / signInWithPassword / signUp / signOut / onAuthStateChange
 // ============================================================
 
 import { emit } from './state.js';
@@ -159,6 +160,73 @@ class MockChannel {
   }
 }
 
+// ------------------------------------------------------------
+// Mock de autenticação — mesma superfície de supabase.auth
+// Aceita qualquer e-mail/senha (senha ≥ 6) e persiste uma
+// sessão falsa em sessionStorage (limpa ao fechar a aba).
+// ------------------------------------------------------------
+
+class MockAuth {
+  constructor() {
+    this._listeners = [];
+  }
+
+  _sessionFromStorage() {
+    try {
+      const raw = sessionStorage.getItem('nh_demo_session');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }
+
+  async getSession() {
+    return { data: { session: this._sessionFromStorage() }, error: null };
+  }
+
+  async signInWithPassword({ email, password }) { return this._demoSignIn(email, password); }
+  async signUp({ email, password }) { return this._demoSignIn(email, password); }
+
+  _demoSignIn(email, password) {
+    if (!email || !String(email).includes('@')) {
+      return { data: { session: null, user: null }, error: { message: 'Informe um e-mail válido' } };
+    }
+    if (!password || String(password).length < 6) {
+      return { data: { session: null, user: null }, error: { message: 'Senha deve ter ao menos 6 caracteres' } };
+    }
+    const session = {
+      access_token: 'demo-' + uuid(),
+      token_type: 'bearer',
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      user: { id: uuid(), email: String(email), aud: 'authenticated', role: 'authenticated' },
+    };
+    try { sessionStorage.setItem('nh_demo_session', JSON.stringify(session)); } catch { /* modo restrito */ }
+    this._notify('SIGNED_IN', session);
+    return { data: { session, user: session.user }, error: null };
+  }
+
+  async signOut() {
+    try { sessionStorage.removeItem('nh_demo_session'); } catch { /* noop */ }
+    this._notify('SIGNED_OUT', null);
+    return { error: null };
+  }
+
+  onAuthStateChange(cb) {
+    this._listeners.push(cb);
+    return {
+      data: {
+        subscription: {
+          unsubscribe: () => { this._listeners = this._listeners.filter((l) => l !== cb); },
+        },
+      },
+    };
+  }
+
+  _notify(event, session) {
+    this._listeners.forEach((cb) => {
+      try { cb(event, session); } catch (e) { console.error('[mock auth]', e); }
+    });
+  }
+}
+
 export class MockSupabaseClient {
   constructor() {
     this.nexusMode = 'demo';
@@ -173,6 +241,7 @@ export class MockSupabaseClient {
     this._waterTicksLeft = 0;
     this._temp = 24.5;
     this._hum = 55;
+    this.auth = new MockAuth(); // mesma superfície de supabase.auth
   }
 
   from(table) { return new MockQueryBuilder(this, table); }
@@ -204,6 +273,13 @@ export class MockSupabaseClient {
       this._simTimer = setTimeout(loop, 3000 + Math.random() * 2000);
     };
     loop();
+  }
+
+  stopSimulation() {
+    if (this._simTimer) {
+      clearTimeout(this._simTimer);
+      this._simTimer = null;
+    }
   }
 
   _simTick() {
