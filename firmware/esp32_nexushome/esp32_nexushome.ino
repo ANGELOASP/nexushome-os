@@ -10,6 +10,19 @@
 //   Nenhuma biblioteca JSON é necessária — o payload é montado
 //   com snprintf. Se um dia quiser parsear respostas, use
 //   ArduinoJson v6 (compatível com Arduino IDE 1.8/2.x).
+//   Com HAS_DHT22 = true é preciso instalar pela Library Manager:
+//     · "DHT sensor library" (Adafruit)
+//     · "Adafruit Unified Sensor" (dependência, a IDE oferece)
+//
+// Fiação do DHT22 / AM2302 (opcional, ver HAS_DHT22):
+//   VCC  → 3.3V
+//   DATA → GPIO4 (configurável em DHT_PIN) com pull-up de 10kΩ
+//          para 3.3V — muitos módulos breakout já incluem o resistor
+//   GND  → GND
+//   AVISO: alimente com 3.3V, NÃO 5V, principalmente em cabos
+//   longos (queda de tensão e nível lógico comprometem a leitura).
+//   O DHT22 exige ~2 s entre leituras; o ciclo de telemetria de
+//   5 s (PUBLISH_INTERVAL_MS) já respeita isso.
 //
 // Contrato HTTP da Edge Function (supabase/functions/iot-gateway):
 //   POST <GATEWAY_URL>
@@ -29,6 +42,15 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <math.h>
+
+// ---------- Feature flag: sensor de clima real DHT22/AM2302 ----------
+// true  → lê temperatura/umidade de um DHT22 ligado ao DHT_PIN
+// false → compila sem nenhum código DHT e usa o caminho simulado
+//         (ou o stub dos #else, se SIMULATE_SENSORS = false)
+#define HAS_DHT22 true
+#if HAS_DHT22
+#include <DHT.h>            // "DHT sensor library" (Adafruit) + "Adafruit Unified Sensor"
+#endif
 
 // ---------- Configuração do usuário ----------
 // ATENÇÃO: o ESP32 só enxerga redes Wi-Fi 2.4 GHz (não funciona
@@ -63,6 +85,12 @@
 #define PIN_VALVE_RELAY  26   // relé da válvula solenoide (ativo em HIGH)
 #define PIN_FLOW_SENSOR  27   // sensor de fluxo YF-S201 (pulsos)
 #define PIN_ENERGY_ADC   34   // SCT-013 via divisor (leitura analógica)
+
+#if HAS_DHT22
+#define DHT_PIN          4    // DATA do DHT22 (GPIO4 — configurável; pull-up 10kΩ para 3.3V)
+#define DHT_TYPE         DHT22
+DHT dht(DHT_PIN, DHT_TYPE);
+#endif
 
 // ---------- Estado ----------
 unsigned long lastPublish = 0;
@@ -151,18 +179,26 @@ float readWaterFlowLph() {
 }
 
 float readTemperature() {
-#if SIMULATE_SENSORS
+#if HAS_DHT22
+  float t = dht.readTemperature();  // °C (NAN em falha de leitura)
+  if (isnan(t)) Serial.println("[dht22] falha na leitura de temperatura — métrica pulada neste ciclo");
+  return t;
+#elif SIMULATE_SENSORS
   return 23.0f + 4.0f * (float)sin(millis() / 90000.0f) + random(-5, 5) / 10.0f;
 #else
-  return 24.0f;  // ligar aqui um DHT22 (biblioteca DHT sensor library)
+  return 24.0f;  // sem DHT22 e sem simulação: valor fixo de fallback
 #endif
 }
 
 float readHumidity() {
-#if SIMULATE_SENSORS
+#if HAS_DHT22
+  float h = dht.readHumidity();  // % (NAN em falha de leitura)
+  if (isnan(h)) Serial.println("[dht22] falha na leitura de umidade — métrica pulada neste ciclo");
+  return h;
+#elif SIMULATE_SENSORS
   return 52.0f + random(-60, 60) / 10.0f;
 #else
-  return 55.0f;  // idem DHT22
+  return 55.0f;  // sem DHT22 e sem simulação: valor fixo de fallback
 #endif
 }
 
@@ -179,6 +215,11 @@ void setup() {
   pinMode(PIN_FLOW_SENSOR, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(PIN_FLOW_SENSOR), onFlowPulse, RISING);
   setValve(true);
+
+#if HAS_DHT22
+  dht.begin();
+  Serial.println("[dht22] sensor inicializado (GPIO4)");
+#endif
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -200,15 +241,42 @@ void loop() {
 
   float watts = readEnergyWatts();
   float flow  = readWaterFlowLph();
-  float temp  = readTemperature();
-  float hum   = readHumidity();
+  float temp  = readTemperature();  // NAN se a leitura do DHT22 falhar
+  float hum   = readHumidity();     // idem
 
   // O medidor publica energia e já atualiza devices.status ({"watts": X})
-  // no formato que o painel 3D espera; temp/umidade pertencem ao AC.
+  // no formato que o painel 3D espera.
   char statusJson[64];
   snprintf(statusJson, sizeof(statusJson), "{\"watts\":%.0f}", watts);
   postTelemetry(DEVICE_ID_METER, "energy_watts", watts, statusJson);
   postTelemetry(DEVICE_ID_VALVE, "water_flow_lph", flow, nullptr);
-  postTelemetry(DEVICE_ID_AC, "temperature", temp, nullptr);
-  postTelemetry(DEVICE_ID_AC, "humidity", hum, nullptr);
+
+  // Clima ambiente no Ar-Condicionado: temperatura e umidade em POSTs
+  // separados; leituras inválidas (NAN) são puladas. O campo opcional
+  // "status" do contrato carrega o merge {"ambient_temperature": t,
+  // "ambient_humidity": h} no devices.status do AC (vai no primeiro POST).
+  bool tempOk = !isnan(temp);
+  bool humOk  = !isnan(hum);
+
+  char acStatus[96];
+  const char* acStatusPtr = nullptr;
+  if (tempOk && humOk) {
+    snprintf(acStatus, sizeof(acStatus),
+      "{\"ambient_temperature\":%.1f,\"ambient_humidity\":%.0f}", temp, hum);
+    acStatusPtr = acStatus;
+  } else if (tempOk) {
+    snprintf(acStatus, sizeof(acStatus), "{\"ambient_temperature\":%.1f}", temp);
+    acStatusPtr = acStatus;
+  } else if (humOk) {
+    snprintf(acStatus, sizeof(acStatus), "{\"ambient_humidity\":%.0f}", hum);
+    acStatusPtr = acStatus;
+  }
+
+  if (tempOk) {
+    postTelemetry(DEVICE_ID_AC, "temperature", temp, acStatusPtr);
+    acStatusPtr = nullptr;  // status já enviado; o POST de umidade vai sem ele
+  }
+  if (humOk) {
+    postTelemetry(DEVICE_ID_AC, "humidity", hum, acStatusPtr);
+  }
 }
