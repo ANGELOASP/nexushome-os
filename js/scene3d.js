@@ -273,6 +273,14 @@ function buildRoom(THREE, def) {
   else if (def.outdoor) furnishOutdoor(THREE, g, room);
   else furnishGeneric(THREE, g, room);
 
+  // brilho de teto neutro em cômodos internos sem "coolGlow" temático:
+  // permite a reação visual de dispositivos vinculados (ex.: AC/TV SmartThings)
+  if (!def.outdoor && !room.fx.coolGlow) {
+    const neutralMat = mat(THREE, 0x1a2440, { emissive: 0x2563eb, emissiveIntensity: 0 });
+    g.add(box(THREE, SX - 0.3, 0.04, SZ - 0.3, neutralMat, 0, WALL_H - 0.09, 0, false));
+    room.fx.coolGlow = neutralMat;
+  }
+
   // rótulo flutuante (div sobreposta) — bolinha na cor do cômodo
   const label = document.createElement('div');
   label.className = 'room-label';
@@ -455,12 +463,24 @@ export function applyDeviceState(device) {
     room.fx.ceilingGlow.emissiveIntensity = onOff ? 0.10 + b * 0.25 : 0;
   }
 
-  if (device.type === 'ac' && room.fx.acBody) {
+  if (device.type === 'ac') {
     const onOff = !!s.on;
-    room.fx.acBody.emissiveIntensity = onOff ? 0.55 : 0;
-    room.fx.acVent.emissiveIntensity = onOff ? 1.2 : 0;
-    room.fx.coolGlow.emissiveIntensity = onOff ? 0.22 : 0;
-    room.fx.airFlows.forEach((f) => { f.visible = onOff; });
+    if (room.fx.acBody) {
+      room.fx.acBody.emissiveIntensity = onOff ? 0.55 : 0;
+      room.fx.acVent.emissiveIntensity = onOff ? 1.2 : 0;
+      room.fx.airFlows.forEach((f) => { f.visible = onOff; });
+    }
+    // tom frio do ambiente — todo cômodo interno tem coolGlow desde a v1.4.0
+    if (room.fx.coolGlow) room.fx.coolGlow.emissiveIntensity = onOff ? 0.22 : 0;
+  }
+
+  // TV (SmartThings): brilho sutil de tela no cômodo
+  if (device.type === 'tv') {
+    const glow = room.fx.ceilingGlow || room.fx.coolGlow;
+    if (glow) {
+      glow.emissive.set(0x93c5fd);
+      glow.emissiveIntensity = s.on ? 0.12 : 0;
+    }
   }
 
   if (device.type === 'valve' && room.fx.valveMat) {
