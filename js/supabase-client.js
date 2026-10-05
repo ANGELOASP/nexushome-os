@@ -11,7 +11,22 @@
 //   channel(name).on('postgres_changes', {table}, cb).subscribe()
 // ============================================================
 
-import { emit } from './state.js';
+import { emit, DEFAULT_ROOMS } from './state.js';
+
+// ---- Planta demo: persiste em localStorage (chave nh_floorplan),
+//      semeada com os 4 cômodos padrão na primeira execução
+const FLOORPLAN_KEY = 'nh_floorplan';
+
+function loadDemoRooms() {
+  try {
+    const raw = localStorage.getItem(FLOORPLAN_KEY);
+    if (raw) {
+      const rows = JSON.parse(raw);
+      if (Array.isArray(rows) && rows.length) return rows;
+    }
+  } catch { /* seed padrão */ }
+  return DEFAULT_ROOMS.map((r) => ({ ...r, created_at: new Date().toISOString() }));
+}
 
 // ---- Seeds do modo demonstração (espelham supabase/migrations/001_init.sql)
 export const DEMO_DEVICES = [
@@ -108,6 +123,7 @@ class MockQueryBuilder {
         this._client._emitRealtime(this._table, 'INSERT', row);
         return clone(row);
       });
+      this._client._afterWrite(this._table);
       return { data: inserted, error: null };
     }
     if (this._op === 'update') {
@@ -121,6 +137,7 @@ class MockQueryBuilder {
         updated.push(clone(row));
         this._client._emitRealtime(this._table, 'UPDATE', row);
       });
+      this._client._afterWrite(this._table);
       return { data: updated, error: null };
     }
     if (this._op === 'delete') {
@@ -129,6 +146,7 @@ class MockQueryBuilder {
         if (this._match(rows[i])) { removed.push(clone(rows[i])); rows.splice(i, 1); }
       }
       removed.forEach((r) => this._client._emitRealtime(this._table, 'DELETE', r));
+      this._client._afterWrite(this._table);
       return { data: removed, error: null };
     }
     // select
@@ -264,12 +282,19 @@ export class MockSupabaseClient {
       automations: DEMO_AUTOMATIONS.map((a) => JSON.parse(JSON.stringify(a))),
       telemetry_logs: [],
       alerts: [],
+      rooms: loadDemoRooms(),
     };
     this._simTimer = null;
     this._waterTicksLeft = 0;
     this._temp = 24.5;
     this._hum = 55;
     this.auth = new MockAuth(); // mesma superfície de supabase.auth
+  }
+
+  // persiste a planta demo em localStorage após escritas na tabela rooms
+  _afterWrite(table) {
+    if (table !== 'rooms') return;
+    try { localStorage.setItem(FLOORPLAN_KEY, JSON.stringify(this._db.rooms)); } catch { /* modo restrito */ }
   }
 
   from(table) { return new MockQueryBuilder(this, table); }
