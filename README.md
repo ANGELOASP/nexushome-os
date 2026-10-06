@@ -12,6 +12,7 @@ Sistema operacional de casa inteligente em tempo real — SPA com visualização
 - **Telemetria em tempo real**: energia (W) e fluxo de água (L/h) com sparklines, badge de saúde (Seguro/Atenção/Crítico) e feed de alertas.
 - **Segurança hídrica**: detecção de vazamento (fluxo > 0 por mais de 30 s com tudo desligado) e botão de emergência **FECHAR VÁLVULA DE ÁGUA GERAL**.
 - **Automações IFTTT**: crie regras `SE métrica (operador) limiar ENTÃO ação no dispositivo`, com avaliador client-side (edge-trigger + cooldown).
+- **Integração Samsung SmartThings** (novo na v1.4.0): controle **TVs** (power, volume, mudo, canal) e **ares-condicionados** (power, temperatura 16–30 °C, modo) reais direto do painel, com vínculo a cômodos da planta e reação visual na cena 3D. Veja a seção dedicada abaixo.
 - **Modo Demonstração**: sem backend? Sem problema — o app simula tudo no navegador (inclusive a autenticação).
 
 ## Início rápido (Modo Demonstração)
@@ -65,6 +66,39 @@ A casa 3D é gerada a partir da tabela `rooms` (migração 003) — posições e
 - **Salvar planta** persiste no Supabase (ou no `localStorage` no Modo Demonstração) e **reconstrói a cena 3D e o painel de dispositivos na hora**, sem recarregar. Mudanças feitas em outra aba chegam via realtime.
 - Renomear ou excluir um cômodo **não move os dispositivos** automaticamente — eles aparecem num grupo próprio no painel e um toast avisa quais ficaram com o cômodo antigo.
 - Os 4 cômodos padrão têm mobiliário temático (sofá, cama, bancada, painel solar); cômodos com outros nomes ganham um mobiliário genérico.
+
+## Integração Samsung SmartThings
+
+O painel **SmartThings** (canto inferior direito) controla aparelhos reais da sua conta Samsung — hoje **TVs** e **ares-condicionados** — sem sair do NexusHome.
+
+### 1. Crie um token de acesso pessoal (PAT)
+
+1. Acesse [account.smartthings.com/tokens](https://account.smartthings.com/tokens) e clique em **Generate new token**.
+2. Dê um nome (ex.: `NexusHome`) e marque os escopos **Devices: Read** (list all devices / read status) e **Devices: Execute** (send commands).
+3. Copie o token gerado e cole no painel SmartThings do app.
+
+### 2. Modelo de segurança
+
+- O token fica **somente no seu navegador** (`localStorage` chave `nh_smartthings_links` guarda apenas o vínculo aparelho↔cômodo; o token em si fica em `nh_smartthings_token`). Nada é salvo no banco.
+- As chamadas à API passam pela Edge Function [`smartthings-proxy`](supabase/functions/smartthings-proxy/index.ts), que apenas repassa a requisição para `api.smartthings.com` com o token vindo do header `x-smartthings-token` — o proxy **não persiste, não loga e não devolve** o token (evita CORS e mantém a chave fora do código-fonte).
+- Por segurança, o proxy só aceita métodos `GET`/`POST` e caminhos começando com `/devices`.
+
+### 3. Controles disponíveis
+
+| Tipo | Controles |
+| --- | --- |
+| **TV** | Liga/Desliga, volume ±5, mudo, canal ± |
+| **Ar-Condicionado** | Liga/Desliga, temperatura (slider 16–30 °C, `setCoolingSetpoint`), modo (cool/heat/auto/fan/dry) |
+
+Cada aparelho pode ser **vinculado a um cômodo** da planta (o vínculo fica no `localStorage`). Aparelhos vinculados aparecem como **dispositivos virtuais** na cena 3D — a TV acende um brilho azul-claro no teto do cômodo e o AC ativa o brilho frio azul quando ligados.
+
+### 4. Polling e limites
+
+O status é atualizado a cada **30 s** (a API da SmartThings tem rate-limit agressivo; evite encurtar) e o polling é encerrado ao sair da sessão. O botão **Atualizar** força uma leitura imediata.
+
+### 5. Modo Demonstração
+
+Sem token, o app simula **2 aparelhos** (uma TV e um ar-condicionado) com badge âmbar `Demo`: todos os botões funcionam localmente e nenhuma chamada de rede é feita — ideal para testar a UX antes de conectar a conta real.
 
 ## Ponte IoT (ESP32 → Supabase)
 
@@ -123,12 +157,15 @@ nexushome-os/
 │   └── panels/
 │       ├── devices.js          # controles por cômodo
 │       ├── monitor.js          # telemetria, alertas, emergência
-│       └── automations.js      # regras IFTTT + avaliador
+│       ├── automations.js      # regras IFTTT + avaliador
+│       └── smartthings.js      # integração Samsung SmartThings (TV + AC)
 ├── supabase/
 │   ├── migrations/001_init.sql # esquema + RLS inicial + realtime + seeds
 │   ├── migrations/002_auth_rls.sql # RLS apenas para usuários autenticados
 │   ├── migrations/003_rooms.sql  # planta da residência (tabela rooms + seeds)
-│   └── functions/iot-gateway/  # Edge Function (Deno)
+│   └── functions/
+│       ├── iot-gateway/        # Edge Function (Deno) — ingestão IoT
+│       └── smartthings-proxy/  # Edge Function (Deno) — proxy seguro p/ SmartThings
 └── firmware/esp32_nexushome/   # firmware Arduino/ESP32
 ```
 
