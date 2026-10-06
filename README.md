@@ -13,6 +13,7 @@ Sistema operacional de casa inteligente em tempo real — SPA com visualização
 - **Segurança hídrica**: detecção de vazamento (fluxo > 0 por mais de 30 s com tudo desligado) e botão de emergência **FECHAR VÁLVULA DE ÁGUA GERAL**.
 - **Automações IFTTT**: crie regras `SE métrica (operador) limiar ENTÃO ação no dispositivo`, com avaliador client-side (edge-trigger + cooldown). Desde a v1.5.0, sensores e comandos **SmartThings** também servem de gatilho e de ação.
 - **Integração Samsung SmartThings** (novo na v1.4.0): controle **TVs** (power, volume, mudo, canal) e **ares-condicionados** (power, temperatura 16–30 °C, modo) reais direto do painel, com vínculo a cômodos da planta e reação visual na cena 3D. Veja a seção dedicada abaixo.
+- **Integração Tuya Smart Life — hidráulica** (novo na v1.7.0): painel **Água — Smart Life (Tuya)** para **válvulas Wi-Fi** (setoriais e geral), **válvula-medidora ultrassônica** na entrada, **monitores de nível ME201W** e **sensores de vazamento**, via Tuya Cloud com proxy assinado (HMAC-SHA256) — a vazão real alimenta o dashboard, o nível vira métrica `water_level_pct` e vazamento vira **alerta crítico**. Veja a seção dedicada abaixo.
 - **Modo Demonstração**: sem backend? Sem problema — o app simula tudo no navegador (inclusive a autenticação).
 
 ## Início rápido (Modo Demonstração)
@@ -33,6 +34,7 @@ Sem nenhuma configuração, o app entra em **Modo Demonstração**: um cliente S
    2. [`supabase/migrations/002_auth_rls.sql`](supabase/migrations/002_auth_rls.sql) — **endurece o RLS**: revoga o acesso anônimo e restringe as 4 tabelas a usuários autenticados.
    3. [`supabase/migrations/003_rooms.sql`](supabase/migrations/003_rooms.sql) — **planta da residência**: tabela `rooms` (nome, posição, tamanho, cor), RLS autenticado, realtime e os 4 cômodos padrão como seeds. Sem ela, o app carrega a planta padrão embutida e o salvamento falha.
    4. [`supabase/migrations/004_rooms_floor_kind.sql`](supabase/migrations/004_rooms_floor_kind.sql) — **Editor de Planta 2.0**: colunas `floor` (andar: 0 = térreo) e `kind` (tipo do cômodo) + backfill dos 4 seeds. Idempotente. Sem ela, o salvamento da planta falha com "column does not exist".
+   5. [`supabase/migrations/005_water_level_metric.sql`](supabase/migrations/005_water_level_metric.sql) — **integração Tuya**: aceita a métrica `water_level_pct` (nível da caixa d'água) em `telemetry_logs`. Idempotente. Sem ela, as leituras de nível dos monitores Tuya falham ao gravar.
 3. Copie [`js/config.example.js`](js/config.example.js) para `js/config.js` e preencha:
 
    ```js
@@ -131,6 +133,41 @@ Com o painel conectado, o motor IFTTT passa a enxergar os aparelhos Samsung **do
 
 Sem token, o app simula **2 aparelhos** (uma TV e um ar-condicionado) com badge âmbar `Demo`: todos os botões funcionam localmente e nenhuma chamada de rede é feita — ideal para testar a UX antes de conectar a conta real. As leituras de temperatura dos simulados **passeiam entre 22–31 °C** a cada 5 s, então regras de exemplo (ex.: `> 26 °C`) cruzam a borda e disparam de verdade; as ações Samsung no demo apenas atualizam o estado local e exibem o toast.
 
+## Integração Tuya Smart Life (hidráulica)
+
+O painel **Água — Smart Life (Tuya)** (canto inferior direito, ao lado do SmartThings — os dois dividem o mesmo slot: o Tuya começa recolhido e, ao expandir, ocupa o lugar) integra os dispositivos Tuya/Smart Life de **água** da casa — hoje voltados a **válvulas Wi-Fi** (setoriais e geral), **válvula-medidora ultrassônica** na entrada principal, **monitores de nível ultrassônicos ME201W** e **sensores de vazamento Wi-Fi**.
+
+### 1. Crie o projeto Tuya IoT e vincule o Smart Life
+
+1. Acesse [iot.tuya.com](https://iot.tuya.com), crie uma conta e vá em **Cloud → Development → Create Cloud Project** (a versão gratuita atende ao uso residencial).
+2. No projeto, em **Devices → Link App Account**, vincule a conta do app **Smart Life** (escaneie o QR code com o app) — os dispositivos cadastrados no app aparecem no projeto.
+3. Copie o **UID** da conta vinculada (coluna da lista de app accounts), o **Client ID** (Access ID) e o **Client Secret** (Access Secret) em *Overview/Authorization* do projeto.
+4. No painel do NexusHome, cole as três credenciais e escolha a **região** — contas Smart Life do Brasil normalmente funcionam no cluster **Américas (us)** (padrão); use eu/cn/in se a sua conta foi criada nesses clusters. O botão **Conectar** valida tudo buscando o token e a lista de dispositivos.
+
+### 2. Modelo de segurança
+
+- As credenciais ficam **somente no seu navegador** (`localStorage` chave `nh_tuya_creds`; os vínculos em `nh_tuya_links`). Nada é salvo no banco.
+- A Tuya Cloud exige **assinatura HMAC-SHA256** por requisição, o que não pode ser feito no navegador sem expor o Client Secret — por isso as chamadas passam pela Edge Function [`tuya-proxy`](supabase/functions/tuya-proxy/index.ts): ela recebe as credenciais no corpo de cada requisição, obtém/renova o `access_token` (vida ~2 h, cache em memória), assina (`client_id + [access_token] + t + stringToSign`) e repassa para `openapi.tuya<região>.com`. O proxy **não persiste, não loga e não devolve** segredos ou tokens (loga apenas método/caminho/status), e só aceita caminhos `/v1.0/users/...` e `/v1.0/devices/...` — não é um túnel genérico.
+
+### 3. Descoberta dinâmica de datapoints
+
+Dispositivos Tuya não têm "capabilities" padronizadas como os Samsung: cada produto expõe **datapoints por código** (`switch`, `flow_rate`, `liquid_level_percent`, `watersensor_state`…), que variam entre fabricantes. O painel **descobre os datapoints de cada dispositivo** via `/status` e os mapeia com um dicionário de melhor-esforço (válvula: `switch`/`switch_valve`; vazão: `flow_rate`/`water_flow`; consumo: `water_consumed`/`total_flow`; nível: `liquid_level_percent`/`liquid_depth`; vazamento: `watersensor_state`/`water_leak`). **Códigos desconhecidos nunca quebram o card** — aparecem numa seção expansível *Dados brutos*, útil para ajustar o dicionário ao seu modelo exato. Os cards são agrupados pelo tipo detectado: **Válvula/Medidor** (botão abrir/fechar + vazão + consumo + temperatura), **Nível** (barra de percentual + profundidade), **Vazamento** (badge Normal/ALERTA) e **Outros**.
+
+> **Unidade de vazão**: as válvulas ultrassônicas Tuya costumam reportar em **L/min**; o painel converte ×60 para a métrica nativa `water_flow_lph`. Se o seu produto já reportar L/h, ajuste a constante `FLOW_TO_LPH` no topo de `js/panels/tuya.js`.
+
+### 4. Vínculos e o que eles ativam
+
+Cada dispositivo pode ser vinculado (select no card) a um **cômodo da planta** — entra como dispositivo virtual no estado global — ou à **Válvula de Água Geral (nativa)**:
+
+- **Válvula-medidora → válvula nativa**: a cada poll (30 s), a vazão real é gravada em `telemetry_logs` como `water_flow_lph`, chegando ao **Monitor de Recursos pelo mesmo canal realtime de sempre** (postgres_changes no live, evento do mock no demo) — o sparkline de água e a detecção de vazamento por fluxo passam a usar dados reais, sem caminho paralelo. A gravação via cliente Supabase mantém demo e live idênticos.
+- **Botão de emergência integrado**: o **FECHAR VÁLVULA DE ÁGUA GERAL** também envia o comando de fechar à válvula Tuya vinculada (e a reabertura restaura) — o painel espelha o estado da válvula nativa por edge-trigger no evento `device-changed`, sem loop.
+- **Monitor de nível vinculado**: grava `water_level_pct` (métrica criada pela migração 005) ancorado no `device_id` da válvula geral — o contexto hídrico da casa (a FK de `telemetry_logs` exige um device existente).
+- **Sensor de vazamento em alarme**: insere um **alerta crítico** pelo pipeline existente (`insertAlert`) — aparece no feed do Monitor de Recursos, derruba o badge de saúde para Crítico e emite toast; ao normalizar, registra um alerta informativo.
+
+### 5. Modo Demonstração
+
+Sem credenciais, o app simula **3 dispositivos** (válvula-medidora, monitor de nível ME201W e sensor de vazamento) com badge âmbar `Demo`: a vazão oscila em rajadas, o nível passeia entre 60–95 % e há um **evento raro de vazamento** (~2 % por ciclo, dura ~10 s) para exercitar o alerta crítico — tudo local, nenhuma chamada de rede. Vincular a válvula-medidora demo à válvula nativa alimenta o dashboard da mesma forma que no live.
+
 ## Ponte IoT (ESP32 → Supabase)
 
 ### Edge Function
@@ -189,15 +226,18 @@ nexushome-os/
 │       ├── devices.js          # controles por cômodo
 │       ├── monitor.js          # telemetria, alertas, emergência
 │       ├── automations.js      # regras IFTTT + avaliador
-│       └── smartthings.js      # integração Samsung SmartThings (TV + AC)
+│       ├── smartthings.js      # integração Samsung SmartThings (TV + AC)
+│       └── tuya.js             # integração Tuya Smart Life (válvulas, nível, vazamento)
 ├── supabase/
 │   ├── migrations/001_init.sql # esquema + RLS inicial + realtime + seeds
 │   ├── migrations/002_auth_rls.sql # RLS apenas para usuários autenticados
 │   ├── migrations/003_rooms.sql  # planta da residência (tabela rooms + seeds)
 │   ├── migrations/004_rooms_floor_kind.sql # andares + tipos de cômodo (v1.6.0)
+│   ├── migrations/005_water_level_metric.sql # métrica water_level_pct (v1.7.0)
 │   └── functions/
 │       ├── iot-gateway/        # Edge Function (Deno) — ingestão IoT
-│       └── smartthings-proxy/  # Edge Function (Deno) — proxy seguro p/ SmartThings
+│       ├── smartthings-proxy/  # Edge Function (Deno) — proxy seguro p/ SmartThings
+│       └── tuya-proxy/         # Edge Function (Deno) — proxy assinado p/ Tuya Cloud
 └── firmware/esp32_nexushome/   # firmware Arduino/ESP32
 ```
 
