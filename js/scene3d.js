@@ -4,21 +4,30 @@
 // (tabela rooms / localStorage no demo) — nada é fixo no código.
 // Editou a planta no Editor de Planta? O evento 'rooms-changed'
 // reconstrói os cômodos dinamicamente, sem recarregar a página.
+//
+// v1.6.0 — ANDARES: cômodos com floor > 0 são empilhados
+// (FLOOR_H de altura por andar) e o filtro #floor-filter isola
+// um andar ou mostra todos (andares superiores com transparência).
+// O mobiliário segue o `kind` do cômodo (presets do editor), com
+// fallback genérico para tipos desconhecidos.
 // ============================================================
 
-import { state, on, emit } from './state.js';
+import { state, on, emit, floorLabel, inferRoomKind } from './state.js';
 
 const METER = 1.9;          // unidades de cena por metro (3.0 m → 5.7 un., paridade com o layout original)
 const WALL_H = 2.5;
 const WALL_T = 0.16;
+const FLOOR_H = 3.0;        // altura de um andar na pilha (laje + pé direito)
 
 let scene, camera, renderer, controls, raycaster, pointer;
 let container, labelRoot;
 let onRoomSelectCb = null;
 let planGroup = null;        // grupo reconstruível: base + cômodos
 let rooms = {};              // nome -> { group, floor, walls[], highlight, label, lights:{}, fx:{} }
+let floorSlabs = [];         // lajes por andar: [{ floor, mesh }]
 let pickMeshes = [];
 let selectedRoom = null;
+let floorFilter = 'all';     // 'all' | número do andar
 let lastInteraction = 0;
 let desiredTarget = null;
 let downPos = null;
@@ -84,6 +93,7 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   // planta editada → reconstrói os cômodos sem recarregar a página
   on('rooms-changed', () => rebuildPlan());
 
+  buildFloorFilter();
   animate();
   return api;
 }
@@ -133,24 +143,31 @@ function buildGround(THREE) {
 // ------------------------------------------------------------
 
 function roomDefFromRow(row) {
+  const kind = row.kind || inferRoomKind(row.name);
   return {
     name: row.name,
+    kind,
+    floorNo: Math.max(0, Math.trunc(Number(row.floor) || 0)),
     pos: [Number(row.pos_x) * METER || 0, 0, Number(row.pos_z) * METER || 0],
     sizeX: Math.max(1, Number(row.size_x) || 3) * METER,
     sizeZ: Math.max(1, Number(row.size_z) || 3) * METER,
     color: row.color || '#818cf8',
-    outdoor: row.name === 'Área Externa',
+    outdoor: kind === 'area_externa' || row.name === 'Área Externa',
   };
 }
 
 function buildPlan(THREE) {
   planGroup = new THREE.Group();
   scene.add(planGroup);
+  floorSlabs = [];
 
-  // base elevada da casa, dimensionada pelos limites da planta
-  if (state.rooms.length) {
+  // laje por andar, dimensionada pelos limites da planta DAQUELE andar
+  const floors = [...new Set(state.rooms.map((r) => Math.max(0, Math.trunc(Number(r.floor) || 0))))].sort((a, b) => a - b);
+  floors.forEach((f) => {
+    const rows = state.rooms.filter((r) => Math.max(0, Math.trunc(Number(r.floor) || 0)) === f);
+    if (!rows.length) return;
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    state.rooms.forEach((r) => {
+    rows.forEach((r) => {
       const x = Number(r.pos_x) * METER || 0, z = Number(r.pos_z) * METER || 0;
       const hw = (Math.max(1, Number(r.size_x) || 3) * METER) / 2;
       const hd = (Math.max(1, Number(r.size_z) || 3) * METER) / 2;
@@ -161,12 +178,15 @@ function buildPlan(THREE) {
       new THREE.BoxGeometry((maxX - minX) + 0.7, 0.28, (maxZ - minZ) + 0.7),
       new THREE.MeshStandardMaterial({ color: 0x131c33, roughness: 0.9 })
     );
-    base.position.set((minX + maxX) / 2, 0.02, (minZ + maxZ) / 2);
+    // térreo: base no solo; andares: laje no topo do andar anterior
+    base.position.set((minX + maxX) / 2, f === 0 ? 0.02 : f * FLOOR_H + 0.04, (minZ + maxZ) / 2);
     base.receiveShadow = true; base.castShadow = true;
     planGroup.add(base);
-  }
+    floorSlabs.push({ floor: f, mesh: base });
+  });
 
   state.rooms.forEach((row) => buildRoom(THREE, roomDefFromRow(row)));
+  applyFloorFilter();
 }
 
 // Reconstrói a planta inteira (dispose correto de geometrias/materiais)
@@ -189,6 +209,7 @@ function rebuildPlan() {
   pickMeshes = [];
 
   buildPlan(THREE);
+  buildFloorFilter();
 
   // reaplica o estado dos dispositivos nos meshes recém-criados
   state.devices.forEach((d) => applyDeviceState(d));
@@ -212,7 +233,7 @@ function box(THREE, w, h, d, material, x = 0, y = 0, z = 0, castShadow = true) {
 
 function buildRoom(THREE, def) {
   const g = new THREE.Group();
-  g.position.set(def.pos[0], 0.16, def.pos[2]);
+  g.position.set(def.pos[0], 0.16 + def.floorNo * FLOOR_H, def.pos[2]);
   planGroup.add(g);
 
   const room = { group: g, def, walls: [], lights: {}, fx: {}, floorMat: null, wallMats: [] };
@@ -266,12 +287,10 @@ function buildRoom(THREE, def) {
   g.add(hl);
   room.highlight = hl;
 
-  // mobiliário específico do cômodo (ou genérico para nomes fora do padrão)
-  if (def.name === 'Sala de Estar') furnishLiving(THREE, g, room);
-  else if (def.name === 'Quarto Principal') furnishBedroom(THREE, g, room);
-  else if (def.name === 'Cozinha') furnishKitchen(THREE, g, room);
-  else if (def.outdoor) furnishOutdoor(THREE, g, room);
-  else furnishGeneric(THREE, g, room);
+  // mobiliário segue o `kind` do cômodo (presets da v1.6.0), com
+  // fallback genérico para tipos desconhecidos
+  const furnish = FURNISH_BY_KIND[def.kind] || furnishGeneric;
+  furnish(THREE, g, room);
 
   // brilho de teto neutro em cômodos internos sem "coolGlow" temático:
   // permite a reação visual de dispositivos vinculados (ex.: AC/TV SmartThings)
@@ -292,8 +311,97 @@ function buildRoom(THREE, def) {
   label.append(dot, txt);
   labelRoot.appendChild(label);
   room.label = label;
+  room.ghost = 1;
+
+  // marca andar em todos os meshes (filtro de andares + raycast)
+  g.traverse((o) => { if (o.isMesh) o.userData.roomFloor = def.floorNo; });
 
   rooms[def.name] = room;
+}
+
+// ---- mobiliário por tipo de cômodo (kind) — v1.6.0
+const FURNISH_BY_KIND = {
+  sala_estar: furnishLiving,
+  sala_jantar: furnishDining,
+  quarto: furnishBedroom,
+  suite: furnishSuite,
+  banheiro: furnishBathroom,
+  cozinha: furnishKitchen,
+  lavanderia: furnishLaundry,
+  escritorio: furnishOffice,
+  varanda: furnishBalcony,
+  garagem: furnishGarage,
+  corredor: furnishCorridor,
+  area_externa: furnishOutdoor,
+  closet: furnishCloset,
+  despensa: furnishPantry,
+};
+
+// ---- filtro de andares da cena (Todos / Térreo / 1º / 2º) ----------
+
+function buildFloorFilter() {
+  const el = document.getElementById('floor-filter');
+  if (!el) return;
+  const floors = [...new Set(state.rooms.map((r) => Math.max(0, Math.trunc(Number(r.floor) || 0))))].sort((a, b) => a - b);
+  // com um único andar (térreo) o filtro não é necessário
+  if (floors.length <= 1) {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+    if (floorFilter !== 'all') { floorFilter = 'all'; applyFloorFilter(); }
+    return;
+  }
+  if (floorFilter !== 'all' && !floors.includes(floorFilter)) floorFilter = 'all';
+  el.classList.remove('hidden');
+  el.innerHTML = '';
+  const mk = (val, label) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    const active = (val === 'all' && floorFilter === 'all') || val === floorFilter;
+    if (active) b.classList.add('ff-active');
+    b.addEventListener('click', () => {
+      floorFilter = val;
+      applyFloorFilter();
+      buildFloorFilter();
+    });
+    el.appendChild(b);
+  };
+  mk('all', 'Todos');
+  floors.forEach((f) => mk(f, floorLabel(f)));
+}
+
+function applyFloorFilter() {
+  Object.values(rooms).forEach((room) => {
+    const f = room.def.floorNo;
+    if (floorFilter === 'all') {
+      room.group.visible = true;
+      setRoomGhost(room, f > 0); // andares superiores semitransparentes
+    } else {
+      room.group.visible = f === floorFilter;
+      setRoomGhost(room, false);
+    }
+  });
+  floorSlabs.forEach(({ floor, mesh }) => {
+    mesh.visible = floorFilter === 'all' || floor === floorFilter;
+    ghostMesh(mesh, floorFilter === 'all' && floor > 0);
+  });
+}
+
+function ghostMesh(mesh, ghost) {
+  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  mats.forEach((m) => {
+    if (m.userData.baseOpacity === undefined) {
+      m.userData.baseOpacity = m.opacity;
+      m.userData.baseTransparent = m.transparent;
+    }
+    m.opacity = m.userData.baseOpacity * (ghost ? 0.55 : 1);
+    m.transparent = ghost || m.userData.baseTransparent;
+  });
+}
+
+function setRoomGhost(room, ghost) {
+  room.ghost = ghost ? 0.55 : 1;
+  room.group.traverse((o) => { if (o.isMesh) ghostMesh(o, ghost); });
 }
 
 // ---- Sala de Estar: sofá, mesa, luminária (dispositivo "light")
@@ -442,6 +550,156 @@ function furnishGeneric(THREE, g, room) {
   g.add(box(THREE, 0.9, 0.42, 0.6, mat(THREE, 0x475569), 0.3, 0.27, 0.2));
 }
 
+// ---- Suíte: quarto completo + guarda-roupa com espelho
+function furnishSuite(THREE, g, room) {
+  furnishBedroom(THREE, g, room);
+  g.add(box(THREE, 0.65, 2.0, 2.1, mat(THREE, 0x4a3f63), 2.05, 1.06, -1.15)); // guarda-roupa
+  g.add(box(THREE, 0.05, 1.5, 0.7, mat(THREE, 0x93c5fd, { roughness: 0.15, metalness: 0.7 }), 1.7, 1.15, -1.15)); // espelho nas portas
+}
+
+// ---- Sala de Jantar: mesa com 4 cadeiras + pendente (dispositivo "light")
+function furnishDining(THREE, g, room) {
+  const tableMat = mat(THREE, 0x5b4636);
+  g.add(box(THREE, 1.9, 0.09, 1.1, tableMat, 0, 0.78, 0)); // tampo
+  [[-0.8, -0.4], [0.8, -0.4], [-0.8, 0.4], [0.8, 0.4]].forEach(([lx, lz]) =>
+    g.add(box(THREE, 0.1, 0.74, 0.1, tableMat, lx, 0.39, lz)));
+  const chairMat = mat(THREE, 0x475569);
+  [[-0.55, -0.95], [0.55, -0.95], [-0.55, 0.95], [0.55, 0.95]].forEach(([cx, cz]) => {
+    g.add(box(THREE, 0.42, 0.08, 0.42, chairMat, cx, 0.45, cz)); // assento
+    g.add(box(THREE, 0.42, 0.55, 0.07, chairMat, cx, 0.75, cz + (cz > 0 ? 0.18 : -0.18))); // encosto
+  });
+
+  // pendente emissivo sobre a mesa (reage a dispositivos "light")
+  g.add(box(THREE, 0.04, 0.7, 0.04, mat(THREE, 0x475569), 0, WALL_H - 0.4, 0, false)); // fio
+  const shadeMat = mat(THREE, 0xfff1d6, { emissive: 0xffd9a0, emissiveIntensity: 0 });
+  const shade = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.4, 24, 1, true), shadeMat);
+  shade.position.set(0, WALL_H - 0.72, 0);
+  g.add(shade);
+  room.fx.lampShade = shadeMat;
+
+  const pt = new THREE.PointLight(0xffd9a0, 0, 8, 2);
+  pt.position.set(0, WALL_H - 0.85, 0);
+  g.add(pt);
+  room.lights.lamp = pt;
+
+  const glowMat = mat(THREE, 0x1a2440, { emissive: 0xffc887, emissiveIntensity: 0 });
+  g.add(box(THREE, room.def.sizeX - 0.3, 0.04, room.def.sizeZ - 0.3, glowMat, 0, WALL_H - 0.05, 0, false));
+  room.fx.ceilingGlow = glowMat;
+}
+
+// ---- Banheiro: vaso, pia com cuba e box de vidro
+function furnishBathroom(THREE, g, room) {
+  g.add(box(THREE, 0.5, 0.42, 0.65, mat(THREE, 0xe2e8f0, { roughness: 0.3 }), -0.55, 0.27, 0.55)); // vaso
+  g.add(box(THREE, 0.7, 0.78, 0.5, mat(THREE, 0x3c4763), 0.55, 0.45, -0.6)); // gabinete da pia
+  g.add(box(THREE, 0.58, 0.08, 0.4, mat(THREE, 0xcbd5e1, { roughness: 0.25 }), 0.55, 0.88, -0.6)); // cuba
+  const glassMat = new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.14, depthWrite: false });
+  g.add(box(THREE, 0.04, 1.85, 0.95, glassMat, -0.95, 0.95, -0.6, false)); // box de vidro
+  g.add(box(THREE, 0.3, 0.06, 0.3, mat(THREE, 0x94a3b8, { metalness: 0.6, roughness: 0.3 }), -1.35, 1.95, -0.6, false)); // chuveiro
+}
+
+// ---- Lavanderia: máquina de lavar, tanque e cesto
+function furnishLaundry(THREE, g, room) {
+  g.add(box(THREE, 0.75, 0.85, 0.7, mat(THREE, 0xcbd5e1, { roughness: 0.35, metalness: 0.3 }), -0.6, 0.48, -0.75)); // lavadora
+  const door = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.05, 20), mat(THREE, 0x0f172a, { roughness: 0.2 }));
+  door.rotation.x = Math.PI / 2;
+  door.position.set(-0.6, 0.5, -0.39);
+  g.add(door);
+  g.add(box(THREE, 0.7, 0.6, 0.55, mat(THREE, 0x3c4763), 0.55, 0.36, -0.8)); // tanque
+  g.add(box(THREE, 0.5, 0.34, 0.4, mat(THREE, 0x64748b), 0.25, 0.23, 0.6)); // cesto de roupas
+}
+
+// ---- Escritório: escrivaninha, monitor emissivo, cadeira e estante
+function furnishOffice(THREE, g, room) {
+  const deskMat = mat(THREE, 0x4b3f30);
+  g.add(box(THREE, 1.6, 0.07, 0.7, deskMat, -0.4, 0.76, -1.5));
+  g.add(box(THREE, 0.08, 0.74, 0.6, deskMat, -1.1, 0.38, -1.5));
+  g.add(box(THREE, 0.08, 0.74, 0.6, deskMat, 0.3, 0.38, -1.5));
+  const scrMat = mat(THREE, 0x0f172a, { emissive: 0x38bdf8, emissiveIntensity: 0.35, roughness: 0.3 });
+  g.add(box(THREE, 0.72, 0.42, 0.04, scrMat, -0.4, 1.12, -1.66));
+  g.add(box(THREE, 0.06, 0.22, 0.06, mat(THREE, 0x334155), -0.4, 0.88, -1.66, false)); // pé do monitor
+  g.add(box(THREE, 0.5, 0.5, 0.5, mat(THREE, 0x334155), 0.1, 0.31, -0.6)); // cadeira
+  g.add(box(THREE, 0.9, 1.6, 0.32, mat(THREE, 0x475569), 1.5, 0.86, 1.5)); // estante
+  g.add(box(THREE, 0.7, 0.06, 0.24, mat(THREE, 0xa78bfa, { roughness: 1 }), 1.5, 1.2, 1.5, false)); // livros
+}
+
+// ---- Varanda: mesinha redonda, 2 cadeiras e vasos de planta
+function furnishBalcony(THREE, g, room) {
+  const tableTop = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.05, 20), mat(THREE, 0x5b4636));
+  tableTop.position.set(0, 0.62, 0);
+  tableTop.castShadow = true;
+  g.add(tableTop);
+  g.add(box(THREE, 0.08, 0.6, 0.08, mat(THREE, 0x475569), 0, 0.31, 0));
+  const chairMat = mat(THREE, 0x475569);
+  [[-0.85, 0], [0.85, 0]].forEach(([cx, cz]) => {
+    g.add(box(THREE, 0.4, 0.08, 0.4, chairMat, cx, 0.4, cz));
+    g.add(box(THREE, 0.07, 0.4, 0.4, chairMat, cx + (cx > 0 ? 0.17 : -0.17), 0.62, cz));
+  });
+  [[-1.3, -0.7], [1.3, 0.7]].forEach(([px, pz]) => {
+    g.add(box(THREE, 0.34, 0.3, 0.34, mat(THREE, 0x7c5a3a), px, 0.21, pz)); // vaso
+    const bush = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 0), mat(THREE, 0x15803d, { roughness: 1 }));
+    bush.position.set(px, 0.56, pz);
+    bush.castShadow = true;
+    g.add(bush);
+  });
+}
+
+// ---- Garagem: silhueta de carro (corpo, cabine, rodas) + prateleira
+function furnishGarage(THREE, g, room) {
+  const carMat = mat(THREE, 0x7f2d3a, { roughness: 0.35, metalness: 0.4 });
+  g.add(box(THREE, 1.85, 0.5, 3.4, carMat, 0, 0.5, 0)); // corpo
+  g.add(box(THREE, 1.65, 0.45, 1.8, mat(THREE, 0x1e293b, { roughness: 0.15, metalness: 0.6 }), 0, 0.95, 0.15)); // cabine/vidros
+  const wheelMat = mat(THREE, 0x0b1120, { roughness: 0.9 });
+  [[-0.85, -1.1], [0.85, -1.1], [-0.85, 1.1], [0.85, 1.1]].forEach(([wx, wz]) => {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.2, 18), wheelMat);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(wx, 0.28, wz);
+    wheel.castShadow = true;
+    g.add(wheel);
+  });
+  g.add(box(THREE, 1.4, 1.5, 0.35, mat(THREE, 0x475569), -2.2, 0.81, -1.2)); // prateleira de ferramentas
+}
+
+// ---- Corredor: tapete runner + aparador
+function furnishCorridor(THREE, g, room) {
+  const d = room.def;
+  const runner = d.sizeX >= d.sizeZ
+    ? box(THREE, Math.min(d.sizeX - 0.5, 3.4), 0.03, Math.min(d.sizeZ - 0.5, 0.9), mat(THREE, d.color, { roughness: 1 }), 0, 0.03, 0, false)
+    : box(THREE, Math.min(d.sizeX - 0.5, 0.9), 0.03, Math.min(d.sizeZ - 0.5, 3.4), mat(THREE, d.color, { roughness: 1 }), 0, 0.03, 0, false);
+  g.add(runner);
+  g.add(box(THREE, 1.0, 0.78, 0.3, mat(THREE, 0x475569), -0.9, 0.45, -(d.sizeZ / 2) + 0.35)); // aparador
+  g.add(box(THREE, 0.26, 0.34, 0.26, mat(THREE, 0x15803d, { roughness: 1 }), -0.9, 0.98, -(d.sizeZ / 2) + 0.35)); // vaso sobre o aparador
+}
+
+// ---- Closet: armário aberto com arara, gaveteiro e espelho
+function furnishCloset(THREE, g, room) {
+  g.add(box(THREE, 1.7, 1.95, 0.5, mat(THREE, 0x4a3f63), 0, 1.03, -0.55)); // armário
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.5, 12), mat(THREE, 0x94a3b8, { metalness: 0.7, roughness: 0.3 }));
+  rod.rotation.z = Math.PI / 2;
+  rod.position.set(0, 1.6, -0.28);
+  g.add(rod);
+  const clothColors = [0x818cf8, 0xf472b6, 0x38bdf8, 0xfbbf24];
+  clothColors.forEach((c, i) =>
+    g.add(box(THREE, 0.22, 0.55, 0.08, mat(THREE, c, { roughness: 1 }), -0.55 + i * 0.36, 1.3, -0.28, false)));
+  g.add(box(THREE, 0.7, 0.8, 0.45, mat(THREE, 0x475569), 0.4, 0.46, 0.55)); // gaveteiro
+  g.add(box(THREE, 0.5, 1.4, 0.05, mat(THREE, 0x93c5fd, { roughness: 0.15, metalness: 0.7 }), -0.75, 0.95, 0.6)); // espelho
+}
+
+// ---- Despensa: prateleiras com potes e caixas
+function furnishPantry(THREE, g, room) {
+  const shelfMat = mat(THREE, 0x5b4636);
+  for (let i = 0; i < 3; i++) {
+    g.add(box(THREE, 1.2, 0.05, 0.38, shelfMat, 0, 0.45 + i * 0.5, -0.45));
+  }
+  const jarColors = [0xfbbf24, 0x4ade80, 0xf472b6, 0x94a3b8];
+  jarColors.forEach((c, i) => {
+    const jar = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.22, 12), mat(THREE, c, { roughness: 0.5 }));
+    jar.position.set(-0.45 + i * 0.3, 0.59 + (i % 2) * 0.5, -0.45);
+    jar.castShadow = true;
+    g.add(jar);
+  });
+  g.add(box(THREE, 0.5, 0.4, 0.4, mat(THREE, 0x7c5a3a), 0.15, 0.26, 0.45)); // caixa de mantimentos
+}
+
 // ------------------------------------------------------------
 // Estado dos dispositivos → visual
 // ------------------------------------------------------------
@@ -509,7 +767,11 @@ function handlePick(e) {
   pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObjects(pickMeshes, false);
+  // com filtro de andar ativo, só o andar isolado é clicável
+  const pickables = floorFilter === 'all'
+    ? pickMeshes
+    : pickMeshes.filter((m) => (m.userData.roomFloor ?? 0) === floorFilter);
+  const hits = raycaster.intersectObjects(pickables, false);
   if (hits.length) {
     const name = hits[0].object.userData.roomName;
     selectRoom(selectedRoom === name ? null : name);
@@ -527,7 +789,7 @@ export function selectRoom(name) {
   });
   if (name && rooms[name]) {
     const p = rooms[name].group.position;
-    desiredTarget = new window.THREE.Vector3(p.x, 0.8, p.z);
+    desiredTarget = new window.THREE.Vector3(p.x, p.y + 0.7, p.z);
   }
   if (onRoomSelectCb) onRoomSelectCb(name);
   emit('room-selected', name);
@@ -549,6 +811,7 @@ function updateLabels() {
   const h = renderer.domElement.clientHeight;
   const v = new window.THREE.Vector3();
   Object.values(rooms).forEach((r) => {
+    if (!r.group.visible) { r.label.style.opacity = '0'; return; } // andar oculto pelo filtro
     v.setFromMatrixPosition(r.group.matrixWorld);
     v.y += WALL_H + 0.7;
     v.project(camera);
@@ -580,21 +843,21 @@ function animate() {
     if (controls.target.distanceTo(desiredTarget) < 0.05) desiredTarget = null;
   }
 
-  // animações sutis contínuas
-  const ext = rooms['Área Externa'];
-  if (ext?.fx.water?.visible) {
-    ext.fx.water.material.opacity = 0.4 + Math.sin(clock.t * 5) * 0.15;
-    ext.fx.valveWheel.rotation.z += dt * 0.8;
-  }
-  const quarto = rooms['Quarto Principal'];
-  quarto?.fx.airFlows?.forEach((f, i) => {
-    if (f.visible) {
-      f.material.opacity = 0.12 + 0.1 * Math.sin(clock.t * 3 + i * 1.4);
-      f.position.y += Math.sin(clock.t * 2 + i) * 0.0006;
-    }
-  });
+  // animações sutis contínuas (multiplicadas pelo fator "ghost" quando o
+  // andar está semitransparente no modo Todos)
   Object.values(rooms).forEach((r) => {
-    if (r.highlight.visible) r.highlight.material.opacity = 0.08 + 0.05 * Math.sin(clock.t * 3);
+    const k = r.ghost ?? 1;
+    if (r.fx.water?.visible) {
+      r.fx.water.material.opacity = (0.4 + Math.sin(clock.t * 5) * 0.15) * k;
+      r.fx.valveWheel.rotation.z += dt * 0.8;
+    }
+    r.fx.airFlows?.forEach((f, i) => {
+      if (f.visible) {
+        f.material.opacity = (0.12 + 0.1 * Math.sin(clock.t * 3 + i * 1.4)) * k;
+        f.position.y += Math.sin(clock.t * 2 + i) * 0.0006;
+      }
+    });
+    if (r.highlight.visible) r.highlight.material.opacity = (0.08 + 0.05 * Math.sin(clock.t * 3)) * k;
   });
 
   controls.update();
