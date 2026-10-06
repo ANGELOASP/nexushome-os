@@ -1,5 +1,5 @@
 // ============================================================
-// NexusHome OS — Editor de Planta 2.0 (v1.6.0)
+// NexusHome OS — Editor de Planta 2.1 (v1.8.0)
 // ------------------------------------------------------------
 // Editor 2D top-down em canvas: a planta da residência deixa de
 // ser fixa no código e passa a vir da tabela `rooms` (Supabase)
@@ -37,6 +37,10 @@ const SNAP_PX = 6;         // raio de atração das guias de alinhamento (px de 
 const HISTORY_CAP = 50;    // passos de undo/redo
 const ZOOM_MIN = 10;       // px por metro
 const ZOOM_MAX = 160;
+const BG_KEY = 'nh_floorplan_bg';   // fundo de referência (localStorage)
+
+// fundo de referência: imagem da planta CAD sob a grade
+let bg = { img: null, dataUrl: '', opacity: 0.4, widthM: 14, offX: 0, offZ: 0, visible: true };
 
 let getClient = null;
 let modal, canvas, ctx, formEl, presetsEl;
@@ -82,6 +86,37 @@ export function initFloorplan({ getClient: gc } = {}) {
   document.getElementById('btn-fp-redo')?.addEventListener('click', redo);
   document.getElementById('btn-fp-fit')?.addEventListener('click', () => { fitView(); draw(); });
   document.getElementById('fp-snap')?.addEventListener('change', (e) => { snapEnabled = !!e.target.checked; });
+
+  // fundo de referência (imagem da planta CAD)
+  document.getElementById('btn-fp-bg')?.addEventListener('click', toggleBgPanel);
+  document.getElementById('fp-bg-file')?.addEventListener('change', (e) => {
+    const f = e.target.files?.[0];
+    if (f) setBgFromFile(f);
+    e.target.value = '';
+  });
+  document.getElementById('btn-fp-bg-remove')?.addEventListener('click', removeBg);
+  document.getElementById('fp-bg-opacity')?.addEventListener('input', (e) => {
+    bg.opacity = clamp(Number(e.target.value) / 100, 0.05, 1); saveBg(); draw();
+  });
+  document.getElementById('fp-bg-width')?.addEventListener('input', (e) => {
+    const v = parseFloat(String(e.target.value).replace(',', '.'));
+    if (!Number.isFinite(v)) return;
+    bg.widthM = clamp(v, 1, 60); saveBg(); draw();
+  });
+  document.getElementById('fp-bg-ox')?.addEventListener('input', (e) => {
+    const v = parseFloat(String(e.target.value).replace(',', '.'));
+    if (!Number.isFinite(v)) return;
+    bg.offX = clamp(v, -60, 60); saveBg(); draw();
+  });
+  document.getElementById('fp-bg-oz')?.addEventListener('input', (e) => {
+    const v = parseFloat(String(e.target.value).replace(',', '.'));
+    if (!Number.isFinite(v)) return;
+    bg.offZ = clamp(v, -60, 60); saveBg(); draw();
+  });
+  document.getElementById('fp-bg-visible')?.addEventListener('change', (e) => {
+    bg.visible = !!e.target.checked; saveBg(); draw();
+  });
+  loadBg();
 
   buildPresetsPanel();
 
@@ -228,6 +263,7 @@ function closeEditor() {
   selectedId = null;
   hideForm();
   hidePresets();
+  hideBgPanel();
 }
 
 // ------------------------------------------------------------
@@ -359,6 +395,7 @@ function buildPresetsPanel() {
 }
 
 function togglePresets() {
+  hideBgPanel();
   presetsEl?.classList.toggle('hidden');
 }
 function hidePresets() {
@@ -411,6 +448,7 @@ function draw() {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   ctx.clearRect(0, 0, w, h);
 
+  drawBackground();
   drawGrid(w, h);
 
   // origem do mundo (0,0)
@@ -451,6 +489,111 @@ function drawGrid(w, h) {
 
 function line(x1, y1, x2, y2) {
   ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+}
+
+// ------------------------------------------------------------
+// Fundo de referência (imagem da planta CAD sob a grade)
+// ------------------------------------------------------------
+
+/** Desenha a imagem de fundo calibrada em metros, sob a grade. */
+function drawBackground() {
+  if (!bg.visible || !bg.img || !bg.img.complete || !bg.img.naturalWidth) return;
+  const wM = bg.widthM;
+  const hM = wM * (bg.img.naturalHeight / bg.img.naturalWidth);
+  // a imagem é centrada em (offX, offZ) do mundo
+  const x = w2sx(bg.offX - wM / 2), y = w2sz(bg.offZ - hM / 2);
+  ctx.save();
+  ctx.globalAlpha = bg.opacity;
+  ctx.drawImage(bg.img, x, y, wM * view.scale, hM * view.scale);
+  ctx.restore();
+}
+
+function toggleBgPanel() {
+  hidePresets();
+  const p = document.getElementById('fp-bg-panel');
+  p?.classList.toggle('hidden');
+  syncBgPanel();
+}
+
+function hideBgPanel() {
+  document.getElementById('fp-bg-panel')?.classList.add('hidden');
+}
+
+function syncBgPanel() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('fp-bg-opacity', Math.round(bg.opacity * 100));
+  set('fp-bg-width', bg.widthM);
+  set('fp-bg-ox', bg.offX);
+  set('fp-bg-oz', bg.offZ);
+  const vis = document.getElementById('fp-bg-visible');
+  if (vis) vis.checked = bg.visible;
+  const rm = document.getElementById('btn-fp-bg-remove');
+  if (rm) rm.disabled = !bg.dataUrl;
+}
+
+function loadBg() {
+  try {
+    const raw = localStorage.getItem(BG_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    bg = { ...bg, ...saved, img: null };
+    if (bg.dataUrl) setBgImage(bg.dataUrl, false);
+  } catch { /* modo restrito */ }
+}
+
+function saveBg() {
+  try {
+    localStorage.setItem(BG_KEY, JSON.stringify({
+      dataUrl: bg.dataUrl, opacity: bg.opacity, widthM: bg.widthM,
+      offX: bg.offX, offZ: bg.offZ, visible: bg.visible,
+    }));
+  } catch {
+    toast('Imagem muito grande', 'Não foi possível guardar o fundo neste navegador. Tente uma imagem menor.', 'warning');
+  }
+}
+
+/** Carrega um dataURL na imagem de fundo e redesenha. */
+function setBgImage(dataUrl, persist = true) {
+  const img = new Image();
+  img.onload = () => {
+    bg.img = img;
+    bg.dataUrl = dataUrl;
+    if (persist) saveBg();
+    syncBgPanel();
+    if (isOpen()) draw();
+  };
+  img.onerror = () => toast('Imagem inválida', 'Não foi possível ler o arquivo escolhido.', 'critical');
+  img.src = dataUrl;
+}
+
+/** Lê o arquivo escolhido, reduz para no máx. 1800 px e guarda como JPEG. */
+function setBgFromFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 1800;
+      const k = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * k);
+      c.height = Math.round(img.naturalHeight * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      setBgImage(c.toDataURL('image/jpeg', 0.85));
+      toast('Fundo aplicado', 'Calibre a escala informando a largura real da imagem em metros.', 'success');
+    };
+    img.onerror = () => toast('Imagem inválida', 'Não foi possível ler o arquivo escolhido.', 'critical');
+    img.src = reader.result;
+  };
+  reader.onerror = () => toast('Imagem inválida', 'Não foi possível ler o arquivo escolhido.', 'critical');
+  reader.readAsDataURL(file);
+}
+
+function removeBg() {
+  bg = { img: null, dataUrl: '', opacity: 0.4, widthM: 14, offX: 0, offZ: 0, visible: true };
+  try { localStorage.removeItem(BG_KEY); } catch { /* modo restrito */ }
+  syncBgPanel();
+  draw();
+  toast('Fundo removido', 'A grade voltou ao padrão.', 'info');
 }
 
 /** Guias de alinhamento ciano (enquanto arrasta/redimensiona). */
