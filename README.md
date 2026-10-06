@@ -11,7 +11,7 @@ Sistema operacional de casa inteligente em tempo real — SPA com visualização
 - **Login obrigatório** (Supabase Auth e-mail/senha): todo o app fica bloqueado atrás de uma tela de login; no Modo Demonstração um banner âmbar avisa que qualquer credencial entra.
 - **Telemetria em tempo real**: energia (W) e fluxo de água (L/h) com sparklines, badge de saúde (Seguro/Atenção/Crítico) e feed de alertas.
 - **Segurança hídrica**: detecção de vazamento (fluxo > 0 por mais de 30 s com tudo desligado) e botão de emergência **FECHAR VÁLVULA DE ÁGUA GERAL**.
-- **Automações IFTTT**: crie regras `SE métrica (operador) limiar ENTÃO ação no dispositivo`, com avaliador client-side (edge-trigger + cooldown).
+- **Automações IFTTT**: crie regras `SE métrica (operador) limiar ENTÃO ação no dispositivo`, com avaliador client-side (edge-trigger + cooldown). Desde a v1.5.0, sensores e comandos **SmartThings** também servem de gatilho e de ação.
 - **Integração Samsung SmartThings** (novo na v1.4.0): controle **TVs** (power, volume, mudo, canal) e **ares-condicionados** (power, temperatura 16–30 °C, modo) reais direto do painel, com vínculo a cômodos da planta e reação visual na cena 3D. Veja a seção dedicada abaixo.
 - **Modo Demonstração**: sem backend? Sem problema — o app simula tudo no navegador (inclusive a autenticação).
 
@@ -96,9 +96,19 @@ Cada aparelho pode ser **vinculado a um cômodo** da planta (o vínculo fica no 
 
 O status é atualizado a cada **30 s** (a API da SmartThings tem rate-limit agressivo; evite encurtar) e o polling é encerrado ao sair da sessão. O botão **Atualizar** força uma leitura imediata.
 
-### 5. Modo Demonstração
+### 5. Automações com aparelhos Samsung (v1.5.0)
 
-Sem token, o app simula **2 aparelhos** (uma TV e um ar-condicionado) com badge âmbar `Demo`: todos os botões funcionam localmente e nenhuma chamada de rede é feita — ideal para testar a UX antes de conectar a conta real.
+Com o painel conectado, o motor IFTTT passa a enxergar os aparelhos Samsung **dos dois lados da regra**:
+
+- **Gatilho por sensor**: as leituras ambientais reportadas pelos próprios aparelhos (`temperatureMeasurement`, `relativeHumidityMeasurement`) viram gatilhos no modal de criação (optgroup *Aparelhos Samsung*). A regra usa **edge trigger** — dispara só na transição, o que funciona como histerese e evita repetição enquanto a condição valer.
+- **Ação por comando**: o alvo da ação pode ser um aparelho Samsung (optgroup *Samsung SmartThings*), com construtor compacto de comandos — AC: ligar/desligar + modo + temperatura (16–30 °C); TV: ligar/desligar + mudo. Os comandos são enviados pela Edge Function `smartthings-proxy` com o token do navegador.
+- **Cooldown de 5 minutos em ações de AC** para não estressar o compressor com liga/desliga em sequência; os demais alvos seguem o cooldown padrão de 20 s.
+- Se o SmartThings estiver **desconectado** (sem token), as regras Samsung exibem o badge `⏸ SmartThings offline` e são puladas até a reconexão.
+- O avaliador roda **no navegador, enquanto o app estiver aberto** — regras não disparam com a aba fechada.
+
+### 6. Modo Demonstração
+
+Sem token, o app simula **2 aparelhos** (uma TV e um ar-condicionado) com badge âmbar `Demo`: todos os botões funcionam localmente e nenhuma chamada de rede é feita — ideal para testar a UX antes de conectar a conta real. As leituras de temperatura dos simulados **passeiam entre 22–31 °C** a cada 5 s, então regras de exemplo (ex.: `> 26 °C`) cruzam a borda e disparam de verdade; as ações Samsung no demo apenas atualizam o estado local e exibem o toast.
 
 ## Ponte IoT (ESP32 → Supabase)
 
