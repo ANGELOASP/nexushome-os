@@ -20,6 +20,7 @@ import { initDevicesPanel } from './panels/devices.js';
 import { initMonitorPanel, loadInitialMonitorData, subscribeTelemetry, updateHealthBadge } from './panels/monitor.js';
 import { initAutomationsPanel, loadAutomations, subscribeAutomations } from './panels/automations.js';
 import { initSmartThingsPanel, teardownSmartThings } from './panels/smartthings.js';
+import { initTuyaPanel, teardownTuya } from './panels/tuya.js';
 
 let client = null;
 let sceneApi = null;
@@ -114,6 +115,7 @@ async function enterApp(user) {
       initAutomationsPanel(client);
       initMonitorPanel(client);
       initSmartThingsPanel(client);
+      initTuyaPanel(client);
       panelsReady = true;
     }
 
@@ -166,6 +168,7 @@ function leaveApp() {
   activeChannels = [];
   client.stopSimulation?.();
   teardownSmartThings(); // encerra o polling de 30 s do painel SmartThings
+  teardownTuya();        // idem: polling e deriva demo do painel Tuya
 
   document.body.classList.remove('authenticated');
   document.getElementById('user-chip')?.classList.add('hidden');
@@ -220,7 +223,7 @@ function wireCollapsiblePanels() {
   });
   // em telas pequenas, painéis laterais começam recolhidos
   if (window.matchMedia('(max-width: 767px)').matches) {
-    ['panel-devices', 'panel-monitor', 'panel-automations', 'panel-smartthings'].forEach((id) =>
+    ['panel-devices', 'panel-monitor', 'panel-automations', 'panel-smartthings', 'panel-tuya'].forEach((id) =>
       document.getElementById(id)?.classList.add('panel-collapsed'));
   }
 }
