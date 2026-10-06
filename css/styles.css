@@ -560,6 +560,16 @@ body:not(.authenticated) aside.panel {
 
 .fp-area-line { margin: 0; font-size: 0.72rem; color: #94a3b8; }
 
+/* painel do fundo de referência (v1.8.0) */
+.fp-bg-panel {
+  left: auto; right: 0.75rem;
+  width: min(17rem, calc(100% - 1.5rem));
+  display: flex; flex-direction: column; gap: 0.65rem;
+}
+.fp-bg-panel.hidden { display: none; }
+.fp-bg-row { display: grid; grid-template-columns: 1fr auto; gap: 0.45rem; }
+.fp-bg-upload { cursor: pointer; text-align: center; }
+
 /* ---------- filtro de andares da cena 3D (v1.6.0) ---------- */
 .floor-filter {
   position: fixed; top: 84px; right: calc(19rem + 2.2rem); z-index: 20;
