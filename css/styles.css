@@ -111,10 +111,12 @@ body {
 
 .panel-collapsed .panel-body { display: none; }
 
-/* desktop: o painel de dispositivos deixa o rodapé livre para o painel de automações */
+/* desktop: o painel de dispositivos deixa o rodapé livre para o painel de automações;
+   o de monitoramento sobe para abrir espaço ao painel SmartThings */
 @media (min-width: 768px) {
   #panel-devices { bottom: calc(min(38vh, 330px) + 2.4rem); }
   #panel-automations .glass { max-height: min(38vh, 330px); }
+  #panel-monitor { bottom: calc(min(40vh, 340px) + 1.6rem); }
 }
 
 /* scrollbar fina */
@@ -499,14 +501,35 @@ body:not(.authenticated) aside.panel {
   .fp-canvas-wrap { min-height: 16rem; }
 }
 
+/* ---------- smartthings ---------- */
+.st-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.5rem; }
+.st-label { font-size: 10px; color: #64748b; }
+.st-btn-group { display: flex; align-items: center; gap: 0.25rem; }
+.st-mini-btn {
+  border-radius: 0.5rem; border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05); color: #cbd5e1;
+  padding: 0.125rem 0.5rem; font-size: 0.75rem; line-height: 1.25rem;
+  transition: background 0.2s, color 0.2s; cursor: pointer;
+}
+.st-mini-btn:hover { background: rgba(255, 255, 255, 0.12); color: #e2e8f0; }
+.st-mini-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.st-mute { padding: 0.125rem 0.625rem; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; }
+.st-mute-on {
+  background: rgba(251, 191, 36, 0.16); border-color: rgba(251, 191, 36, 0.45);
+  color: #fbbf24;
+}
+
 /* ---------- responsivo ---------- */
 @media (max-width: 767px) {
-  #panel-devices, #panel-monitor, #panel-automations {
+  #panel-devices, #panel-monitor, #panel-automations, #panel-smartthings {
     position: fixed; left: 0.6rem; right: 0.6rem; width: auto; max-width: none;
   }
   #panel-devices { top: 76px; bottom: auto; max-height: 42vh; }
   #panel-monitor { top: auto; bottom: 0.6rem; max-height: 42vh; }
   #panel-devices.panel-collapsed, #panel-monitor.panel-collapsed { max-height: none; }
   #panel-automations { top: auto; bottom: 3.8rem; max-height: 42vh; }
+  #panel-smartthings { top: auto; bottom: 0.6rem; max-height: 42vh; }
   #panel-devices:not(.panel-collapsed) ~ #panel-monitor:not(.panel-collapsed) { display: none; }
+  /* SmartThings ocupa o mesmo slot do monitor: se o monitor estiver aberto, esconde o SmartThings */
+  #panel-monitor:not(.panel-collapsed) ~ #panel-smartthings:not(.panel-collapsed) { display: none; }
 }
