@@ -112,11 +112,13 @@ body {
 .panel-collapsed .panel-body { display: none; }
 
 /* desktop: o painel de dispositivos deixa o rodapé livre para o painel de automações;
-   o de monitoramento sobe para abrir espaço ao painel SmartThings */
+   o de monitoramento sobe para abrir espaço ao painel SmartThings; o SmartThings
+   sobe um pouco mais para deixar o header recolhido do painel Tuya visível no canto */
 @media (min-width: 768px) {
   #panel-devices { bottom: calc(min(38vh, 330px) + 2.4rem); }
   #panel-automations .glass { max-height: min(38vh, 330px); }
-  #panel-monitor { bottom: calc(min(40vh, 340px) + 1.6rem); }
+  #panel-monitor { bottom: calc(min(40vh, 340px) + 1.6rem + 3.2rem); }
+  #panel-smartthings { bottom: calc(1.25rem + 3.2rem); }
 }
 
 /* scrollbar fina */
@@ -588,6 +590,57 @@ body:not(.authenticated) aside.panel {
   .fp-canvas-wrap { min-height: 16rem; }
 }
 
+/* ---------- tuya smart life (v1.7.0) ---------- */
+/* barra de nível da caixa d'água */
+.ty-level-track {
+  height: 0.55rem; border-radius: 999px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ty-level-fill {
+  height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, #0ea5e9, #22d3ee);
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.45);
+  transition: width 0.6s ease;
+}
+
+/* badge do sensor de vazamento */
+.ty-leak-badge {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.35rem 0.8rem; border-radius: 999px;
+  font-size: 0.66rem; font-weight: 800; letter-spacing: 0.05em;
+  border: 1px solid;
+}
+.ty-leak-ok { color: #34d399; border-color: rgba(52, 211, 153, 0.35); background: rgba(52, 211, 153, 0.08); }
+.ty-leak-alarm {
+  color: #fecaca; border-color: rgba(248, 113, 113, 0.55);
+  background: rgba(220, 38, 38, 0.16);
+  animation: blink 0.9s infinite;
+  box-shadow: 0 0 14px rgba(220, 38, 38, 0.4);
+}
+
+/* dados brutos (datapoints não mapeados) */
+.ty-raw summary {
+  font-size: 0.64rem; font-weight: 700; color: #64748b; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  transition: color 0.2s; user-select: none;
+}
+.ty-raw summary:hover { color: #94a3b8; }
+.ty-raw-list {
+  margin-top: 0.4rem; padding: 0.45rem 0.55rem; border-radius: 0.55rem;
+  background: rgba(2, 6, 18, 0.45); border: 1px solid rgba(255, 255, 255, 0.06);
+  max-height: 8rem; overflow-y: auto;
+}
+.ty-raw-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.1rem 0; font-size: 0.64rem;
+}
+.ty-raw-code { color: #a5b4fc; font-family: ui-monospace, monospace; }
+.ty-raw-value { color: #94a3b8; font-variant-numeric: tabular-nums; }
+
+/* slot inferior direito compartilhado: Tuya (recolhido por padrão) x
+   SmartThings — quando o Tuya está expandido, o SmartThings cede o slot */
+#panel-tuya:not(.panel-collapsed) ~ #panel-smartthings:not(.panel-collapsed) { display: none; }
+
 /* ---------- smartthings ---------- */
 .st-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.5rem; }
 .st-label { font-size: 10px; color: #64748b; }
@@ -608,7 +661,7 @@ body:not(.authenticated) aside.panel {
 
 /* ---------- responsivo ---------- */
 @media (max-width: 767px) {
-  #panel-devices, #panel-monitor, #panel-automations, #panel-smartthings {
+  #panel-devices, #panel-monitor, #panel-automations, #panel-smartthings, #panel-tuya {
     position: fixed; left: 0.6rem; right: 0.6rem; width: auto; max-width: none;
   }
   #panel-devices { top: 76px; bottom: auto; max-height: 42vh; }
@@ -616,6 +669,10 @@ body:not(.authenticated) aside.panel {
   #panel-devices.panel-collapsed, #panel-monitor.panel-collapsed { max-height: none; }
   #panel-automations { top: auto; bottom: 3.8rem; max-height: 42vh; }
   #panel-smartthings { top: auto; bottom: 0.6rem; max-height: 42vh; }
+  /* Tuya divide o slot inferior com monitor/SmartThings: só expande com ambos recolhidos */
+  #panel-tuya { top: auto; bottom: 0.6rem; max-height: 42vh; }
+  #panel-devices:not(.panel-collapsed) ~ #panel-tuya:not(.panel-collapsed) { display: none; }
+  #panel-monitor:not(.panel-collapsed) ~ #panel-tuya:not(.panel-collapsed) { display: none; }
   #panel-devices:not(.panel-collapsed) ~ #panel-monitor:not(.panel-collapsed) { display: none; }
   /* SmartThings ocupa o mesmo slot do monitor: se o monitor estiver aberto, esconde o SmartThings */
   #panel-monitor:not(.panel-collapsed) ~ #panel-smartthings:not(.panel-collapsed) { display: none; }
