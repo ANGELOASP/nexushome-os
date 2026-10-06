@@ -28,6 +28,8 @@ export const state = {
     temperature: null,
     humidity: null,
   },
+  stReadings: {},          // últimas leituras SmartThings: { deviceId: { temperature, humidity, online } }
+  stConnected: false,      // painel SmartThings com token válido (demo conta como conectado)
 };
 
 // ---- mini pub/sub -------------------------------------------------------
