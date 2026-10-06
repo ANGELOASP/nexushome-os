@@ -7,7 +7,7 @@ Sistema operacional de casa inteligente em tempo real — SPA com visualização
 ## Visão geral
 
 - **Casa 3D interativa** (Three.js): cômodos clicáveis que reagem visualmente ao estado dos dispositivos (brilho/cor da luz, tonalidade fria do AC, válvula, medidor). A casa **não é fixa no código** — ela é construída a partir da planta salva no Supabase.
-- **Editor de Planta** (novo na v1.3.0): botão **Planta** na barra superior abre um editor 2D top-down para desenhar a residência — criar, mover, redimensionar, renomear e excluir cômodos, com grade de 0,5 m, snap, prevenção de sobreposição e sincronização imediata com a cena 3D e o painel de dispositivos.
+- **Editor de Planta 2.0** (novo na v1.6.0): botão **Planta** na barra superior abre um editor 2D top-down completo — **15 tipos de cômodo predefinidos** (sala, suíte, garagem, varanda…), **andares** (térreo + até 2 andares empilhados no 3D), **desfazer/refazer**, **zoom e pan**, **guias de alinhamento** magnéticas, painel de precisão com área em m² e atalhos de teclado. A planta sincroniza na hora com a cena 3D e o painel de dispositivos.
 - **Login obrigatório** (Supabase Auth e-mail/senha): todo o app fica bloqueado atrás de uma tela de login; no Modo Demonstração um banner âmbar avisa que qualquer credencial entra.
 - **Telemetria em tempo real**: energia (W) e fluxo de água (L/h) com sparklines, badge de saúde (Seguro/Atenção/Crítico) e feed de alertas.
 - **Segurança hídrica**: detecção de vazamento (fluxo > 0 por mais de 30 s com tudo desligado) e botão de emergência **FECHAR VÁLVULA DE ÁGUA GERAL**.
@@ -32,6 +32,7 @@ Sem nenhuma configuração, o app entra em **Modo Demonstração**: um cliente S
    1. [`supabase/migrations/001_init.sql`](supabase/migrations/001_init.sql) — cria as tabelas (`devices`, `automations`, `telemetry_logs`, `alerts`), realtime e seeds.
    2. [`supabase/migrations/002_auth_rls.sql`](supabase/migrations/002_auth_rls.sql) — **endurece o RLS**: revoga o acesso anônimo e restringe as 4 tabelas a usuários autenticados.
    3. [`supabase/migrations/003_rooms.sql`](supabase/migrations/003_rooms.sql) — **planta da residência**: tabela `rooms` (nome, posição, tamanho, cor), RLS autenticado, realtime e os 4 cômodos padrão como seeds. Sem ela, o app carrega a planta padrão embutida e o salvamento falha.
+   4. [`supabase/migrations/004_rooms_floor_kind.sql`](supabase/migrations/004_rooms_floor_kind.sql) — **Editor de Planta 2.0**: colunas `floor` (andar: 0 = térreo) e `kind` (tipo do cômodo) + backfill dos 4 seeds. Idempotente. Sem ela, o salvamento da planta falha com "column does not exist".
 3. Copie [`js/config.example.js`](js/config.example.js) para `js/config.js` e preencha:
 
    ```js
@@ -56,16 +57,36 @@ O app exige autenticação por e-mail/senha via **Supabase Auth** (`signInWithPa
 - **Modo Demonstração**: sem credenciais Supabase configuradas, o login é simulado — um **banner âmbar visível** avisa que qualquer e-mail/senha entra e que os dados são locais. A recuperação de senha também é simulada (nenhum e-mail é enviado; a view de recuperação exibe uma **nota âmbar** explicando isso). A segurança real vale assim que o Supabase é conectado.
 - **service_role key**: a Edge Function `iot-gateway` usa `SUPABASE_SERVICE_ROLE_KEY`, que **ignora o RLS por design** (é o que mantém a ingestão do ESP32 funcionando). Essa chave **nunca** deve aparecer no frontend nem ser commitada. A autenticação dos dispositivos IoT é o header `x-device-key` (segredo `IOT_DEVICE_SECRET`).
 
-## Editor de Planta
+## Editor de Planta 2.0
 
-A casa 3D é gerada a partir da tabela `rooms` (migração 003) — posições e tamanhos em **metros** (no 3D, 1 m = 1,9 unidade de cena). O botão **Planta** na barra superior abre o editor 2D:
+A casa 3D é gerada a partir da tabela `rooms` (migrações 003 + 004) — posições e tamanhos em **metros** (no 3D, 1 m = 1,9 unidade de cena; cada andar mede 3,0 unidades de altura). O botão **Planta** na barra superior abre o editor 2D:
 
-- **Grade de 0,5 m** com snap: arraste um cômodo para mover e use a alça azul no canto inferior direito para redimensionar.
-- **Duplo-clique** (ou selecionar) abre o formulário lateral: nome, cor, largura e profundidade. **Adicionar cômodo** cria um novo retângulo 3 × 3 m no primeiro espaço livre; **Excluir** pede confirmação; **Restaurar padrão** volta aos 4 cômodos originais.
-- **Sobreposição é bloqueada**: se um cômodo ficar sobre outro, a posição/tamanho volta atrás com um flash vermelho.
+- **Tipos de cômodo (presets)**: **Adicionar cômodo** abre uma paleta com 15 tipos — Sala de Estar, Sala de Jantar, Quarto, Suíte, Banheiro, Cozinha, Lavanderia, Escritório, Varanda, Garagem, Corredor, Área Externa, Closet, Despensa e Personalizado — cada um com **nome, cor, ícone e tamanho padrão** (editáveis depois). O tipo (`kind`) orienta o **mobiliário temático da cena 3D**: cama em quarto/suíte, sofá + TV na sala, mesa com cadeiras no jantar, carro na garagem, lavadora na lavanderia, painel solar na área externa etc.
+- **Andares**: abas **Térreo / 1º Andar / + Novo andar** (máx. 3). Cada cômodo pertence a um andar (o formulário lateral move o cômodo de andar). A cena 3D **empilha os andares** sobre lajes e ganha um **filtro de andar** (topo da cena): **Todos** mostra a pilha com os andares superiores semitransparentes; um andar específico o isola (os demais somem, inclusive do clique).
+- **Desfazer/Refazer**: Ctrl+Z / Ctrl+Shift+Z (ou os botões da barra) com histórico de 50 passos.
+- **Zoom e pan**: roda do mouse dá zoom ancorado no cursor; arrastar o espaço vazio (ou o botão do meio) move a vista; **Ajustar** enquadra o andar atual.
+- **Guias de alinhamento**: ao arrastar/redimensionar, bordas e centros dos outros cômodos do mesmo andar **atraem** com linhas ciano (raio de ~6 px). O snap na grade de 0,5 m continua disponível e pode ser desligado no checkbox **Snap**.
+- **Painel de precisão**: com um cômodo selecionado, edite **X, Y, Largura e Profundidade** em passos de 0,1 m, com **área em m² ao vivo**; a barra do editor mostra a **área total por andar**.
+- **Duplicar** (Ctrl+D ou botão) cria uma cópia deslocada; as **setas** movem o cômodo selecionado em 0,5 m (Shift = 0,1 m).
+- **Sobreposição é bloqueada** dentro do mesmo andar: a posição/tamanho volta atrás com um flash vermelho (cômodos em andares diferentes podem se sobrepor livremente).
+- Borda de 2 px mais escura que o preenchimento, para ler os limites como **paredes**.
 - **Salvar planta** persiste no Supabase (ou no `localStorage` no Modo Demonstração) e **reconstrói a cena 3D e o painel de dispositivos na hora**, sem recarregar. Mudanças feitas em outra aba chegam via realtime.
 - Renomear ou excluir um cômodo **não move os dispositivos** automaticamente — eles aparecem num grupo próprio no painel e um toast avisa quais ficaram com o cômodo antigo.
-- Os 4 cômodos padrão têm mobiliário temático (sofá, cama, bancada, painel solar); cômodos com outros nomes ganham um mobiliário genérico.
+- Plantas salvas antes da v1.6.0 carregam normalmente: ganham `floor 0` e o tipo é **inferido pelo nome** (ex.: "Suíte Master" → suíte).
+- **Restaurar padrão** volta aos 4 cômodos originais, todos no térreo.
+
+### Atalhos do editor
+
+| Atalho | Ação |
+| --- | --- |
+| `Ctrl+Z` / `Ctrl+Shift+Z` (ou `Ctrl+Y`) | Desfazer / Refazer |
+| `Ctrl+D` | Duplicar cômodo selecionado |
+| Setas | Mover 0,5 m (com `Shift`: 0,1 m) |
+| `Delete` / `Backspace` | Excluir cômodo selecionado (com confirmação) |
+| Roda do mouse | Zoom ancorado no cursor |
+| Arrastar espaço vazio / botão do meio | Mover a vista (pan) |
+| Duplo-clique | Abrir o formulário do cômodo |
+| `Esc` | Fechar painéis / editor |
 
 ## Integração Samsung SmartThings
 
@@ -173,6 +194,7 @@ nexushome-os/
 │   ├── migrations/001_init.sql # esquema + RLS inicial + realtime + seeds
 │   ├── migrations/002_auth_rls.sql # RLS apenas para usuários autenticados
 │   ├── migrations/003_rooms.sql  # planta da residência (tabela rooms + seeds)
+│   ├── migrations/004_rooms_floor_kind.sql # andares + tipos de cômodo (v1.6.0)
 │   └── functions/
 │       ├── iot-gateway/        # Edge Function (Deno) — ingestão IoT
 │       └── smartthings-proxy/  # Edge Function (Deno) — proxy seguro p/ SmartThings
