@@ -378,6 +378,10 @@
             <input id="fp-snap" type="checkbox" checked />
             Snap
           </label>
+          <button id="btn-fp-bg" type="button" class="fp-btn fp-btn-ghost" title="Imagem de fundo de referência (planta CAD)">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+            Fundo
+          </button>
           <button id="btn-fp-add" type="button" class="fp-btn fp-btn-ghost">
             <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Adicionar cômodo
@@ -400,6 +404,39 @@
         <div class="fp-canvas-wrap">
           <canvas id="fp-canvas"></canvas>
           <div id="fp-presets" class="fp-presets hidden"></div>
+          <div id="fp-bg-panel" class="fp-presets fp-bg-panel hidden">
+            <p class="fp-presets-title">Fundo de referência (planta CAD)</p>
+            <div class="fp-bg-row">
+              <label class="fp-btn fp-btn-ghost justify-center fp-bg-upload">
+                Escolher imagem…
+                <input id="fp-bg-file" type="file" accept="image/*" class="hidden" />
+              </label>
+              <button id="btn-fp-bg-remove" type="button" class="fp-btn fp-btn-danger">Remover</button>
+            </div>
+            <div>
+              <label class="form-label" for="fp-bg-opacity">Transparência do fundo</label>
+              <input id="fp-bg-opacity" type="range" min="5" max="100" step="5" value="40" class="w-full accent-cyan-400" />
+            </div>
+            <div>
+              <label class="form-label" for="fp-bg-width">Largura real da imagem (m)</label>
+              <input id="fp-bg-width" type="number" class="form-input" step="0.5" min="1" max="60" value="14" />
+              <p class="text-[10px] text-slate-500 leading-snug mt-1">Meça na planta: quantos metros a imagem inteira representa na horizontal. É o que calibra a escala.</p>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="form-label" for="fp-bg-ox">Deslocar X (m)</label>
+                <input id="fp-bg-ox" type="number" class="form-input" step="0.1" min="-60" max="60" value="0" />
+              </div>
+              <div>
+                <label class="form-label" for="fp-bg-oz">Deslocar Y (m)</label>
+                <input id="fp-bg-oz" type="number" class="form-input" step="0.1" min="-60" max="60" value="0" />
+              </div>
+            </div>
+            <label class="fp-snap-toggle justify-center">
+              <input id="fp-bg-visible" type="checkbox" checked />
+              Mostrar fundo
+            </label>
+          </div>
         </div>
 
         <form id="fp-form" class="fp-form hidden" onsubmit="return false">
