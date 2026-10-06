@@ -1,10 +1,15 @@
 // ============================================================
-// NexusHome OS — Editor de Planta 2.1 (v1.8.0)
+// NexusHome OS — Editor de Planta 3.0 (v1.9.0)
 // ------------------------------------------------------------
-// Editor 2D top-down em canvas: a planta da residência deixa de
-// ser fixa no código e passa a vir da tabela `rooms` (Supabase)
-// ou do localStorage (Modo Demonstração).
+// Editor 2D top-down em canvas, agora com modelo vetorial de
+// PAREDES estilo CAD (AutoCAD/SketchUp/Promob): cada parede é
+// um segmento de linha de centro com espessura, desenhado com
+// ferramenta própria (clique-clique), trava de eixo 0°/90°/45°,
+// atração magnética a endpoints e medida ao vivo.
 //
+//   · FERRAMENTAS: Selecionar (V) · Parede (W) · Apagar (E)
+//   · PAREDES: tabela `walls` (Supabase), espessura 0,15 m,
+//     render branco CAD com contorno; endpoint arrastável
 //   · PRESETS de cômodo (kind): paleta com nome/cor/ícone/tamanho
 //     padrão — sala, quarto, suíte, banheiro, garagem, varanda…
 //   · ANDARES (floor): abas Térreo / 1º / 2º andar; cada cômodo
@@ -15,6 +20,8 @@
 //   · GUIAS DE ALINHAMENTO: bordas/centros de outros cômodos do
 //     mesmo andar atraem com linhas ciano (6 px); snap na grade
 //     de 0,5 m é opcional (checkbox "Snap")
+//   · FUNDO DE REFERÊNCIA: imagem da planta CAD sob a grade,
+//     com calibração de escala, transparência e deslocamento
 //   · PAINEL DE PRECISÃO: X, Y, Largura, Profundidade (0,1 m) e
 //     área ao vivo; área total por andar na barra de ferramentas
 //   · Duplicar (Ctrl+D), setas movem 0,5 m (Shift = 0,1 m)
@@ -41,6 +48,18 @@ const BG_KEY = 'nh_floorplan_bg';   // fundo de referência (localStorage)
 
 // fundo de referência: imagem da planta CAD sob a grade
 let bg = { img: null, dataUrl: '', opacity: 0.4, widthM: 14, offX: 0, offZ: 0, visible: true };
+
+// paredes (modelo vetorial CAD): { id, floor, x1,z1,x2,z2, th, sort_order }
+let wallsLive = [];        // paredes salvas (Supabase / demo)
+let wallsDraft = [];       // cópia de trabalho enquanto o editor está aberto
+let wallsBaseline = [];    // paredes no momento em que o modal abriu
+let selectedWallId = null;
+let tool = 'select';       // 'select' | 'wall' | 'erase'
+let wallDraw = null;       // { x1, z1 } — primeiro clique da ferramenta Parede
+let wallHover = null;      // { x, z } — ponto sob o cursor (preview da parede)
+const WALL_TH = 0.15;      // espessura padrão da parede (m)
+const WALL_SNAP = 0.05;    // snap fino de endpoints de parede (m)
+const AXIS_LOCK_DEG = 8;   // trava de eixo 0°/90°/45° (SketchUp-style)
 
 let getClient = null;
 let modal, canvas, ctx, formEl, presetsEl;
@@ -86,6 +105,11 @@ export function initFloorplan({ getClient: gc } = {}) {
   document.getElementById('btn-fp-redo')?.addEventListener('click', redo);
   document.getElementById('btn-fp-fit')?.addEventListener('click', () => { fitView(); draw(); });
   document.getElementById('fp-snap')?.addEventListener('change', (e) => { snapEnabled = !!e.target.checked; });
+
+  // ferramentas estilo CAD: Selecionar (V) · Parede (W) · Apagar (E)
+  document.getElementById('btn-fp-tool-select')?.addEventListener('click', () => setTool('select'));
+  document.getElementById('btn-fp-tool-wall')?.addEventListener('click', () => setTool('wall'));
+  document.getElementById('btn-fp-tool-erase')?.addEventListener('click', () => setTool('erase'));
 
   // fundo de referência (imagem da planta CAD)
   document.getElementById('btn-fp-bg')?.addEventListener('click', toggleBgPanel);
@@ -230,6 +254,35 @@ export function subscribeRooms(client) {
   return [ch];
 }
 
+/** Carrega as paredes da tabela walls (live). Demo: lista vazia. */
+export async function loadWalls(client) {
+  try {
+    const { data, error } = await client.from('walls').select('*').order('sort_order');
+    if (error) throw new Error(error.message);
+    wallsLive = (data || []).map(normalizeWall);
+  } catch (err) {
+    console.error('[planta] falha ao carregar walls', err);
+    wallsLive = [];
+  }
+}
+
+/** Assina mudanças da tabela walls em tempo real. Retorna [canal]. */
+export function subscribeWalls(client) {
+  const ch = client
+    .channel('walls-live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'walls' }, () => loadWalls(client))
+    .subscribe();
+  return [ch];
+}
+
+function normalizeWall(w) {
+  return {
+    id: w.id, floor: Number(w.floor) || 0,
+    x1: Number(w.x1), z1: Number(w.z1), x2: Number(w.x2), z2: Number(w.z2),
+    th: Number(w.th) || WALL_TH, sort_order: w.sort_order ?? 0,
+  };
+}
+
 // ------------------------------------------------------------
 // Abrir / fechar
 // ------------------------------------------------------------
@@ -239,9 +292,15 @@ function isOpen() { return modal?.classList.contains('modal-open'); }
 function openEditor() {
   baseline = (state.rooms.length ? state.rooms : DEFAULT_ROOMS).map(normalizeRoom);
   draft = baseline.map((r) => ({ ...r }));
+  wallsBaseline = wallsLive.map((w) => ({ ...w }));
+  wallsDraft = wallsBaseline.map((w) => ({ ...w }));
   currentFloor = Math.min(maxFloorUsed(), currentFloor);
   if (!draft.some((r) => r.floor === currentFloor)) currentFloor = 0;
   selectedId = null;
+  selectedWallId = null;
+  wallDraw = null;
+  wallHover = null;
+  setTool('select');
   history.past = [];
   history.future = [];
   formSnap = null;
@@ -260,10 +319,31 @@ function closeEditor() {
   modal.classList.remove('modal-open');
   stopLoop();
   draft = [];
+  wallsDraft = [];
   selectedId = null;
+  selectedWallId = null;
+  wallDraw = null;
+  wallHover = null;
   hideForm();
   hidePresets();
   hideBgPanel();
+}
+
+// ------------------------------------------------------------
+// Ferramentas (Selecionar / Parede / Apagar)
+// ------------------------------------------------------------
+
+function setTool(t) {
+  tool = t;
+  wallDraw = null;
+  wallHover = null;
+  if (t !== 'select') { select(null); selectedWallId = null; }
+  const map = { select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase' };
+  Object.entries(map).forEach(([k, id]) => {
+    document.getElementById(id)?.classList.toggle('fp-tool-active', k === t);
+  });
+  if (canvas) canvas.style.cursor = t === 'wall' ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
+  draw();
 }
 
 // ------------------------------------------------------------
@@ -321,7 +401,7 @@ function setFloor(f) {
 // ------------------------------------------------------------
 
 function snapshot() {
-  return JSON.stringify({ rooms: draft, floor: currentFloor });
+  return JSON.stringify({ rooms: draft, walls: wallsDraft, floor: currentFloor });
 }
 
 /** Empilha o estado ATUAL como passo de undo (chame ANTES de mutar). */
@@ -343,10 +423,13 @@ function pushHistorySnap(snapStr) {
 
 function restore(snapStr) {
   try {
-    const { rooms, floor } = JSON.parse(snapStr);
+    const { rooms, walls, floor } = JSON.parse(snapStr);
     draft = rooms;
+    wallsDraft = walls || [];
     currentFloor = Math.min(floor ?? 0, maxFloorUsed());
     select(null);
+    selectedWallId = null;
+    wallDraw = null;
     hideForm();
     hidePresets();
     renderFloorTabs();
@@ -415,15 +498,20 @@ function sizeCanvas() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-/** Enquadra os cômodos do andar corrente com margem. */
+/** Enquadra os cômodos e paredes do andar corrente com margem. */
 function fitView() {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   const rooms = floorRooms();
-  if (!rooms.length) { view = { scale: 48, cx: 0, cz: 0 }; return; }
+  const walls = floorWalls();
+  if (!rooms.length && !walls.length) { view = { scale: 48, cx: 0, cz: 0 }; return; }
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   rooms.forEach((r) => {
     minX = Math.min(minX, r.pos_x - r.size_x / 2); maxX = Math.max(maxX, r.pos_x + r.size_x / 2);
     minZ = Math.min(minZ, r.pos_z - r.size_z / 2); maxZ = Math.max(maxZ, r.pos_z + r.size_z / 2);
+  });
+  walls.forEach((wl) => {
+    minX = Math.min(minX, wl.x1, wl.x2); maxX = Math.max(maxX, wl.x1, wl.x2);
+    minZ = Math.min(minZ, wl.z1, wl.z2); maxZ = Math.max(maxZ, wl.z1, wl.z2);
   });
   const margin = 2.2; // metros de respiro
   const sx = w / Math.max(1, (maxX - minX) + margin);
@@ -463,7 +551,134 @@ function draw() {
   const selRoom = rooms.find((r) => r.id === selectedId);
   if (selRoom) drawRoom(selRoom, flashing);
 
+  drawWalls();
+  drawWallPreview();
   drawGuides(w, h);
+}
+
+// ------------------------------------------------------------
+// Paredes (modelo vetorial CAD)
+// ------------------------------------------------------------
+
+function floorWalls(f = currentFloor) {
+  return wallsDraft.filter((w) => (Number(w.floor) || 0) === f);
+}
+
+/** Distância de ponto ao segmento de parede (em metros de mundo). */
+function distToWall(wx, wz, wl) {
+  const dx = wl.x2 - wl.x1, dz = wl.z2 - wl.z1;
+  const len2 = dx * dx + dz * dz;
+  if (!len2) return Math.hypot(wx - wl.x1, wz - wl.z1);
+  let t = ((wx - wl.x1) * dx + (wz - wl.z1) * dz) / len2;
+  t = clamp(t, 0, 1);
+  return Math.hypot(wx - (wl.x1 + t * dx), wz - (wl.z1 + t * dz));
+}
+
+function wallAt(wx, wz) {
+  const thr = Math.max(WALL_TH / 2 + 0.06, SNAP_PX / view.scale);
+  const walls = floorWalls();
+  for (let i = walls.length - 1; i >= 0; i--) {
+    if (distToWall(wx, wz, walls[i]) <= thr) return walls[i];
+  }
+  return null;
+}
+
+function wallLen(wl) { return Math.hypot(wl.x2 - wl.x1, wl.z2 - wl.z1); }
+
+/** Desenha uma parede: faixa clara com contorno escuro (leitura CAD). */
+function drawWallSeg(wl) {
+  const isSel = wl.id === selectedWallId;
+  const x1 = w2sx(wl.x1), y1 = w2sz(wl.z1), x2 = w2sx(wl.x2), y2 = w2sz(wl.z2);
+  ctx.save();
+  ctx.lineCap = 'square';
+  ctx.strokeStyle = isSel ? 'rgba(34,211,238,0.35)' : 'rgba(15,23,42,0.9)';
+  ctx.lineWidth = wl.th * view.scale + 4;
+  line(x1, y1, x2, y2);
+  ctx.strokeStyle = isSel ? '#22d3ee' : '#cbd5e1';
+  ctx.lineWidth = wl.th * view.scale;
+  line(x1, y1, x2, y2);
+  ctx.restore();
+
+  if (isSel) {
+    // endpoints arrastáveis
+    ctx.fillStyle = '#22d3ee';
+    ctx.strokeStyle = '#0b1120';
+    ctx.lineWidth = 1.5;
+    [[x1, y1], [x2, y2]].forEach(([px, py]) => {
+      const s = Math.max(6, HANDLE_M * view.scale * 0.8);
+      ctx.fillRect(px - s / 2, py - s / 2, s, s);
+      ctx.strokeRect(px - s / 2, py - s / 2, s, s);
+    });
+    // medida ao centro
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    ctx.font = `600 ${Math.max(10, Math.min(12, view.scale * 0.25))}px Inter, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillStyle = '#67e8f9';
+    ctx.fillText(`${fmt1(wallLen(wl))} m`, mx, my - 6);
+  }
+}
+
+function drawWalls() {
+  floorWalls().forEach((wl) => drawWallSeg(wl));
+}
+
+/** Preview elástico da ferramenta Parede (com medida ao vivo). */
+function drawWallPreview() {
+  if (tool !== 'wall' || !wallDraw || !wallHover) return;
+  const x1 = w2sx(wallDraw.x1), y1 = w2sz(wallDraw.z1);
+  const x2 = w2sx(wallHover.x), y2 = w2sz(wallHover.z);
+  ctx.save();
+  ctx.strokeStyle = 'rgba(34,211,238,0.9)';
+  ctx.lineWidth = Math.max(2, WALL_TH * view.scale);
+  ctx.setLineDash([8, 5]);
+  line(x1, y1, x2, y2);
+  ctx.setLineDash([]);
+  // ponto de partida
+  ctx.fillStyle = '#22d3ee';
+  ctx.beginPath(); ctx.arc(x1, y1, 4, 0, Math.PI * 2); ctx.fill();
+  // medida ao vivo
+  const len = Math.hypot(wallHover.x - wallDraw.x1, wallHover.z - wallDraw.z1);
+  ctx.font = '600 12px Inter, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  const label = `${fmt1(len)} m`;
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+  const tw = ctx.measureText(label).width;
+  ctx.fillStyle = 'rgba(11,17,32,0.85)';
+  ctx.fillRect(mx - tw / 2 - 6, my - 24, tw + 12, 18);
+  ctx.fillStyle = '#a5f3fc';
+  ctx.fillText(label, mx, my - 8);
+  ctx.restore();
+}
+
+/** Snap de endpoint de parede: grade fina 0,05 m + atração a endpoints existentes. */
+function snapWallPoint(wx, wz, excludeId = null) {
+  let best = null;
+  const thr = SNAP_PX / view.scale;
+  floorWalls().forEach((wl) => {
+    if (wl.id === excludeId) return;
+    [[wl.x1, wl.z1], [wl.x2, wl.z2]].forEach(([ex, ez]) => {
+      const d = Math.hypot(wx - ex, wz - ez);
+      if (d <= thr && (!best || d < best.d)) best = { d, x: ex, z: ez };
+    });
+  });
+  if (best) return { x: best.x, z: best.z };
+  return {
+    x: Math.round(wx / WALL_SNAP) * WALL_SNAP,
+    z: Math.round(wz / WALL_SNAP) * WALL_SNAP,
+  };
+}
+
+/** Trava de eixo estilo SketchUp: 0° / 90° / 45° quando perto desses ângulos. */
+function axisLock(x1, z1, x2, z2) {
+  const dx = x2 - x1, dz = z2 - z1;
+  const len = Math.hypot(dx, dz);
+  if (len < 1e-6) return { x: x2, z: z2 };
+  const ang = Math.atan2(dz, dx);
+  const step = Math.PI / 4; // 45°
+  const nearest = Math.round(ang / step) * step;
+  const diff = Math.abs(ang - nearest);
+  if (diff > AXIS_LOCK_DEG * Math.PI / 180) return { x: x2, z: z2 };
+  return { x: x1 + len * Math.cos(nearest), z: z1 + len * Math.sin(nearest) };
 }
 
 function drawGrid(w, h) {
@@ -682,7 +897,6 @@ function syncToolbar() {
   const redoBtn = document.getElementById('btn-fp-redo');
   if (undoBtn) undoBtn.disabled = !history.past.length;
   if (redoBtn) redoBtn.disabled = !history.future.length;
-
   const el = document.getElementById('fp-area-status');
   if (el) {
     const rooms = floorRooms();
@@ -718,12 +932,55 @@ function onHandle(r, wx, wz) {
 function onPointerDown(e) {
   hidePresets();
   const { px, py } = canvasPos(e);
-  const wx = s2wx(px), wz = s2wz(py);
+  let wx = s2wx(px), wz = s2wz(py);
+
+  // ferramenta PAREDE: clique-clique com encadeamento (como SketchUp)
+  if (tool === 'wall') {
+    if (e.button !== 0) return;
+    const p = snapWallPoint(wx, wz);
+    if (!wallDraw) {
+      wallDraw = { x1: p.x, z1: p.z };
+    } else {
+      const q = axisLock(wallDraw.x1, wallDraw.z1, p.x, p.z);
+      const len = Math.hypot(q.x - wallDraw.x1, q.z - wallDraw.z1);
+      if (len >= 0.1) {
+        pushHistory();
+        const maxSort = wallsDraft.reduce((m, w) => Math.max(m, w.sort_order ?? 0), 0);
+        wallsDraft.push({
+          id: genUuid(), floor: currentFloor,
+          x1: wallDraw.x1, z1: wallDraw.z1, x2: q.x, z2: q.z,
+          th: WALL_TH, sort_order: maxSort + 1,
+        });
+      }
+      wallDraw = { x1: q.x, z1: q.z }; // encadeia o próximo segmento
+    }
+    draw();
+    e.preventDefault();
+    return;
+  }
+
+  // ferramenta APAGAR: remove a parede clicada
+  if (tool === 'erase') {
+    if (e.button !== 0) return;
+    const wl = wallAt(wx, wz);
+    if (wl) {
+      pushHistory();
+      wallsDraft = wallsDraft.filter((w) => w.id !== wl.id);
+      if (selectedWallId === wl.id) selectedWallId = null;
+      toast('Parede removida', `${fmt1(wallLen(wl))} m apagados. Ctrl+Z desfaz.`, 'info');
+      syncToolbar();
+      draw();
+    }
+    e.preventDefault();
+    return;
+  }
+
   const r = roomAt(wx, wz);
+  const wl = wallAt(wx, wz);
 
   // botão do meio OU espaço vazio → pan da vista
-  if (e.button === 1 || !r) {
-    if (e.button === 0) select(null);
+  if (e.button === 1 || (!r && !wl)) {
+    if (e.button === 0) { select(null); selectedWallId = null; }
     drag = { mode: 'pan', startPX: px, startPY: py, origCX: view.cx, origCZ: view.cz };
     canvas.setPointerCapture(e.pointerId);
     canvas.style.cursor = 'grabbing';
@@ -731,8 +988,28 @@ function onPointerDown(e) {
     return;
   }
 
+  // parede tem prioridade de clique (é desenhada sobre o cômodo)
+  if (wl) {
+    select(null);
+    selectedWallId = wl.id;
+    const nearP1 = Math.hypot(wx - wl.x1, wz - wl.z1) <= HANDLE_M;
+    const nearP2 = Math.hypot(wx - wl.x2, wz - wl.z2) <= HANDLE_M;
+    const mode = nearP1 || nearP2 ? 'wall-end' : 'wall-move';
+    drag = {
+      mode, id: wl.id, end: nearP1 ? 'p1' : 'p2', startWX: wx, startWZ: wz,
+      orig: { x1: wl.x1, z1: wl.z1, x2: wl.x2, z2: wl.z2 },
+      snapBefore: snapshot(),
+      changed: false,
+    };
+    canvas.setPointerCapture(e.pointerId);
+    canvas.style.cursor = mode === 'wall-end' ? 'nwse-resize' : 'grabbing';
+    draw();
+    return;
+  }
+
   const mode = (r.id === selectedId && onHandle(r, wx, wz)) ? 'resize' : 'move';
   select(r.id);
+  selectedWallId = null;
   drag = {
     mode, id: r.id, startWX: wx, startWZ: wz,
     orig: { pos_x: r.pos_x, pos_z: r.pos_z, size_x: r.size_x, size_z: r.size_z },
@@ -755,10 +1032,56 @@ function onPointerMove(e) {
 
   const wx = s2wx(px), wz = s2wz(py);
 
+  // ferramenta Parede: acompanha o cursor para o preview elástico
+  if (tool === 'wall') {
+    let p = snapWallPoint(wx, wz);
+    if (wallDraw) p = { ...p, ...axisLock(wallDraw.x1, wallDraw.z1, p.x, p.z) };
+    wallHover = p;
+    draw();
+    return;
+  }
+  if (tool === 'erase') {
+    canvas.style.cursor = wallAt(wx, wz) ? 'pointer' : 'default';
+    return;
+  }
+
   if (!drag) {
     // cursor de contexto
+    const wl = wallAt(wx, wz);
+    if (wl) {
+      const nearP1 = Math.hypot(wx - wl.x1, wz - wl.z1) <= HANDLE_M;
+      const nearP2 = Math.hypot(wx - wl.x2, wz - wl.z2) <= HANDLE_M;
+      canvas.style.cursor = (wl.id === selectedWallId && (nearP1 || nearP2)) ? 'nwse-resize' : 'grab';
+      return;
+    }
     const r = roomAt(wx, wz);
     canvas.style.cursor = !r ? 'default' : (r.id === selectedId && onHandle(r, wx, wz)) ? 'nwse-resize' : 'grab';
+    return;
+  }
+
+  // arrasto de parede (corpo inteiro ou endpoint)
+  if (drag.mode === 'wall-move' || drag.mode === 'wall-end') {
+    const wl = wallsDraft.find((w) => w.id === drag.id);
+    if (!wl) { drag = null; return; }
+    if (drag.mode === 'wall-move') {
+      const dx = wx - drag.startWX, dz = wz - drag.startWZ;
+      let nx1 = drag.orig.x1 + dx, nz1 = drag.orig.z1 + dz;
+      // snap fino pelo primeiro endpoint
+      const sp = snapWallPoint(nx1, nz1, wl.id);
+      nx1 = sp.x; nz1 = sp.z;
+      const fx = nx1 - drag.orig.x1, fz = nz1 - drag.orig.z1;
+      wl.x1 = nx1; wl.z1 = nz1;
+      wl.x2 = drag.orig.x2 + fx; wl.z2 = drag.orig.z2 + fz;
+    } else {
+      const other = drag.end === 'p1' ? { x: wl.x2, z: wl.z2 } : { x: wl.x1, z: wl.z1 };
+      let p = snapWallPoint(wx, wz, wl.id);
+      p = { ...p, ...axisLock(other.x, other.z, p.x, p.z) };
+      if (drag.end === 'p1') { wl.x1 = p.x; wl.z1 = p.z; }
+      else { wl.x2 = p.x; wl.z2 = p.z; }
+    }
+    drag.changed = true;
+    syncToolbar();
+    draw();
     return;
   }
 
@@ -800,6 +1123,28 @@ function onPointerUp(e) {
     drag = null;
     canvas.style.cursor = 'default';
     try { canvas.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+    return;
+  }
+
+  // arrasto de parede concluído
+  if (mode === 'wall-move' || mode === 'wall-end') {
+    const wl = wallsDraft.find((w) => w.id === drag.id);
+    const { orig, snapBefore, changed } = drag;
+    drag = null;
+    canvas.style.cursor = 'default';
+    try { canvas.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+    if (!wl || !changed) return;
+    // endpoint solto praticamente no mesmo lugar → descarta
+    if (wallLen(wl) < 0.1) {
+      wallsDraft = wallsDraft.filter((w) => w.id !== wl.id);
+      selectedWallId = null;
+      toast('Parede curta demais', 'Segmento menor que 0,1 m foi descartado.', 'warning');
+      draw();
+      return;
+    }
+    pushHistorySnap(snapBefore);
+    syncToolbar();
+    draw();
     return;
   }
 
@@ -893,6 +1238,14 @@ function onKeyDown(e) {
   const typing = e.target.closest?.('input, select, textarea');
   const mod = e.ctrlKey || e.metaKey;
 
+  // atalhos de ferramenta (estilo CAD): V seleciona, W parede, E apagar
+  if (!mod && !typing) {
+    const k = e.key.toLowerCase();
+    if (k === 'v') { setTool('select'); return; }
+    if (k === 'w') { setTool('wall'); return; }
+    if (k === 'e') { setTool('erase'); return; }
+  }
+
   if (mod && !e.shiftKey && e.key.toLowerCase() === 'z' && !typing) {
     e.preventDefault(); undo(); return;
   }
@@ -905,16 +1258,29 @@ function onKeyDown(e) {
   }
 
   if (e.key === 'Escape') {
+    if (wallDraw) { wallDraw = null; draw(); return; } // encerra o encadeamento de paredes
     if (!presetsEl?.classList.contains('hidden')) { hidePresets(); return; }
+    if (selectedWallId) { selectedWallId = null; draw(); return; }
     if (!formEl?.classList.contains('hidden')) hideForm();
     else closeEditor();
     return;
   }
 
-  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && !typing) {
-    e.preventDefault();
-    deleteSelected();
-    return;
+  if ((e.key === 'Delete' || e.key === 'Backspace') && !typing) {
+    if (selectedWallId) {
+      e.preventDefault();
+      pushHistory();
+      wallsDraft = wallsDraft.filter((w) => w.id !== selectedWallId);
+      selectedWallId = null;
+      syncToolbar();
+      draw();
+      return;
+    }
+    if (selectedId) {
+      e.preventDefault();
+      deleteSelected();
+      return;
+    }
   }
 
   // setas: nudge de 0,5 m (Shift = 0,1 m) no cômodo selecionado
@@ -1180,6 +1546,31 @@ async function savePlan() {
       const { error: e3 } = await q;
       if (e3) throw new Error(e3.message);
     }
+
+    // paredes (v1.9.0): remove apagadas, insere novas, atualiza existentes
+    const { data: existingWalls, error: ew } = await client.from('walls').select('id');
+    if (ew) throw new Error(ew.message);
+    const existingWallIds = new Set((existingWalls || []).map((w) => w.id));
+    const removedWalls = (existingWalls || []).filter((w) => !wallsDraft.some((d) => d.id === w.id));
+    for (const w of removedWalls) {
+      const { error: e4 } = await client.from('walls').delete().eq('id', w.id);
+      if (e4) throw new Error(e4.message);
+    }
+    for (const wl of wallsDraft) {
+      const row = {
+        id: wl.id, floor: wl.floor ?? 0,
+        x1: wl.x1, z1: wl.z1, x2: wl.x2, z2: wl.z2,
+        th: wl.th || WALL_TH, sort_order: wl.sort_order ?? 0,
+      };
+      const q = existingWallIds.has(wl.id)
+        ? client.from('walls').update(row).eq('id', wl.id)
+        : client.from('walls').insert(row);
+      const { error: e5 } = await q;
+      if (e5) throw new Error(e5.message);
+    }
+    await loadWalls(client);
+    wallsBaseline = wallsLive.map((w) => ({ ...w }));
+    wallsDraft = wallsBaseline.map((w) => ({ ...w }));
 
     // avisa sobre dispositivos órfãos de cômodo (rename/exclusão)
     const baseById = new Map(baseline.map((r) => [r.id, r.name]));
