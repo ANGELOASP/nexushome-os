@@ -1,5 +1,5 @@
 // ============================================================
-// NexusHome OS — Painel Samsung SmartThings (v1.4.0)
+// NexusHome OS — Painel Samsung SmartThings (v1.5.0)
 // ------------------------------------------------------------
 // Controla TVs e ares-condicionados Samsung (Wi-Fi) pela API
 // SmartThings, via Edge Function `smartthings-proxy`:
@@ -20,7 +20,7 @@
 // cena 3D reage (tons frios do AC, brilho sutil da TV).
 // ============================================================
 
-import { state, on, getRoomNames, upsertDevice } from '../state.js';
+import { state, on, emit, getRoomNames, upsertDevice } from '../state.js';
 import { toast, escapeHtml } from '../toasts.js';
 
 const TOKEN_KEY = 'nh_smartthings_token';
@@ -32,12 +32,12 @@ const DEMO_ST = [
   {
     id: 'demo-tv-1', name: 'TV Samsung (Demo)', kind: 'tv', online: true,
     caps: ['switch', 'audioVolume', 'audioMute', 'tvChannel'],
-    st: { on: false, volume: 12, mute: false, channel: 5 },
+    st: { on: false, volume: 12, mute: false, channel: 5, temperature: 24.8, humidity: 52 },
   },
   {
     id: 'demo-ac-1', name: 'Ar-Condicionado Samsung (Demo)', kind: 'ac', online: true,
     caps: ['switch', 'thermostatCoolingSetpoint', 'airConditionerMode'],
-    st: { on: false, setpoint: 23, mode: 'cool' },
+    st: { on: false, setpoint: 23, mode: 'cool', temperature: 26.4, humidity: 58 },
   },
 ];
 
@@ -47,6 +47,7 @@ let token = null;
 let links = {};          // { deviceId: roomName }
 let stDevices = [];      // [{ id, name, kind, caps[], st:{}, online }]
 let pollTimer = null;
+let driftTimer = null;   // deriva de sensores simulados (modo demo)
 let listEl = null;
 
 // ------------------------------------------------------------
@@ -73,15 +74,20 @@ export function initSmartThingsPanel(nexusClient) {
   if (demo) {
     // demo: aparelhos simulados, sem token nem rede
     stDevices = DEMO_ST.map((d) => ({ ...d, st: { ...d.st } }));
+    setStConnected(true);
     showConnected();
     renderDevices();
     syncVirtualDevices();
+    publishReadings();
+    startDemoDrift();
   } else {
     token = (localStorage.getItem(TOKEN_KEY) || '').trim() || null;
     if (token) {
+      setStConnected(true); // otimista: refresh(true) desfaz se o token estiver inválido
       showConnected();
       refresh(true); // valida o token salvo na primeira carga
     } else {
+      setStConnected(false);
       showSetup();
     }
   }
@@ -89,6 +95,8 @@ export function initSmartThingsPanel(nexusClient) {
 
 export function teardownSmartThings() {
   stopPolling();
+  stopDemoDrift();
+  setStConnected(false);
 }
 
 function isConnectedView() {
@@ -128,9 +136,11 @@ async function onConnect() {
     renderDevices();
     syncVirtualDevices();
     startPolling();
+    setStConnected(true);
     toast('SmartThings conectado', `${stDevices.length} aparelho(s) encontrado(s).`, 'success');
   } catch (err) {
     token = null;
+    setStConnected(false);
     handleError(err, 'Validar token');
   } finally {
     setBusy(false, 'Conectar');
@@ -151,6 +161,7 @@ function disconnect() {
     renderDevices();
     return;
   }
+  setStConnected(false);
   showSetup();
   toast('SmartThings desconectado', 'Token e vínculos removidos deste navegador.', 'info');
 }
@@ -222,7 +233,15 @@ function mapStatus(status) {
     channel: val('tvChannel', 'tvChannel') ?? null,
     setpoint: Number(val('thermostatCoolingSetpoint', 'coolingSetpoint') ?? 23),
     mode: val('airConditionerMode', 'airConditionerMode') || 'cool',
+    // sensores ambientais reportados pelo próprio aparelho (quando existem)
+    temperature: numOrNull(val('temperatureMeasurement', 'temperature')),
+    humidity: numOrNull(val('relativeHumidityMeasurement', 'humidity')),
   };
+}
+
+function numOrNull(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 // ------------------------------------------------------------
@@ -285,7 +304,7 @@ function stopPolling() {
 }
 
 async function refresh(manual) {
-  if (demo) { renderDevices(); return; }
+  if (demo) { renderDevices(); publishReadings(); return; }
   if (!token) return;
   try {
     const n = (await listDevices()).length;
@@ -294,9 +313,10 @@ async function refresh(manual) {
     }
     renderDevices();
     syncVirtualDevices();
+    publishReadings(); // alimenta as automações com gatilho SmartThings
   } catch (err) {
     handleError(err, 'Atualizar aparelhos');
-    if (err.status === 401) { stopPolling(); showSetup(); }
+    if (err.status === 401) { setStConnected(false); stopPolling(); showSetup(); }
   }
 }
 
@@ -329,6 +349,95 @@ function syncVirtualDevices() {
       virtual: true, // não aparece no painel de dispositivos nem aceita escrita direta
     });
   });
+}
+
+// ------------------------------------------------------------
+// API pública para o motor de automações (v1.5.0)
+// ------------------------------------------------------------
+
+/** Lista atual de aparelhos SmartThings (id, name, kind, online, st). */
+export function getStDevices() {
+  return stDevices;
+}
+
+/** Painel conectado? (no Modo Demonstração conta como conectado) */
+export function isStConnected() {
+  return demo || !!token;
+}
+
+function setStConnected(v) {
+  if (state.stConnected === v) return;
+  state.stConnected = v;
+  emit('st-connection-changed', v);
+}
+
+/** Info pontual de um aparelho (para badges/descrições fora do painel). */
+export function getStDeviceInfo(id) {
+  const d = stDevices.find((x) => x.id === id);
+  return d ? { id: d.id, name: d.name, kind: d.kind, online: d.online } : null;
+}
+
+/**
+ * Publica as últimas leituras no estado global e dispara 'st-readings' —
+ * o avaliador de automações escuta esse evento a cada poll (30 s) e a
+ * cada deriva do simulador demo.
+ */
+function publishReadings() {
+  const readings = {};
+  stDevices.forEach((d) => {
+    readings[d.id] = {
+      temperature: d.st.temperature ?? null,
+      humidity: d.st.humidity ?? null,
+      online: d.online,
+    };
+  });
+  state.stReadings = readings;
+  emit('st-readings', readings);
+}
+
+// ---- deriva dos sensores simulados (somente Modo Demonstração) ----
+// Temperatura passeia entre 22–31 °C para que regras de exemplo
+// (ex.: "> 26 °C") cruzem a borda e disparem de verdade.
+function startDemoDrift() {
+  stopDemoDrift();
+  driftTimer = setInterval(() => {
+    stDevices.forEach((d) => {
+      d.st.temperature = clamp(d.st.temperature + (Math.random() - 0.48) * 1.4, 22, 31);
+      d.st.humidity = clamp(d.st.humidity + (Math.random() - 0.5) * 3, 40, 70);
+    });
+    publishReadings();
+  }, 5000);
+}
+
+function stopDemoDrift() {
+  if (driftTimer) { clearInterval(driftTimer); driftTimer = null; }
+}
+
+function clamp(v, lo, hi) {
+  return Math.min(hi, Math.max(lo, Math.round(v * 10) / 10));
+}
+
+/**
+ * Executa uma lista de comandos SmartThings (ação de automação).
+ * No demo aplica localmente; no live envia UM POST por aparelho via proxy.
+ * Lança erro em caso de falha (o chamador trata com toast).
+ * Retorna o aparelho afetado (para compor a mensagem de sucesso).
+ */
+export async function executeStAutomationCommands(stDeviceId, commands) {
+  const d = stDevices.find((x) => x.id === stDeviceId);
+  if (!d) throw new Error('Aparelho SmartThings não encontrado (reconecte o painel).');
+
+  if (demo) {
+    commands.forEach((c) => applyDemoCommand(d, c.capability, c.command, c.arguments));
+    renderDevices();
+    syncVirtualDevices();
+    publishReadings();
+    return d;
+  }
+  if (!token) throw new Error('SmartThings offline — conecte o painel com um token válido.');
+  await stCall(`/devices/${stDeviceId}/commands`, 'POST', { commands });
+  setTimeout(() => refresh(false), 1500);
+  return d;
 }
 
 // ------------------------------------------------------------
