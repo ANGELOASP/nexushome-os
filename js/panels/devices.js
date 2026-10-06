@@ -31,7 +31,8 @@ export function initDevicesPanel(nexusClient) {
 
 function render() {
   if (!listEl) return;
-  const devices = state.devices;
+  // dispositivos virtuais (ex.: SmartThings) são controlados no próprio painel
+  const devices = state.devices.filter((d) => !d.virtual);
   listEl.innerHTML = '';
 
   // cômodos da planta + eventuais grupos órfãos (cômodo renomeado/excluído)
@@ -177,7 +178,7 @@ function highlightRoom(room) {
 
 function updateActiveCounts() {
   listEl?.querySelectorAll('.device-room-group').forEach((g) => {
-    const n = state.devices.filter((d) => d.room === g.dataset.room && (d.type === 'light' || d.type === 'ac') && d.status?.on).length;
+    const n = state.devices.filter((d) => !d.virtual && d.room === g.dataset.room && (d.type === 'light' || d.type === 'ac') && d.status?.on).length;
     const el = g.querySelector('.room-active-count');
     if (el) el.textContent = n ? `${n} ativo${n > 1 ? 's' : ''}` : '';
   });
