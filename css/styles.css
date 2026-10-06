@@ -528,6 +528,21 @@ body:not(.authenticated) aside.panel {
 }
 .fp-snap-toggle input { accent-color: #22d3ee; cursor: pointer; }
 
+/* grupo de ferramentas do editor (v1.9.0): Selecionar / Parede / Apagar */
+.fp-tools {
+  display: inline-flex; align-items: center; gap: 0.2rem;
+  padding: 0.2rem; border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.03);
+}
+.fp-tools .fp-btn { border-color: transparent; background: transparent; padding: 0.42rem 0.6rem; }
+.fp-tools .fp-btn:hover { background: rgba(255, 255, 255, 0.08); }
+.fp-tool-active {
+  background: rgba(34, 211, 238, 0.15) !important;
+  border-color: rgba(34, 211, 238, 0.45) !important;
+  color: #67e8f9 !important;
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.2);
+}
+
 /* popover de presets de cômodo */
 .fp-presets {
   position: absolute; top: 0.75rem; left: 0.75rem; z-index: 10;
