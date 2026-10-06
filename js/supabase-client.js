@@ -11,10 +11,12 @@
 //   channel(name).on('postgres_changes', {table}, cb).subscribe()
 // ============================================================
 
-import { emit, DEFAULT_ROOMS } from './state.js';
+import { emit, DEFAULT_ROOMS, normalizeRoom } from './state.js';
 
 // ---- Planta demo: persiste em localStorage (chave nh_floorplan),
-//      semeada com os 4 cômodos padrão na primeira execução
+//      semeada com os 4 cômodos padrão na primeira execução.
+//      v1.6.0: plantas antigas (sem floor/kind) são migradas de forma
+//      transparente — floor 0 e kind inferido pelo nome do cômodo.
 const FLOORPLAN_KEY = 'nh_floorplan';
 
 function loadDemoRooms() {
@@ -22,7 +24,12 @@ function loadDemoRooms() {
     const raw = localStorage.getItem(FLOORPLAN_KEY);
     if (raw) {
       const rows = JSON.parse(raw);
-      if (Array.isArray(rows) && rows.length) return rows;
+      if (Array.isArray(rows) && rows.length) {
+        const migrated = rows.map(normalizeRoom);
+        // regrava já migrado (floor/kind preenchidos)
+        try { localStorage.setItem(FLOORPLAN_KEY, JSON.stringify(migrated)); } catch { /* modo restrito */ }
+        return migrated;
+      }
     }
   } catch { /* seed padrão */ }
   return DEFAULT_ROOMS.map((r) => ({ ...r, created_at: new Date().toISOString() }));
