@@ -107,6 +107,7 @@ O painel **SmartThings** (canto inferior direito) controla aparelhos reais da su
 - O token fica **somente no seu navegador** (`localStorage` chave `nh_smartthings_links` guarda apenas o vínculo aparelho↔cômodo; o token em si fica em `nh_smartthings_token`). Nada é salvo no banco.
 - As chamadas à API passam pela Edge Function [`smartthings-proxy`](supabase/functions/smartthings-proxy/index.ts), que apenas repassa a requisição para `api.smartthings.com` com o token vindo do header `x-smartthings-token` — o proxy **não persiste, não loga e não devolve** o token (evita CORS e mantém a chave fora do código-fonte).
 - Por segurança, o proxy só aceita métodos `GET`/`POST` e caminhos começando com `/devices`.
+- **Exige login (v1.10.0)**: faça o deploy **sem** `--no-verify-jwt` (`supabase functions deploy smartthings-proxy`). A plataforma valida o JWT e a função rejeita a chave anon — só usuários autenticados usam o proxy. O mesmo vale para `tuya-proxy`. O frontend não muda: `functions.invoke` já envia o token da sessão.
 
 ### 3. Controles disponíveis
 
