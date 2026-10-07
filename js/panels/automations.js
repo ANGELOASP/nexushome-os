@@ -399,6 +399,10 @@ function compare(v, op, th) {
 }
 
 function evaluate(metric, value) {
+  // Live: as regras de métricas nativas rodam no servidor (migração 007,
+  // trigger em telemetry_logs) — avaliar aqui também executaria em dobro.
+  // No Modo Demonstração não há servidor, então o navegador segue avaliando.
+  if (state.mode === 'live') return;
   const now = Date.now();
   for (const a of state.automations) {
     if (!a.is_active) continue;
