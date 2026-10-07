@@ -47,6 +47,15 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+/** Comparação em tempo (quase) constante para não vazar o segredo por timing. */
+function safeEqual(a: string, b: string): boolean {
+  const ea = new TextEncoder().encode(a);
+  const eb = new TextEncoder().encode(b);
+  let diff = ea.length ^ eb.length;
+  for (let i = 0; i < Math.max(ea.length, eb.length); i++) diff |= (ea[i] ?? 0) ^ (eb[i] ?? 0);
+  return diff === 0;
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -57,9 +66,14 @@ serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "Método não suportado" }, 405);
 
   // --- autenticação simples por segredo compartilhado ---------
+  // Fail-closed: sem IOT_DEVICE_SECRET configurado a função recusa tudo,
+  // pois ela grava com service_role (ignora RLS).
   const expected = Deno.env.get("IOT_DEVICE_SECRET");
-  const provided = req.headers.get("x-device-key");
-  if (expected && provided !== expected) {
+  if (!expected) {
+    console.error("[iot-gateway] IOT_DEVICE_SECRET não configurado — requisição recusada");
+    return json({ error: "Gateway não configurado (IOT_DEVICE_SECRET ausente)" }, 503);
+  }
+  if (!safeEqual(req.headers.get("x-device-key") ?? "", expected)) {
     return json({ error: "Chave de dispositivo inválida" }, 401);
   }
 
