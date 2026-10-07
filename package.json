@@ -1,13 +1,14 @@
 {
   "name": "nexushome-os",
   "private": true,
-  "version": "1.7.0",
+  "version": "1.10.0",
   "description": "NexusHome OS — sistema operacional de casa inteligente em tempo real (projeto sem fins lucrativos)",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.mjs"
   },
   "devDependencies": {
     "vite": "^5.4.8"

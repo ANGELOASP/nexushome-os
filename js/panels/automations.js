@@ -12,6 +12,7 @@
 
 import { state, on, emit, upsertAutomation, getDevice } from '../state.js';
 import { toast, escapeHtml } from '../toasts.js';
+import { compare } from '../rules.js';
 import { updateStatus } from './devices.js';
 import { getStDevices, getStDeviceInfo, isStConnected, executeStAutomationCommands } from './smartthings.js';
 
@@ -387,18 +388,11 @@ async function onCreate(e) {
 // Avaliador de regras (client-side, edge-trigger + cooldown)
 // ------------------------------------------------------------
 
-function compare(v, op, th) {
-  switch (op) {
-    case '>': return v > th;
-    case '>=': return v >= th;
-    case '<': return v < th;
-    case '<=': return v <= th;
-    case '==': return v === th;
-    default: return false;
-  }
-}
-
 function evaluate(metric, value) {
+  // Live: as regras de métricas nativas rodam no servidor (migração 007,
+  // trigger em telemetry_logs) — avaliar aqui também executaria em dobro.
+  // No Modo Demonstração não há servidor, então o navegador segue avaliando.
+  if (state.mode === 'live') return;
   const now = Date.now();
   for (const a of state.automations) {
     if (!a.is_active) continue;

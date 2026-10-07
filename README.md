@@ -11,7 +11,7 @@ Sistema operacional de casa inteligente em tempo real — SPA com visualização
 - **Login obrigatório** (Supabase Auth e-mail/senha): todo o app fica bloqueado atrás de uma tela de login; no Modo Demonstração um banner âmbar avisa que qualquer credencial entra.
 - **Telemetria em tempo real**: energia (W) e fluxo de água (L/h) com sparklines, badge de saúde (Seguro/Atenção/Crítico) e feed de alertas.
 - **Segurança hídrica**: detecção de vazamento (fluxo > 0 por mais de 30 s com tudo desligado) e botão de emergência **FECHAR VÁLVULA DE ÁGUA GERAL**.
-- **Automações IFTTT**: crie regras `SE métrica (operador) limiar ENTÃO ação no dispositivo`, com avaliador client-side (edge-trigger + cooldown). Desde a v1.5.0, sensores e comandos **SmartThings** também servem de gatilho e de ação.
+- **Automações IFTTT**: crie regras `SE métrica (operador) limiar ENTÃO ação no dispositivo`, com avaliador client-side (edge-trigger + cooldown). Desde a v1.5.0, sensores e comandos **SmartThings** também servem de gatilho e de ação. **Desde a v1.10.0, as regras de métricas nativas (energia, água, temperatura, umidade) rodam no servidor** — funcionam com o navegador fechado (migração 007; edge-trigger + cooldown de 20 s; cada execução registra um alerta `automacao`). Regras SmartThings seguem no navegador, pois o token Samsung fica só no seu `localStorage`. No Modo Demonstração o avaliador continua no navegador.
 - **Integração Samsung SmartThings** (novo na v1.4.0): controle **TVs** (power, volume, mudo, canal) e **ares-condicionados** (power, temperatura 16–30 °C, modo) reais direto do painel, com vínculo a cômodos da planta e reação visual na cena 3D. Veja a seção dedicada abaixo.
 - **Integração Tuya Smart Life — hidráulica** (novo na v1.7.0): painel **Água — Smart Life (Tuya)** para **válvulas Wi-Fi** (setoriais e geral), **válvula-medidora ultrassônica** na entrada, **monitores de nível ME201W** e **sensores de vazamento**, via Tuya Cloud com proxy assinado (HMAC-SHA256) — a vazão real alimenta o dashboard, o nível vira métrica `water_level_pct` e vazamento vira **alerta crítico**. Veja a seção dedicada abaixo.
 - **Modo Demonstração**: sem backend? Sem problema — o app simula tudo no navegador (inclusive a autenticação).
@@ -35,6 +35,8 @@ Sem nenhuma configuração, o app entra em **Modo Demonstração**: um cliente S
    3. [`supabase/migrations/003_rooms.sql`](supabase/migrations/003_rooms.sql) — **planta da residência**: tabela `rooms` (nome, posição, tamanho, cor), RLS autenticado, realtime e os 4 cômodos padrão como seeds. Sem ela, o app carrega a planta padrão embutida e o salvamento falha.
    4. [`supabase/migrations/004_rooms_floor_kind.sql`](supabase/migrations/004_rooms_floor_kind.sql) — **Editor de Planta 2.0**: colunas `floor` (andar: 0 = térreo) e `kind` (tipo do cômodo) + backfill dos 4 seeds. Idempotente. Sem ela, o salvamento da planta falha com "column does not exist".
    5. [`supabase/migrations/005_water_level_metric.sql`](supabase/migrations/005_water_level_metric.sql) — **integração Tuya**: aceita a métrica `water_level_pct` (nível da caixa d'água) em `telemetry_logs`. Idempotente. Sem ela, as leituras de nível dos monitores Tuya falham ao gravar.
+   6. [`supabase/migrations/006_walls.sql`](supabase/migrations/006_walls.sql) — paredes vetoriais da planta (tabela `walls`).
+   7. [`supabase/migrations/007_server_automations.sql`](supabase/migrations/007_server_automations.sql) — **automações no servidor** (v1.10.0): trigger em `telemetry_logs` que avalia as regras IFTTT de métricas nativas no Postgres. Idempotente. Sem ela, no modo live as regras nativas **deixam de rodar** (o navegador não as avalia mais).
 3. Copie [`js/config.example.js`](js/config.example.js) para `js/config.js` e preencha:
 
    ```js
@@ -105,6 +107,7 @@ O painel **SmartThings** (canto inferior direito) controla aparelhos reais da su
 - O token fica **somente no seu navegador** (`localStorage` chave `nh_smartthings_links` guarda apenas o vínculo aparelho↔cômodo; o token em si fica em `nh_smartthings_token`). Nada é salvo no banco.
 - As chamadas à API passam pela Edge Function [`smartthings-proxy`](supabase/functions/smartthings-proxy/index.ts), que apenas repassa a requisição para `api.smartthings.com` com o token vindo do header `x-smartthings-token` — o proxy **não persiste, não loga e não devolve** o token (evita CORS e mantém a chave fora do código-fonte).
 - Por segurança, o proxy só aceita métodos `GET`/`POST` e caminhos começando com `/devices`.
+- **Exige login (v1.10.0)**: faça o deploy **sem** `--no-verify-jwt` (`supabase functions deploy smartthings-proxy`). A plataforma valida o JWT e a função rejeita a chave anon — só usuários autenticados usam o proxy. O mesmo vale para `tuya-proxy`. O frontend não muda: `functions.invoke` já envia o token da sessão.
 
 ### 3. Controles disponíveis
 
@@ -127,7 +130,7 @@ Com o painel conectado, o motor IFTTT passa a enxergar os aparelhos Samsung **do
 - **Ação por comando**: o alvo da ação pode ser um aparelho Samsung (optgroup *Samsung SmartThings*), com construtor compacto de comandos — AC: ligar/desligar + modo + temperatura (16–30 °C); TV: ligar/desligar + mudo. Os comandos são enviados pela Edge Function `smartthings-proxy` com o token do navegador.
 - **Cooldown de 5 minutos em ações de AC** para não estressar o compressor com liga/desliga em sequência; os demais alvos seguem o cooldown padrão de 20 s.
 - Se o SmartThings estiver **desconectado** (sem token), as regras Samsung exibem o badge `⏸ SmartThings offline` e são puladas até a reconexão.
-- O avaliador roda **no navegador, enquanto o app estiver aberto** — regras não disparam com a aba fechada.
+- O avaliador das regras **SmartThings** roda **no navegador, enquanto o app estiver aberto** — essas regras não disparam com a aba fechada (as de métricas nativas rodam no servidor desde a v1.10.0).
 
 ### 6. Modo Demonstração
 
@@ -234,6 +237,8 @@ nexushome-os/
 │   ├── migrations/003_rooms.sql  # planta da residência (tabela rooms + seeds)
 │   ├── migrations/004_rooms_floor_kind.sql # andares + tipos de cômodo (v1.6.0)
 │   ├── migrations/005_water_level_metric.sql # métrica water_level_pct (v1.7.0)
+│   ├── migrations/006_walls.sql # paredes da planta
+│   ├── migrations/007_server_automations.sql # automações no servidor (v1.10.0)
 │   └── functions/
 │       ├── iot-gateway/        # Edge Function (Deno) — ingestão IoT
 │       ├── smartthings-proxy/  # Edge Function (Deno) — proxy seguro p/ SmartThings
@@ -246,6 +251,15 @@ nexushome-os/
 - O acesso aos dados exige login (RLS `authenticated-only` após a migração 002). Ainda assim, **qualquer usuário autenticado lê/escreve tudo** (single-tenant); isolamento por usuário (políticas com `auth.uid()`) é o próximo passo natural para multi-residência.
 - O segredo `IOT_DEVICE_SECRET` é uma proteção mínima para a Edge Function; considere mTLS ou assinatura HMAC por dispositivo em cenários reais.
 - A `service_role` key jamais deve ser exposta ao frontend — ela bypassa o RLS.
+
+## Testes
+
+```bash
+npm test                      # lógica das regras (js/rules.js) — node:test, sem dependências
+DATABASE_URL=postgres://... tests/sql/run.sh   # trigger de automações (migração 007)
+```
+
+O teste SQL aplica as migrações 001, 005 e 007 e exercita o trigger (limiar, edge-trigger, cooldown, regra inativa, regra inválida, regras SmartThings). **Use um banco de teste VAZIO** — nunca o de produção: o script cria tabelas e insere dados.
 
 ## Licença
 

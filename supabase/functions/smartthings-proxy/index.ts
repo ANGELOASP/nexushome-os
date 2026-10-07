@@ -29,10 +29,10 @@
 //               "method": "GET" | "POST",
 //               "payload": { ... } }        // opcional (POST)
 //
-// Deploy:  supabase functions deploy smartthings-proxy --no-verify-jwt
-//   (--no-verify-jwt espelha o iot-gateway: a função é chamada
-//    com o contexto anon do app; a credencial real é o PAT do
-//    usuário, que muda por sessão/navegador e não cabe no JWT.)
+// Deploy:  supabase functions deploy smartthings-proxy
+//   (SEM --no-verify-jwt: a plataforma valida o JWT e a função exige
+//    role "authenticated" — só usuários logados usam o proxy. O
+//    supabase-js envia o token da sessão sozinho em functions.invoke.)
 // ============================================================
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
@@ -40,7 +40,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 const UPSTREAM = "https://api.smartthings.com/v1";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*", // proxy de API chamado com o contexto anon do app (mesmo padrão do iot-gateway)
+  "Access-Control-Allow-Origin": "*", // exige JWT de usuário logado (ver isAuthenticatedUser)
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-smartthings-token",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
@@ -52,9 +52,27 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+/**
+ * Exige um usuário LOGADO. A plataforma já valida a assinatura do JWT
+ * (deploy SEM --no-verify-jwt); aqui rejeitamos o JWT da chave anon
+ * (role "anon"), que também é um JWT válido e está no frontend.
+ */
+function isAuthenticatedUser(req: Request): boolean {
+  const m = /^Bearer\s+([\w-]+)\.([\w-]+)\.[\w-]+$/.exec(req.headers.get("authorization") ?? "");
+  if (!m) return false;
+  try {
+    const b64 = m[2].replace(/-/g, "+").replace(/_/g, "/");
+    const claims = JSON.parse(atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4)));
+    return claims?.role === "authenticated";
+  } catch {
+    return false;
+  }
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Método não suportado" }, 405);
+  if (!isAuthenticatedUser(req)) return json({ error: "Login necessário" }, 401);
 
   // --- autenticação: PAT vem do navegador do usuário ----------
   const token = (req.headers.get("x-smartthings-token") ?? "").trim();
@@ -76,7 +94,7 @@ serve(async (req: Request) => {
   // allowlist: somente caminhos relativos da API /devices — nada de
   // URLs absolutas, "..", "@" ou quebra de linha (o proxy não é túnel)
   if (
-    !path.startsWith("/devices") ||
+    !/^\/devices(\/|\?|$)/.test(path) ||
     path.includes("..") ||
     path.includes("://") ||
     path.includes("@") ||

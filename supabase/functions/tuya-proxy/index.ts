@@ -45,10 +45,10 @@
 // Regiões: us → openapi.tuyaus.com (padrão — contas Smart Life
 // BR normalmente funcionam no cluster US), eu, cn, in.
 //
-// Deploy:  supabase functions deploy tuya-proxy --no-verify-jwt
-//   (--no-verify-jwt espelha o smartthings-proxy/iot-gateway:
-//    a credencial real são as chaves Tuya do usuário, que mudam
-//    por sessão/navegador e não cabem no JWT.)
+// Deploy:  supabase functions deploy tuya-proxy
+//   (SEM --no-verify-jwt: a plataforma valida o JWT e a função exige
+//    role "authenticated" — só usuários logados usam o proxy. O
+//    supabase-js envia o token da sessão sozinho em functions.invoke.)
 // ============================================================
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
@@ -61,7 +61,7 @@ const REGIONS: Record<string, string> = {
 };
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*", // proxy de API chamado com o contexto anon do app (mesmo padrão do smartthings-proxy)
+  "Access-Control-Allow-Origin": "*", // exige JWT de usuário logado (ver isAuthenticatedUser)
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
@@ -171,9 +171,27 @@ interface Creds {
   region?: string;
 }
 
+/**
+ * Exige um usuário LOGADO. A plataforma já valida a assinatura do JWT
+ * (deploy SEM --no-verify-jwt); aqui rejeitamos o JWT da chave anon
+ * (role "anon"), que também é um JWT válido e está no frontend.
+ */
+function isAuthenticatedUser(req: Request): boolean {
+  const m = /^Bearer\s+([\w-]+)\.([\w-]+)\.[\w-]+$/.exec(req.headers.get("authorization") ?? "");
+  if (!m) return false;
+  try {
+    const b64 = m[2].replace(/-/g, "+").replace(/_/g, "/");
+    const claims = JSON.parse(atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4)));
+    return claims?.role === "authenticated";
+  } catch {
+    return false;
+  }
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Método não suportado" }, 405);
+  if (!isAuthenticatedUser(req)) return json({ error: "Login necessário" }, 401);
 
   // --- payload -------------------------------------------------
   let body: Record<string, unknown>;
