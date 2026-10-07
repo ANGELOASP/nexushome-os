@@ -35,6 +35,22 @@ function loadDemoRooms() {
   return DEFAULT_ROOMS.map((r) => ({ ...r, created_at: new Date().toISOString() }));
 }
 
+// ---- Paredes do modo demo: persistem em localStorage (chave
+//      nh_floorplan_walls), assim como os cômodos. Sem seed — a planta
+//      desenhada pelo usuário começa vazia até ele traçar as paredes.
+const WALLS_KEY = 'nh_floorplan_walls';
+
+function loadDemoWalls() {
+  try {
+    const raw = localStorage.getItem(WALLS_KEY);
+    if (raw) {
+      const rows = JSON.parse(raw);
+      if (Array.isArray(rows)) return rows;
+    }
+  } catch { /* modo restrito */ }
+  return [];
+}
+
 // ---- Seeds do modo demonstração (espelham supabase/migrations/001_init.sql)
 export const DEMO_DEVICES = [
   {
@@ -290,6 +306,7 @@ export class MockSupabaseClient {
       telemetry_logs: [],
       alerts: [],
       rooms: loadDemoRooms(),
+      walls: loadDemoWalls(),
     };
     this._simTimer = null;
     this._waterTicksLeft = 0;
@@ -298,10 +315,15 @@ export class MockSupabaseClient {
     this.auth = new MockAuth(); // mesma superfície de supabase.auth
   }
 
-  // persiste a planta demo em localStorage após escritas na tabela rooms
+  // persiste a planta demo em localStorage após escritas em rooms/walls
   _afterWrite(table) {
-    if (table !== 'rooms') return;
-    try { localStorage.setItem(FLOORPLAN_KEY, JSON.stringify(this._db.rooms)); } catch { /* modo restrito */ }
+    try {
+      if (table === 'rooms') {
+        localStorage.setItem(FLOORPLAN_KEY, JSON.stringify(this._db.rooms));
+      } else if (table === 'walls') {
+        localStorage.setItem(WALLS_KEY, JSON.stringify(this._db.walls || []));
+      }
+    } catch { /* modo restrito */ }
   }
 
   from(table) { return new MockQueryBuilder(this, table); }
