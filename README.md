@@ -242,7 +242,8 @@ nexushome-os/
 │   └── functions/
 │       ├── iot-gateway/        # Edge Function (Deno) — ingestão IoT
 │       ├── smartthings-proxy/  # Edge Function (Deno) — proxy seguro p/ SmartThings
-│       └── tuya-proxy/         # Edge Function (Deno) — proxy assinado p/ Tuya Cloud
+│       ├── tuya-proxy/         # Edge Function (Deno) — proxy assinado p/ Tuya Cloud
+│       └── notify-alert/       # Edge Function (Deno) — alertas → Telegram (v1.11.0)
 └── firmware/esp32_nexushome/   # firmware Arduino/ESP32
 ```
 
@@ -251,6 +252,26 @@ nexushome-os/
 - O acesso aos dados exige login (RLS `authenticated-only` após a migração 002). Ainda assim, **qualquer usuário autenticado lê/escreve tudo** (single-tenant); isolamento por usuário (políticas com `auth.uid()`) é o próximo passo natural para multi-residência.
 - O segredo `IOT_DEVICE_SECRET` é uma proteção mínima para a Edge Function; considere mTLS ou assinatura HMAC por dispositivo em cenários reais.
 - A `service_role` key jamais deve ser exposta ao frontend — ela bypassa o RLS.
+
+## Notificações no Telegram (v1.11.0)
+
+Alertas **críticos** (vazamento detectado pelo sensor Tuya, consumo crítico, válvula geral fechada…) chegam no seu Telegram pela Edge Function [`notify-alert`](supabase/functions/notify-alert/index.ts), chamada por um **Database Webhook** a cada `INSERT` em `alerts` — o envio acontece no servidor, não depende de a aba estar aberta.
+
+1. No Telegram, fale com **@BotFather** → `/newbot` → copie o **token**.
+2. Mande uma mensagem qualquer ao seu bot e abra `https://api.telegram.org/bot<TOKEN>/getUpdates` → copie o `chat.id`.
+3. Configure os segredos e faça o deploy:
+
+   ```bash
+   supabase secrets set TELEGRAM_BOT_TOKEN="..." TELEGRAM_CHAT_ID="..." NOTIFY_WEBHOOK_SECRET="um-segredo-forte"
+   # opcional: NOTIFY_MIN_SEVERITY=warning   (padrão: critical; info nunca incomoda por padrão)
+   supabase functions deploy notify-alert --no-verify-jwt
+   ```
+
+4. No dashboard: **Database → Webhooks → Create a new hook** — tabela `alerts`, evento **Insert**, tipo **Supabase Edge Functions** → `notify-alert`, e adicione o header HTTP `x-webhook-secret` com o **mesmo** segredo.
+
+Fail-closed: sem os três segredos a função responde 503; sem o header correto, 401. O token do bot nunca é logado.
+
+> **Limite conhecido**: a *geração* de alguns alertas ainda acontece no navegador (consumo elevado, vazamento por fluxo contínuo e o polling do sensor Tuya). A notificação em si é no servidor, mas esses alertas só existem enquanto o app estiver aberto em algum dispositivo. As regras de automação (migração 007) já rodam 100% no servidor.
 
 ## Testes
 
