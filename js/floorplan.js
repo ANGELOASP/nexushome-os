@@ -1,5 +1,5 @@
 // ============================================================
-// NexusHome OS — Editor de Planta 3.0 (v1.9.0)
+// NexusHome OS — Editor de Planta 3.1 (v1.9.1)
 // ------------------------------------------------------------
 // Editor 2D top-down em canvas, agora com modelo vetorial de
 // PAREDES estilo CAD (AutoCAD/SketchUp/Promob): cada parede é
@@ -7,7 +7,9 @@
 // ferramenta própria (clique-clique), trava de eixo 0°/90°/45°,
 // atração magnética a endpoints e medida ao vivo.
 //
-//   · FERRAMENTAS: Selecionar (V) · Parede (W) · Apagar (E)
+//   · FERRAMENTAS: Selecionar (V) · Parede (W) · Cômodo (R) · Apagar (E)
+//     — Cômodo (R) desenha o retângulo por arrasto sobre o fundo,
+//       como no CAD; presets continuam no botão "Adicionar cômodo"
 //   · PAREDES: tabela `walls` (Supabase), espessura 0,15 m,
 //     render branco CAD com contorno; endpoint arrastável
 //   · PRESETS de cômodo (kind): paleta com nome/cor/ícone/tamanho
@@ -54,9 +56,10 @@ let wallsLive = [];        // paredes salvas (Supabase / demo)
 let wallsDraft = [];       // cópia de trabalho enquanto o editor está aberto
 let wallsBaseline = [];    // paredes no momento em que o modal abriu
 let selectedWallId = null;
-let tool = 'select';       // 'select' | 'wall' | 'erase'
+let tool = 'select';       // 'select' | 'wall' | 'erase' | 'room'
 let wallDraw = null;       // { x1, z1 } — primeiro clique da ferramenta Parede
 let wallHover = null;      // { x, z } — ponto sob o cursor (preview da parede)
+let roomDraw = null;       // { x1, z1, x2, z2 } — borracha da ferramenta Cômodo
 const WALL_TH = 0.15;      // espessura padrão da parede (m)
 const WALL_SNAP = 0.05;    // snap fino de endpoints de parede (m)
 const AXIS_LOCK_DEG = 8;   // trava de eixo 0°/90°/45° (SketchUp-style)
@@ -106,9 +109,10 @@ export function initFloorplan({ getClient: gc } = {}) {
   document.getElementById('btn-fp-fit')?.addEventListener('click', () => { fitView(); draw(); });
   document.getElementById('fp-snap')?.addEventListener('change', (e) => { snapEnabled = !!e.target.checked; });
 
-  // ferramentas estilo CAD: Selecionar (V) · Parede (W) · Apagar (E)
+  // ferramentas estilo CAD: Selecionar (V) · Parede (W) · Cômodo (R) · Apagar (E)
   document.getElementById('btn-fp-tool-select')?.addEventListener('click', () => setTool('select'));
   document.getElementById('btn-fp-tool-wall')?.addEventListener('click', () => setTool('wall'));
+  document.getElementById('btn-fp-tool-room')?.addEventListener('click', () => setTool('room'));
   document.getElementById('btn-fp-tool-erase')?.addEventListener('click', () => setTool('erase'));
 
   // fundo de referência (imagem da planta CAD)
@@ -300,6 +304,7 @@ function openEditor() {
   selectedWallId = null;
   wallDraw = null;
   wallHover = null;
+  roomDraw = null;
   setTool('select');
   history.past = [];
   history.future = [];
@@ -312,6 +317,9 @@ function openEditor() {
   renderFloorTabs();
   syncToolbar();
   startLoop();
+  if (state.mode === 'demo') {
+    toast('Modo Demonstração', 'A planta salva fica apenas neste navegador. Conecte ao Supabase em Conexões para sincronizar.', 'warning');
+  }
 }
 
 function closeEditor() {
@@ -324,25 +332,27 @@ function closeEditor() {
   selectedWallId = null;
   wallDraw = null;
   wallHover = null;
+  roomDraw = null;
   hideForm();
   hidePresets();
   hideBgPanel();
 }
 
 // ------------------------------------------------------------
-// Ferramentas (Selecionar / Parede / Apagar)
+// Ferramentas (Selecionar / Parede / Cômodo / Apagar)
 // ------------------------------------------------------------
 
 function setTool(t) {
   tool = t;
   wallDraw = null;
   wallHover = null;
+  roomDraw = null;
   if (t !== 'select') { select(null); selectedWallId = null; }
-  const map = { select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase' };
+  const map = { select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase', room: 'btn-fp-tool-room' };
   Object.entries(map).forEach(([k, id]) => {
     document.getElementById(id)?.classList.toggle('fp-tool-active', k === t);
   });
-  if (canvas) canvas.style.cursor = t === 'wall' ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
+  if (canvas) canvas.style.cursor = (t === 'wall' || t === 'room') ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
   draw();
 }
 
@@ -553,6 +563,7 @@ function draw() {
 
   drawWalls();
   drawWallPreview();
+  drawRoomPreview();
   drawGuides(w, h);
 }
 
@@ -646,6 +657,37 @@ function drawWallPreview() {
   ctx.fillStyle = 'rgba(11,17,32,0.85)';
   ctx.fillRect(mx - tw / 2 - 6, my - 24, tw + 12, 18);
   ctx.fillStyle = '#a5f3fc';
+  ctx.fillText(label, mx, my - 8);
+  ctx.restore();
+}
+
+/** Preview elástico da ferramenta Cômodo (retângulo tracejado + medida). */
+function drawRoomPreview() {
+  if (drag?.mode !== 'room-draw' || !roomDraw) return;
+  const x1 = w2sx(Math.min(roomDraw.x1, roomDraw.x2));
+  const y1 = w2sz(Math.min(roomDraw.z1, roomDraw.z2));
+  const rw = Math.abs(roomDraw.x2 - roomDraw.x1) * view.scale;
+  const rh = Math.abs(roomDraw.z2 - roomDraw.z1) * view.scale;
+  ctx.save();
+  ctx.fillStyle = 'rgba(129,140,248,0.18)';
+  ctx.fillRect(x1, y1, rw, rh);
+  ctx.strokeStyle = 'rgba(129,140,248,0.95)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 5]);
+  ctx.strokeRect(x1, y1, rw, rh);
+  ctx.setLineDash([]);
+  // canto de origem
+  ctx.fillStyle = '#818cf8';
+  ctx.beginPath(); ctx.arc(w2sx(roomDraw.x1), w2sz(roomDraw.z1), 4, 0, Math.PI * 2); ctx.fill();
+  // medida ao vivo (L × P)
+  const label = `${fmt1(Math.abs(roomDraw.x2 - roomDraw.x1))} × ${fmt1(Math.abs(roomDraw.z2 - roomDraw.z1))} m`;
+  ctx.font = '600 12px Inter, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  const mx = x1 + rw / 2, my = y1 + rh / 2;
+  const tw = ctx.measureText(label).width;
+  ctx.fillStyle = 'rgba(11,17,32,0.85)';
+  ctx.fillRect(mx - tw / 2 - 6, my - 24, tw + 12, 18);
+  ctx.fillStyle = '#c7d2fe';
   ctx.fillText(label, mx, my - 8);
   ctx.restore();
 }
@@ -897,6 +939,7 @@ function syncToolbar() {
   const redoBtn = document.getElementById('btn-fp-redo');
   if (undoBtn) undoBtn.disabled = !history.past.length;
   if (redoBtn) redoBtn.disabled = !history.future.length;
+
   const el = document.getElementById('fp-area-status');
   if (el) {
     const rooms = floorRooms();
@@ -975,6 +1018,18 @@ function onPointerDown(e) {
     return;
   }
 
+  // ferramenta CÔMODO: arrasta um retângulo sobre o fundo (estilo CAD)
+  if (tool === 'room') {
+    if (e.button !== 0) return;
+    const px0 = snapEnabled ? snap(wx) : wx;
+    const pz0 = snapEnabled ? snap(wz) : wz;
+    roomDraw = { x1: px0, z1: pz0, x2: px0, z2: pz0 };
+    drag = { mode: 'room-draw', snapBefore: snapshot() };
+    canvas.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    return;
+  }
+
   const r = roomAt(wx, wz);
   const wl = wallAt(wx, wz);
 
@@ -1031,6 +1086,15 @@ function onPointerMove(e) {
   }
 
   const wx = s2wx(px), wz = s2wz(py);
+
+  // borracha da ferramenta Cômodo: acompanha o cursor
+  if (drag?.mode === 'room-draw' && roomDraw) {
+    roomDraw.x2 = snapEnabled ? snap(wx) : wx;
+    roomDraw.z2 = snapEnabled ? snap(wz) : wz;
+    draw();
+    return;
+  }
+  if (tool === 'room' && !drag) { draw(); return; }
 
   // ferramenta Parede: acompanha o cursor para o preview elástico
   if (tool === 'wall') {
@@ -1123,6 +1187,50 @@ function onPointerUp(e) {
     drag = null;
     canvas.style.cursor = 'default';
     try { canvas.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+    return;
+  }
+
+  // desenho de cômodo por arrasto concluído
+  if (mode === 'room-draw') {
+    const { snapBefore } = drag;
+    drag = null;
+    const rd = roomDraw;
+    roomDraw = null;
+    canvas.style.cursor = 'crosshair';
+    try { canvas.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+    if (!rd) { draw(); return; }
+    const sx = Math.abs(rd.x2 - rd.x1);
+    const sz = Math.abs(rd.z2 - rd.z1);
+    if (sx < MIN_SIZE || sz < MIN_SIZE) {
+      draw();
+      toast('Cômodo pequeno demais', `Arraste ao menos ${fmt1(MIN_SIZE)} × ${fmt1(MIN_SIZE)} m.`, 'warning');
+      return;
+    }
+    const room = {
+      id: genUuid(),
+      name: uniqueName('Cômodo'),
+      pos_x: (rd.x1 + rd.x2) / 2,
+      pos_z: (rd.z1 + rd.z2) / 2,
+      size_x: clamp(sx, MIN_SIZE, MAX_SIZE),
+      size_z: clamp(sz, MIN_SIZE, MAX_SIZE),
+      color: '#818cf8',
+      kind: 'personalizado',
+      floor: currentFloor,
+      sort_order: draft.reduce((m, r) => Math.max(m, r.sort_order ?? 0), 0) + 1,
+    };
+    if (draft.some((o) => overlaps(room, o))) {
+      flash();
+      draw();
+      toast('Sobreposição evitada', 'O retângulo desenhado cobre outro cômodo — nada foi criado.', 'warning');
+      return;
+    }
+    pushHistorySnap(snapBefore);
+    draft.push(room);
+    select(room.id);
+    showForm(room);
+    renderFloorTabs();
+    syncToolbar();
+    draw();
     return;
   }
 
@@ -1238,11 +1346,12 @@ function onKeyDown(e) {
   const typing = e.target.closest?.('input, select, textarea');
   const mod = e.ctrlKey || e.metaKey;
 
-  // atalhos de ferramenta (estilo CAD): V seleciona, W parede, E apagar
+  // atalhos de ferramenta (estilo CAD): V seleciona, W parede, R cômodo, E apagar
   if (!mod && !typing) {
     const k = e.key.toLowerCase();
     if (k === 'v') { setTool('select'); return; }
     if (k === 'w') { setTool('wall'); return; }
+    if (k === 'r') { setTool('room'); return; }
     if (k === 'e') { setTool('erase'); return; }
   }
 
@@ -1258,6 +1367,7 @@ function onKeyDown(e) {
   }
 
   if (e.key === 'Escape') {
+    if (drag?.mode === 'room-draw') { drag = null; roomDraw = null; draw(); return; } // cancela o arrasto do cômodo
     if (wallDraw) { wallDraw = null; draw(); return; } // encerra o encadeamento de paredes
     if (!presetsEl?.classList.contains('hidden')) { hidePresets(); return; }
     if (selectedWallId) { selectedWallId = null; draw(); return; }
