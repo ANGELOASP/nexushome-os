@@ -252,6 +252,15 @@ nexushome-os/
 - O segredo `IOT_DEVICE_SECRET` é uma proteção mínima para a Edge Function; considere mTLS ou assinatura HMAC por dispositivo em cenários reais.
 - A `service_role` key jamais deve ser exposta ao frontend — ela bypassa o RLS.
 
+## Testes
+
+```bash
+npm test                      # lógica das regras (js/rules.js) — node:test, sem dependências
+DATABASE_URL=postgres://... tests/sql/run.sh   # trigger de automações (migração 007)
+```
+
+O teste SQL aplica as migrações 001, 005 e 007 e exercita o trigger (limiar, edge-trigger, cooldown, regra inativa, regra inválida, regras SmartThings). **Use um banco de teste VAZIO** — nunca o de produção: o script cria tabelas e insere dados.
+
 ## Licença
 
 MIT — uso livre, sem fins lucrativos.
