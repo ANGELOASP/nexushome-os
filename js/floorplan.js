@@ -1,5 +1,5 @@
 // ============================================================
-// NexusHome OS — Editor de Planta 3.1 (v1.9.1)
+// NexusHome OS — Editor de Planta 3.2 (v1.9.2)
 // ------------------------------------------------------------
 // Editor 2D top-down em canvas, agora com modelo vetorial de
 // PAREDES estilo CAD (AutoCAD/SketchUp/Promob): cada parede é
@@ -8,8 +8,9 @@
 // atração magnética a endpoints e medida ao vivo.
 //
 //   · FERRAMENTAS: Selecionar (V) · Parede (W) · Cômodo (R) · Apagar (E)
-//     — Cômodo (R) desenha o retângulo por arrasto sobre o fundo,
-//       como no CAD; presets continuam no botão "Adicionar cômodo"
+//     — Cômodo (R): clique-clique (como a Parede) ou arrasto, com
+//       snap magnético às paredes (endpoints e corpo do segmento);
+//       presets continuam no botão "Adicionar cômodo"
 //   · PAREDES: tabela `walls` (Supabase), espessura 0,15 m,
 //     render branco CAD com contorno; endpoint arrastável
 //   · PRESETS de cômodo (kind): paleta com nome/cor/ícone/tamanho
@@ -59,7 +60,7 @@ let selectedWallId = null;
 let tool = 'select';       // 'select' | 'wall' | 'erase' | 'room'
 let wallDraw = null;       // { x1, z1 } — primeiro clique da ferramenta Parede
 let wallHover = null;      // { x, z } — ponto sob o cursor (preview da parede)
-let roomDraw = null;       // { x1, z1, x2, z2 } — borracha da ferramenta Cômodo
+let roomDraw = null;       // { x1, z1, x2, z2, armed, snapBefore } — borracha da ferramenta Cômodo
 const WALL_TH = 0.15;      // espessura padrão da parede (m)
 const WALL_SNAP = 0.05;    // snap fino de endpoints de parede (m)
 const AXIS_LOCK_DEG = 8;   // trava de eixo 0°/90°/45° (SketchUp-style)
@@ -663,7 +664,8 @@ function drawWallPreview() {
 
 /** Preview elástico da ferramenta Cômodo (retângulo tracejado + medida). */
 function drawRoomPreview() {
-  if (drag?.mode !== 'room-draw' || !roomDraw) return;
+  if (!roomDraw) return;
+  if (drag && drag.mode !== 'room-draw') return;
   const x1 = w2sx(Math.min(roomDraw.x1, roomDraw.x2));
   const y1 = w2sz(Math.min(roomDraw.z1, roomDraw.z2));
   const rw = Math.abs(roomDraw.x2 - roomDraw.x1) * view.scale;
@@ -708,6 +710,29 @@ function snapWallPoint(wx, wz, excludeId = null) {
     x: Math.round(wx / WALL_SNAP) * WALL_SNAP,
     z: Math.round(wz / WALL_SNAP) * WALL_SNAP,
   };
+}
+
+/** Snap de canto de cômodo: atração magnética a endpoints E ao corpo das paredes. */
+function snapRoomPoint(wx, wz) {
+  const thr = SNAP_PX / view.scale;
+  let best = null;
+  floorWalls().forEach((wl) => {
+    [[wl.x1, wl.z1], [wl.x2, wl.z2]].forEach(([ex, ez]) => {
+      const d = Math.hypot(wx - ex, wz - ez);
+      if (d <= thr && (!best || d < best.d)) best = { d, x: ex, z: ez };
+    });
+    const dx = wl.x2 - wl.x1, dz = wl.z2 - wl.z1;
+    const len2 = dx * dx + dz * dz;
+    if (len2) {
+      let t = ((wx - wl.x1) * dx + (wz - wl.z1) * dz) / len2;
+      t = clamp(t, 0, 1);
+      const px = wl.x1 + t * dx, pz = wl.z1 + t * dz;
+      const d = Math.hypot(wx - px, wz - pz);
+      if (d <= thr && (!best || d < best.d)) best = { d, x: px, z: pz };
+    }
+  });
+  if (best) return { x: best.x, z: best.z };
+  return { x: snapEnabled ? snap(wx) : wx, z: snapEnabled ? snap(wz) : wz };
 }
 
 /** Trava de eixo estilo SketchUp: 0° / 90° / 45° quando perto desses ângulos. */
@@ -972,6 +997,44 @@ function onHandle(r, wx, wz) {
   return Math.abs(wx - hx) <= HANDLE_M && Math.abs(wz - hz) <= HANDLE_M;
 }
 
+/** Confirma o retângulo em roomDraw e cria o cômodo (arrasto ou 2º clique). */
+function commitRoomDraw(snapBefore) {
+  if (!roomDraw) return;
+  const rd = roomDraw;
+  const sx = Math.abs(rd.x2 - rd.x1);
+  const sz = Math.abs(rd.z2 - rd.z1);
+  if (sx < MIN_SIZE || sz < MIN_SIZE) {
+    draw();
+    toast('Cômodo pequeno demais', `Desenhe ao menos ${fmt1(MIN_SIZE)} × ${fmt1(MIN_SIZE)} m.`, 'warning');
+    return;
+  }
+  const room = {
+    id: genUuid(),
+    name: uniqueName('Cômodo'),
+    pos_x: (rd.x1 + rd.x2) / 2,
+    pos_z: (rd.z1 + rd.z2) / 2,
+    size_x: clamp(sx, MIN_SIZE, MAX_SIZE),
+    size_z: clamp(sz, MIN_SIZE, MAX_SIZE),
+    color: '#818cf8',
+    kind: 'personalizado',
+    floor: currentFloor,
+    sort_order: draft.reduce((m, r) => Math.max(m, r.sort_order ?? 0), 0) + 1,
+  };
+  if (draft.some((o) => overlaps(room, o))) {
+    flash();
+    draw();
+    toast('Sobreposição evitada', 'O retângulo desenhado cobre outro cômodo — nada foi criado.', 'warning');
+    return;
+  }
+  pushHistorySnap(snapBefore);
+  draft.push(room);
+  select(room.id);
+  showForm(room);
+  renderFloorTabs();
+  syncToolbar();
+  draw();
+}
+
 function onPointerDown(e) {
   hidePresets();
   const { px, py } = canvasPos(e);
@@ -1018,13 +1081,21 @@ function onPointerDown(e) {
     return;
   }
 
-  // ferramenta CÔMODO: arrasta um retângulo sobre o fundo (estilo CAD)
+  // ferramenta CÔMODO: clique-clique (como a Parede) ou arrasto — gruda nas paredes
   if (tool === 'room') {
     if (e.button !== 0) return;
-    const px0 = snapEnabled ? snap(wx) : wx;
-    const pz0 = snapEnabled ? snap(wz) : wz;
-    roomDraw = { x1: px0, z1: pz0, x2: px0, z2: pz0 };
-    drag = { mode: 'room-draw', snapBefore: snapshot() };
+    const p = snapRoomPoint(wx, wz);
+    if (roomDraw?.armed) {
+      // 2º clique: fecha o retângulo e cria o cômodo
+      roomDraw.x2 = p.x;
+      roomDraw.z2 = p.z;
+      commitRoomDraw(roomDraw.snapBefore);
+      roomDraw = null;
+      e.preventDefault();
+      return;
+    }
+    roomDraw = { x1: p.x, z1: p.z, x2: p.x, z2: p.z, armed: false, snapBefore: snapshot() };
+    drag = { mode: 'room-draw', moved: false };
     canvas.setPointerCapture(e.pointerId);
     e.preventDefault();
     return;
@@ -1087,10 +1158,12 @@ function onPointerMove(e) {
 
   const wx = s2wx(px), wz = s2wz(py);
 
-  // borracha da ferramenta Cômodo: acompanha o cursor
-  if (drag?.mode === 'room-draw' && roomDraw) {
-    roomDraw.x2 = snapEnabled ? snap(wx) : wx;
-    roomDraw.z2 = snapEnabled ? snap(wz) : wz;
+  // borracha da ferramenta Cômodo: arrasto OU aguardando o 2º clique
+  if (roomDraw && (drag?.mode === 'room-draw' || roomDraw.armed)) {
+    const p = snapRoomPoint(wx, wz);
+    roomDraw.x2 = p.x;
+    roomDraw.z2 = p.z;
+    if (drag?.mode === 'room-draw' && Math.hypot(roomDraw.x2 - roomDraw.x1, roomDraw.z2 - roomDraw.z1) > 0.2) drag.moved = true;
     draw();
     return;
   }
@@ -1190,47 +1263,23 @@ function onPointerUp(e) {
     return;
   }
 
-  // desenho de cômodo por arrasto concluído
+  // desenho de cômodo: arrasto concluído OU 1º clique do clique-clique
   if (mode === 'room-draw') {
-    const { snapBefore } = drag;
+    const { moved } = drag;
+    const snapBefore = roomDraw?.snapBefore ?? snapshot();
     drag = null;
-    const rd = roomDraw;
-    roomDraw = null;
     canvas.style.cursor = 'crosshair';
     try { canvas.releasePointerCapture(e.pointerId); } catch { /* noop */ }
-    if (!rd) { draw(); return; }
-    const sx = Math.abs(rd.x2 - rd.x1);
-    const sz = Math.abs(rd.z2 - rd.z1);
-    if (sx < MIN_SIZE || sz < MIN_SIZE) {
+    if (!roomDraw) { draw(); return; }
+    if (!moved) {
+      // clique simples: entra no modo clique-clique — o 2º clique confirma
+      roomDraw.armed = true;
+      roomDraw.snapBefore = snapBefore;
       draw();
-      toast('Cômodo pequeno demais', `Arraste ao menos ${fmt1(MIN_SIZE)} × ${fmt1(MIN_SIZE)} m.`, 'warning');
       return;
     }
-    const room = {
-      id: genUuid(),
-      name: uniqueName('Cômodo'),
-      pos_x: (rd.x1 + rd.x2) / 2,
-      pos_z: (rd.z1 + rd.z2) / 2,
-      size_x: clamp(sx, MIN_SIZE, MAX_SIZE),
-      size_z: clamp(sz, MIN_SIZE, MAX_SIZE),
-      color: '#818cf8',
-      kind: 'personalizado',
-      floor: currentFloor,
-      sort_order: draft.reduce((m, r) => Math.max(m, r.sort_order ?? 0), 0) + 1,
-    };
-    if (draft.some((o) => overlaps(room, o))) {
-      flash();
-      draw();
-      toast('Sobreposição evitada', 'O retângulo desenhado cobre outro cômodo — nada foi criado.', 'warning');
-      return;
-    }
-    pushHistorySnap(snapBefore);
-    draft.push(room);
-    select(room.id);
-    showForm(room);
-    renderFloorTabs();
-    syncToolbar();
-    draw();
+    commitRoomDraw(snapBefore);
+    roomDraw = null;
     return;
   }
 
@@ -1367,6 +1416,7 @@ function onKeyDown(e) {
   }
 
   if (e.key === 'Escape') {
+    if (roomDraw?.armed) { roomDraw = null; draw(); return; } // cancela o clique-clique do cômodo
     if (drag?.mode === 'room-draw') { drag = null; roomDraw = null; draw(); return; } // cancela o arrasto do cômodo
     if (wallDraw) { wallDraw = null; draw(); return; } // encerra o encadeamento de paredes
     if (!presetsEl?.classList.contains('hidden')) { hidePresets(); return; }
