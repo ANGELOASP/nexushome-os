@@ -12,15 +12,15 @@
     tailwind.config = {
       theme: {
         extend: {
-          colors: { navy: '#0b1120' },
-          fontFamily: { sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'] },
+          colors: { navy: '#0c1017' },
+          fontFamily: { sans: ['IBM Plex Sans', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'], mono: ['IBM Plex Mono', 'ui-monospace', 'monospace'] },
         },
       },
     };
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
   <!-- Three.js r128 + OrbitControls (CDN, global THREE) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -89,9 +89,16 @@
     </div>
   </header>
 
+
+
+
+
+
+  <!-- ======================= TRILHO ESQUERDO ======================= -->
+  <div id="rail-left" class="rail rail-left">
   <!-- ======================= PAINEL ESQUERDO: DISPOSITIVOS ======================= -->
-  <aside id="panel-devices" class="panel fixed z-20 left-3 sm:left-5 top-[76px] bottom-3 sm:bottom-5 w-[19rem] max-w-[calc(100vw-1.5rem)]">
-    <div class="glass rounded-2xl h-full flex flex-col overflow-hidden">
+  <aside id="panel-devices" class="panel card">
+    <div class="glass card-surface">
       <div class="panel-header">
         <div class="flex items-center gap-2">
           <svg class="w-4 h-4 text-indigo-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg>
@@ -104,10 +111,34 @@
       <div id="devices-list" class="panel-body space-y-4"></div>
     </div>
   </aside>
+  <!-- ======================= PAINEL INFERIOR ESQ.: AUTOMAÇÕES ======================= -->
+  <aside id="panel-automations" class="panel card">
+    <div class="glass card-surface">
+      <div class="panel-header">
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-violet-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.9 4.9l2.9 2.9"/><path d="M16.2 16.2l2.9 2.9"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.9 19.1l2.9-2.9"/><path d="M16.2 7.8l2.9-2.9"/><circle cx="12" cy="12" r="3"/></svg>
+          <h2 class="panel-title">Automações</h2>
+        </div>
+        <button class="collapse-btn" data-collapse-target="panel-automations" aria-label="Recolher painel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+      </div>
+      <div class="panel-body">
+        <div id="automations-list" class="space-y-2"></div>
+        <button id="btn-new-automation" class="mt-3 w-full rounded-xl border border-dashed border-indigo-400/40 bg-indigo-500/10 px-3 py-2.5 text-xs font-semibold text-indigo-200 hover:bg-indigo-500/20 hover:border-indigo-300/60 transition-all flex items-center justify-center gap-2">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Nova automação
+        </button>
+      </div>
+    </div>
+  </aside>
+  </div>
 
+  <!-- ======================= TRILHO DIREITO ======================= -->
+  <div id="rail-right" class="rail rail-right">
   <!-- ======================= PAINEL DIREITO: MONITOR ======================= -->
-  <aside id="panel-monitor" class="panel fixed z-20 right-3 sm:right-5 top-[76px] bottom-3 sm:bottom-5 w-[19rem] max-w-[calc(100vw-1.5rem)]">
-    <div class="glass rounded-2xl h-full flex flex-col overflow-hidden">
+  <aside id="panel-monitor" class="panel card">
+    <div class="glass card-surface">
       <div class="panel-header">
         <div class="flex items-center gap-2">
           <svg class="w-4 h-4 text-cyan-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
@@ -170,13 +201,59 @@
       </div>
     </div>
   </aside>
+  <!-- ======================= PAINEL DIREITO INF.: SAMSUNG SMARTTHINGS ======================= -->
+  <aside id="panel-smartthings" class="panel card">
+    <div class="glass card-surface">
+      <div class="panel-header">
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-sky-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 22h8"/><path d="M12 18v4"/></svg>
+          <h2 class="panel-title">Samsung SmartThings</h2>
+          <span id="st-demo-badge" class="hidden conn-badge conn-demo !text-[9px] !py-0.5 !px-1.5">Demo</span>
+        </div>
+        <button class="collapse-btn" data-collapse-target="panel-smartthings" aria-label="Recolher painel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+      </div>
 
+      <div class="panel-body">
+        <!-- Estado 1: configuração do token -->
+        <div id="st-setup" class="hidden">
+          <p class="text-[11px] text-slate-400 leading-snug">
+            Controle suas TVs e ares-condicionados Samsung pela conta SmartThings. O token fica
+            <strong class="text-slate-200">somente neste navegador</strong> — nunca é salvo no servidor.
+          </p>
+          <ol class="mt-2 space-y-1 text-[11px] text-slate-400 list-decimal list-inside">
+            <li>Abra <span class="text-cyan-300">account.smartthings.com/tokens</span></li>
+            <li>Gere um token com o escopo <span class="text-slate-200">Devices (Read/Execute)</span></li>
+            <li>Cole o token abaixo</li>
+          </ol>
+          <input id="st-token" type="password" class="form-input mt-2" placeholder="Cole seu Personal Access Token" autocomplete="off" />
+          <p id="st-setup-msg" class="login-error hidden mt-2"></p>
+          <button id="btn-st-connect" class="mt-2 w-full rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-900/40 hover:brightness-110 active:scale-[0.98] transition-all">
+            Conectar
+          </button>
+        </div>
+
+        <!-- Estado 2: conectado -->
+        <div id="st-connected" class="hidden">
+          <div id="st-demo-note" class="hidden mb-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[10px] leading-snug text-amber-200">
+            <span class="font-bold">Modo Demonstração</span> — aparelhos Samsung simulados; nenhuma chamada é feita à SmartThings
+          </div>
+          <div id="st-list" class="space-y-2"></div>
+          <div class="mt-3 flex gap-2">
+            <button id="btn-st-refresh" class="fp-btn fp-btn-ghost flex-1 justify-center">Atualizar</button>
+            <button id="btn-st-disconnect" class="fp-btn fp-btn-danger flex-1">Desconectar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
   <!-- ======================= PAINEL DIREITO: ÁGUA — SMART LIFE (TUYA) ======================= -->
   <!-- v1.7.0: válvulas/medidor ultrassônico, nível ME201W e vazamento via Tuya Cloud.
        Fica no mesmo slot do SmartThings (canto inferior direito): começa recolhido
        e, quando expandido, oculta o SmartThings via CSS — só um ocupa o slot. -->
-  <aside id="panel-tuya" class="panel panel-collapsed fixed z-20 right-3 sm:right-5 bottom-3 sm:bottom-5 w-[19rem] max-w-[calc(100vw-1.5rem)] panel-overlap-aware">
-    <div class="glass rounded-2xl flex flex-col overflow-hidden max-h-[40vh]">
+  <aside id="panel-tuya" class="panel card panel-collapsed">
+    <div class="glass card-surface">
       <div class="panel-header">
         <div class="flex items-center gap-2">
           <svg class="w-4 h-4 text-sky-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.7s6.5 7 6.5 11.3a6.5 6.5 0 0 1-13 0C5.5 9.7 12 2.7 12 2.7z"/><path d="M9.5 13.5a2.5 2.5 0 0 0 2.5 2.5"/></svg>
@@ -230,76 +307,34 @@
       </div>
     </div>
   </aside>
+  </div>
 
-  <!-- ======================= PAINEL DIREITO INF.: SAMSUNG SMARTTHINGS ======================= -->
-  <aside id="panel-smartthings" class="panel fixed z-20 right-3 sm:right-5 bottom-3 sm:bottom-5 w-[19rem] max-w-[calc(100vw-1.5rem)] panel-overlap-aware">
-    <div class="glass rounded-2xl flex flex-col overflow-hidden max-h-[40vh]">
-      <div class="panel-header">
-        <div class="flex items-center gap-2">
-          <svg class="w-4 h-4 text-sky-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 22h8"/><path d="M12 18v4"/></svg>
-          <h2 class="panel-title">Samsung SmartThings</h2>
-          <span id="st-demo-badge" class="hidden conn-badge conn-demo !text-[9px] !py-0.5 !px-1.5">Demo</span>
-        </div>
-        <button class="collapse-btn" data-collapse-target="panel-smartthings" aria-label="Recolher painel">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-      </div>
-
-      <div class="panel-body">
-        <!-- Estado 1: configuração do token -->
-        <div id="st-setup" class="hidden">
-          <p class="text-[11px] text-slate-400 leading-snug">
-            Controle suas TVs e ares-condicionados Samsung pela conta SmartThings. O token fica
-            <strong class="text-slate-200">somente neste navegador</strong> — nunca é salvo no servidor.
-          </p>
-          <ol class="mt-2 space-y-1 text-[11px] text-slate-400 list-decimal list-inside">
-            <li>Abra <span class="text-cyan-300">account.smartthings.com/tokens</span></li>
-            <li>Gere um token com o escopo <span class="text-slate-200">Devices (Read/Execute)</span></li>
-            <li>Cole o token abaixo</li>
-          </ol>
-          <input id="st-token" type="password" class="form-input mt-2" placeholder="Cole seu Personal Access Token" autocomplete="off" />
-          <p id="st-setup-msg" class="login-error hidden mt-2"></p>
-          <button id="btn-st-connect" class="mt-2 w-full rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-900/40 hover:brightness-110 active:scale-[0.98] transition-all">
-            Conectar
-          </button>
-        </div>
-
-        <!-- Estado 2: conectado -->
-        <div id="st-connected" class="hidden">
-          <div id="st-demo-note" class="hidden mb-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[10px] leading-snug text-amber-200">
-            <span class="font-bold">Modo Demonstração</span> — aparelhos Samsung simulados; nenhuma chamada é feita à SmartThings
-          </div>
-          <div id="st-list" class="space-y-2"></div>
-          <div class="mt-3 flex gap-2">
-            <button id="btn-st-refresh" class="fp-btn fp-btn-ghost flex-1 justify-center">Atualizar</button>
-            <button id="btn-st-disconnect" class="fp-btn fp-btn-danger flex-1">Desconectar</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </aside>
-
-  <!-- ======================= PAINEL INFERIOR ESQ.: AUTOMAÇÕES ======================= -->
-  <aside id="panel-automations" class="panel fixed z-20 left-3 sm:left-5 bottom-3 sm:bottom-5 w-[19rem] max-w-[calc(100vw-1.5rem)] panel-overlap-aware">
-    <div class="glass rounded-2xl flex flex-col overflow-hidden max-h-[38vh]">
-      <div class="panel-header">
-        <div class="flex items-center gap-2">
-          <svg class="w-4 h-4 text-violet-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.9 4.9l2.9 2.9"/><path d="M16.2 16.2l2.9 2.9"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.9 19.1l2.9-2.9"/><path d="M16.2 7.8l2.9-2.9"/><circle cx="12" cy="12" r="3"/></svg>
-          <h2 class="panel-title">Automações</h2>
-        </div>
-        <button class="collapse-btn" data-collapse-target="panel-automations" aria-label="Recolher painel">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-      </div>
-      <div class="panel-body">
-        <div id="automations-list" class="space-y-2"></div>
-        <button id="btn-new-automation" class="mt-3 w-full rounded-xl border border-dashed border-indigo-400/40 bg-indigo-500/10 px-3 py-2.5 text-xs font-semibold text-indigo-200 hover:bg-indigo-500/20 hover:border-indigo-300/60 transition-all flex items-center justify-center gap-2">
-          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Nova automação
-        </button>
-      </div>
-    </div>
-  </aside>
+  <!-- ======================= BARRA DE CÂMERA 3D ======================= -->
+  <div id="cam-toolbar" class="cam-toolbar" role="toolbar" aria-label="Navegação da planta 3D">
+    <button type="button" class="cam-btn" data-cam="fit" title="Centralizar a planta (F)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+      <span>Centralizar</span>
+    </button>
+    <button type="button" class="cam-btn" data-cam="view" title="Alternar vista: isométrica / topo (V)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>
+      <span data-cam-view-label>Vista topo</span>
+    </button>
+    <button type="button" class="cam-btn" data-cam="lock" title="Fixar a câmera no cômodo selecionado (L)" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      <span data-cam-lock-label>Fixar cômodo</span>
+    </button>
+    <span class="cam-sep" aria-hidden="true"></span>
+    <button type="button" class="cam-btn cam-icon" data-cam="zoom-in" title="Aproximar (+)" aria-label="Aproximar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <button type="button" class="cam-btn cam-icon" data-cam="zoom-out" title="Afastar (−)" aria-label="Afastar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+    </button>
+    <button type="button" class="cam-btn cam-icon" data-cam="spin" title="Girar sozinho" aria-label="Girar sozinho" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
+    </button>
+  </div>
+  <p id="cam-hint" class="cam-hint">Arraste para girar · botão direito ou Shift+arrastar para mover · roda do mouse para aproximar · duplo clique para centralizar</p>
 
   <!-- ======================= MODAL: NOVA AUTOMAÇÃO ======================= -->
   <div id="modal-automation" class="modal">
@@ -374,6 +409,9 @@
             <button id="btn-fp-tool-room" type="button" class="fp-btn fp-btn-ghost" title="Desenhar cômodo (R) — 2 cliques nos cantos ou arraste; gruda nas paredes">
               <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="M12 9v6M9 12h6"/></svg>
             </button>
+            <button id="btn-fp-tool-poly" type="button" class="fp-btn fp-btn-ghost" title="Cômodo poligonal (P) — um clique por vértice; clique no 1º, Enter ou duplo clique fecha; Shift trava 45°">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8 11 3l9 6-3 11H6z"/><circle cx="4" cy="8" r="1.2" fill="currentColor"/><circle cx="11" cy="3" r="1.2" fill="currentColor"/><circle cx="20" cy="9" r="1.2" fill="currentColor"/><circle cx="17" cy="20" r="1.2" fill="currentColor"/><circle cx="6" cy="20" r="1.2" fill="currentColor"/></svg>
+            </button>
             <button id="btn-fp-tool-erase" type="button" class="fp-btn fp-btn-ghost" title="Apagar parede (E)">
               <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21 9.5-9.5a2.1 2.1 0 0 0-3-3L4 18z"/><path d="M13 7.5l3 3"/><path d="M16 21h5"/></svg>
             </button>
@@ -392,6 +430,10 @@
             <input id="fp-snap" type="checkbox" checked />
             Snap
           </label>
+          <button id="btn-fp-import" type="button" class="fp-btn fp-btn-ghost" title="Importar planta CAD (DXF): paredes e cômodos">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>
+            Importar CAD
+          </button>
           <button id="btn-fp-bg" type="button" class="fp-btn fp-btn-ghost" title="Imagem de fundo de referência (planta CAD)">
             <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
             Fundo
@@ -498,12 +540,98 @@
             </div>
           </div>
           <p class="fp-area-line">Área: <strong id="fp-area" class="text-cyan-300">0 m²</strong></p>
+          <button id="btn-fp-topoly" type="button" class="fp-btn fp-btn-ghost justify-center w-full" title="Transforma o retângulo em polígono editável">Converter em polígono</button>
+          <p id="fp-poly-note" class="hidden text-[10px] text-slate-400 leading-snug">Polígono: arraste os vértices; clique no “+” de uma aresta para criar um vértice; <kbd>Alt</kbd>+clique (ou botão direito) num vértice o remove.</p>
           <div class="grid grid-cols-2 gap-2">
             <button id="btn-fp-dup" type="button" class="fp-btn fp-btn-ghost justify-center" title="Duplicar (Ctrl+D)">Duplicar</button>
             <button id="btn-fp-delete" type="button" class="fp-btn fp-btn-danger">Excluir</button>
           </div>
           <p class="text-[10px] text-slate-500 leading-snug">As mudanças só são aplicadas ao clicar em <strong>Salvar planta</strong>.</p>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= MODAL: IMPORTAR PLANTA CAD (DXF) ======================= -->
+  <div id="modal-dxf" class="modal" aria-hidden="true">
+    <div class="modal-card glass rounded-2xl w-[44rem] max-w-[calc(100vw-2rem)] p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-base font-bold text-slate-100">Importar planta CAD</h3>
+        <button id="btn-dxf-close" type="button" class="text-slate-400 hover:text-slate-100 transition-colors" aria-label="Fechar">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <!-- passo 1: escolher o arquivo -->
+      <div id="dxf-step-file">
+        <label for="dxf-file" class="dxf-drop" id="dxf-drop">
+          <svg class="w-8 h-8 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 20h16"/></svg>
+          <span class="text-sm font-semibold text-slate-200">Escolha o arquivo <span class="text-amber-300">.dxf</span> da sua planta</span>
+          <span class="text-[11px] text-slate-400">ou arraste-o para cá</span>
+        </label>
+        <input id="dxf-file" type="file" accept=".dxf,.dwg" class="hidden" />
+        <div id="dxf-dwg-help" class="hidden dxf-help">
+          <p class="font-semibold text-amber-200 mb-1">Arquivos .dwg não podem ser lidos direto no navegador</p>
+          <p>DWG é um formato fechado da Autodesk. Converta para <strong>DXF</strong> e importe de novo:</p>
+          <ul class="list-disc list-inside mt-1 space-y-0.5">
+            <li>No AutoCAD, BricsCAD ou DraftSight: <em>Salvar como → DXF</em> (versão R2013 ou R2018, <strong>ASCII</strong>).</li>
+            <li>Sem CAD instalado: o <strong>ODA File Converter</strong> (gratuito, da Open Design Alliance) converte DWG em DXF em lote.</li>
+          </ul>
+        </div>
+        <p id="dxf-error" class="login-error hidden mt-2"></p>
+        <p class="text-[11px] text-slate-500 mt-3 leading-snug">
+          Linhas, polilinhas, arcos, círculos e blocos viram <strong>paredes</strong>; polilinhas fechadas podem virar <strong>cômodos poligonais</strong>.
+          Cotas, textos, hachuras e mobiliário em blocos 3D são ignorados. Nada é gravado antes de você clicar em <em>Salvar planta</em>.
+        </p>
+      </div>
+
+      <!-- passo 2: camadas, unidade e prévia -->
+      <div id="dxf-step-config" class="hidden">
+        <div class="grid md:grid-cols-[1fr_17rem] gap-4">
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <span class="form-label !mb-0">Camadas</span>
+              <span class="flex gap-2 text-[10px]">
+                <button type="button" id="dxf-layers-walls" class="text-amber-300 hover:underline">só paredes</button>
+                <button type="button" id="dxf-layers-all" class="text-amber-300 hover:underline">todas</button>
+                <button type="button" id="dxf-layers-none" class="text-amber-300 hover:underline">nenhuma</button>
+              </span>
+            </div>
+            <div id="dxf-layers" class="dxf-layers"></div>
+          </div>
+          <div class="space-y-3">
+            <canvas id="dxf-preview" class="dxf-preview" width="272" height="190"></canvas>
+            <p id="dxf-size" class="text-[11px] text-slate-400 leading-snug"></p>
+          </div>
+        </div>
+
+        <div class="grid sm:grid-cols-2 gap-x-4 gap-y-2 mt-3">
+          <div>
+            <label class="form-label" for="dxf-unit">Unidade do desenho</label>
+            <select id="dxf-unit" class="form-input">
+              <option value="auto">Automática</option>
+              <option value="0.001">Milímetros</option>
+              <option value="0.01">Centímetros</option>
+              <option value="1">Metros</option>
+              <option value="0.0254">Polegadas</option>
+              <option value="0.3048">Pés</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label" for="dxf-th">Espessura das paredes (m)</label>
+            <input id="dxf-th" type="number" class="form-input" step="0.01" min="0.03" max="0.6" value="0.12" />
+          </div>
+          <label class="dxf-check"><input id="dxf-opt-walls" type="checkbox" checked /> Linhas e polilinhas viram paredes</label>
+          <label class="dxf-check"><input id="dxf-opt-rooms" type="checkbox" checked /> Polilinhas fechadas viram cômodos</label>
+          <label class="dxf-check"><input id="dxf-opt-center" type="checkbox" checked /> Centralizar na origem</label>
+          <label class="dxf-check"><input id="dxf-opt-replace" type="checkbox" /> Substituir o conteúdo deste andar</label>
+        </div>
+
+        <p id="dxf-warn" class="hidden dxf-help mt-3"></p>
+        <div class="flex justify-end gap-2 mt-4">
+          <button type="button" id="btn-dxf-back" class="fp-btn fp-btn-ghost">Trocar arquivo</button>
+          <button type="button" id="btn-dxf-apply" class="fp-btn fp-btn-primary">Importar para a planta</button>
+        </div>
       </div>
     </div>
   </div>

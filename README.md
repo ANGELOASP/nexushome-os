@@ -52,7 +52,7 @@ Sem nenhuma configuração, o app entra em **Modo Demonstração**: um cliente S
 
 ## Segurança e Login
 
-O app exige autenticação por e-mail/senha via **Supabase Auth** (`signInWithPassword` / `signUp` / `signOut`), com sessão persistida (ao recarregar, entra direto) e botão **Sair** no chip do usuário na barra superior. Toda a interface — cena 3D e painéis — permanece oculta e inerte até o login, e a simulação de telemetria só inicia depois da autenticação.
+O app exige autenticação por e-mail/senha via **Supabase Auth** (`signInWithPassword` / `signUp` / `signOut`), com a sessão guardada só na aba/janela (recarregar a página entra direto; **fechar o navegador encerra o login**) e botão **Sair** no chip do usuário na barra superior. Toda a interface — cena 3D e painéis — permanece oculta e inerte até o login, e a simulação de telemetria só inicia depois da autenticação.
 
 - **Primeiro usuário**: use a aba **Criar conta** da tela de login. O provedor de e-mail já vem ativado no Supabase Auth. Para login imediato sem confirmação, desative **Confirm email** em *Authentication → Providers → Email* (opcional; se ativo, o app avisa para confirmar o e-mail).
 - **Recuperação de senha**: o link **Esqueci minha senha** (aba Entrar) abre a view de recuperação, que chama `resetPasswordForEmail` com `redirectTo` dinâmico (origem atual — funciona em `localhost` e na Vercel sem alterar código). A confirmação é neutra de propósito ("Se o e-mail estiver cadastrado, você receberá um link…") para não permitir enumeração de usuários, e erros HTTP 429 de rate limit viram "Muitas tentativas. Aguarde alguns minutos e tente novamente.". Ao clicar no link do e-mail, o app detecta o evento `PASSWORD_RECOVERY` (ou o hash `#type=recovery`) e abre a view **Definir nova senha** em vez da central; após `updateUser({ password })`, o hash é limpo da URL e o usuário entra autenticado.
@@ -78,6 +78,17 @@ A casa 3D é gerada a partir da tabela `rooms` (migrações 003 + 004) — posi�
 - Renomear ou excluir um cômodo **não move os dispositivos** automaticamente — eles aparecem num grupo próprio no painel e um toast avisa quais ficaram com o cômodo antigo.
 - Plantas salvas antes da v1.6.0 carregam normalmente: ganham `floor 0` e o tipo é **inferido pelo nome** (ex.: "Suíte Master" → suíte).
 - **Restaurar padrão** volta aos 4 cômodos originais, todos no térreo.
+
+### Cômodos poligonais e importação de planta CAD (v2.0.0)
+
+- **Polígono** (ícone de pentágono na barra): clique em cada vértice; **Enter** ou clique no primeiro ponto fecha, **Esc** cancela. Arraste os vértices para editar (formas em L, T, diagonais). A sala 3D usa o polígono real (piso + paredes extrudadas); o mobiliário é posicionado no maior retângulo inscrito.
+- **Importar CAD**: aceita **DXF** (ASCII). Escolha as camadas (a de paredes é pré-selecionada), confira a unidade estimada (mm/cm/m), veja a prévia e aplique — **Substituir** o andar ou **Adicionar**. Linhas viram **paredes reais** no 3D; polilinhas fechadas viram **cômodos** (o contorno externo da casa é ignorado).
+- **DWG** não pode ser lido no navegador (formato binário proprietário): converta para DXF no AutoCAD/LibreCAD/ODA File Converter. Passo a passo em [`docs/importar-planta-cad.md`](docs/importar-planta-cad.md).
+- **Migração obrigatória**: rode `supabase/migrations/008_room_polygons.sql` no SQL Editor do projeto para guardar o polígono exato (coluna `points`). Sem ela, o editor salva a caixa retangular e avisa.
+
+### Navegação 3D (v2.0.0)
+
+Barra inferior: **Centralizar**, **Vista topo/3D**, **Fixar cômodo** (clique num cômodo e depois no cadeado), zoom +/−, girar. Atalhos: `F` centraliza, `V` topo/3D, `L` fixa, `+`/`−` zoom, `Esc` solta; duplo-clique também centraliza. Os painéis laterais recolhem pelo cabeçalho (estado lembrado) e em telas estreitas viram gavetas.
 
 ### Atalhos do editor
 
@@ -276,7 +287,7 @@ Fail-closed: sem os três segredos a função responde 503; sem o header correto
 ## Testes
 
 ```bash
-npm test                      # lógica das regras (js/rules.js) — node:test, sem dependências
+npm test                      # regras, notificações, geometria e importação DXF — node:test, sem dependências
 DATABASE_URL=postgres://... tests/sql/run.sh   # trigger de automações (migração 007)
 ```
 

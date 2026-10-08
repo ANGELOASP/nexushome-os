@@ -230,19 +230,59 @@ function startClock() {
 // Painéis recolhíveis (mobile e desktop)
 // ------------------------------------------------------------
 
+const PANEL_IDS = ['panel-devices', 'panel-automations', 'panel-monitor', 'panel-smartthings', 'panel-tuya'];
+const PANEL_STATE_KEY = 'nh_panels_collapsed';
+
+function loadPanelState() {
+  try { return JSON.parse(localStorage.getItem(PANEL_STATE_KEY) || 'null'); } catch { return null; }
+}
+function savePanelState() {
+  try {
+    const st = {};
+    PANEL_IDS.forEach((id) => { st[id] = !!document.getElementById(id)?.classList.contains('panel-collapsed'); });
+    localStorage.setItem(PANEL_STATE_KEY, JSON.stringify(st));
+  } catch { /* storage bloqueado */ }
+}
+
+function setPanelCollapsed(panel, collapsed) {
+  panel.classList.toggle('panel-collapsed', collapsed);
+  const btn = panel.querySelector('[data-collapse-target]');
+  btn?.classList.toggle('chevron-up', collapsed);
+  btn?.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  // a faixa livre da cena muda com os trilhos: reenquadra só se o usuário não mexeu na câmera
+}
+
 function wireCollapsiblePanels() {
   document.querySelectorAll('[data-collapse-target]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const target = document.getElementById(btn.dataset.collapseTarget);
-      target?.classList.toggle('panel-collapsed');
-      btn.classList.toggle('chevron-up');
-    });
+    const panel = document.getElementById(btn.dataset.collapseTarget);
+    const header = btn.closest('.panel-header');
+    const toggle = (ev) => {
+      // cliques em controles dentro do cabeçalho (ex.: selo) não recolhem
+      if (ev?.target?.closest?.('a, input, select, textarea') ) return;
+      if (!panel) return;
+      setPanelCollapsed(panel, !panel.classList.contains('panel-collapsed'));
+      savePanelState();
+    };
+    // o cabeçalho inteiro é a área de clique (antes só o ícone de 16 px funcionava)
+    header?.addEventListener('click', toggle);
+    if (header) {
+      header.setAttribute('role', 'button');
+      header.setAttribute('tabindex', '0');
+      header.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); }
+      });
+    }
   });
-  // em telas pequenas, painéis laterais começam recolhidos
-  if (window.matchMedia('(max-width: 767px)').matches) {
-    ['panel-devices', 'panel-monitor', 'panel-automations', 'panel-smartthings', 'panel-tuya'].forEach((id) =>
-      document.getElementById(id)?.classList.add('panel-collapsed'));
-  }
+
+  // estado inicial: o que o usuário deixou da última vez; senão, padrão por tamanho de tela
+  const saved = loadPanelState();
+  const small = window.matchMedia('(max-width: 899px)').matches;
+  PANEL_IDS.forEach((id) => {
+    const panel = document.getElementById(id);
+    if (!panel) return;
+    if (saved && id in saved) setPanelCollapsed(panel, !!saved[id]);
+    else setPanelCollapsed(panel, small || id === 'panel-tuya' || id === 'panel-smartthings');
+  });
 }
 
 // seleção de cômodo a partir do painel de dispositivos

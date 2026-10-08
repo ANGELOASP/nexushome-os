@@ -66,7 +66,11 @@ export function presetByKind(kind) {
 export function normalizeRoom(row) {
   const floor = Number.isFinite(Number(row.floor)) ? Math.max(0, Math.min(MAX_FLOORS - 1, Math.trunc(Number(row.floor)))) : 0;
   const kind = row.kind && ROOM_PRESETS.some((p) => p.kind === row.kind) ? row.kind : inferRoomKind(row.name);
-  return { ...row, floor, kind };
+  // `points`: polígono [[x,z],...] relativo ao centro da caixa (migração 008); nulo = retângulo
+  const pts = Array.isArray(row.points) && row.points.length >= 3
+    ? row.points.map((p) => [Number(p[0]), Number(p[1])]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))
+    : null;
+  return { ...row, floor, kind, points: pts && pts.length >= 3 ? pts : null };
 }
 
 // Planta padrão (espelha os seeds de supabase/migrations/003_rooms.sql
@@ -86,6 +90,7 @@ export const state = {
   automations: [],         // linhas da tabela automations
   alerts: [],              // linhas da tabela alerts (mais recentes primeiro)
   rooms: [],               // linhas da tabela rooms (planta da residência)
+  walls: [],               // paredes vetoriais da planta (tabela walls) — renderizadas no 3D
   selectedRoom: null,      // nome do cômodo selecionado no 3D
   health: 'safe',          // 'safe' | 'warning' | 'critical'
   lastTelemetry: {         // último valor conhecido por métrica
