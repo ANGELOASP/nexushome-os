@@ -30,6 +30,21 @@ let activeChannels = [];      // canais realtime para teardown no logout
 let entering = false;
 let recoveryPending = false;  // link de recuperação de senha aberto (bloqueia enterApp)
 
+/** Selo do cabeçalho: verde "Supabase Live" com backend real, âmbar "Demo" no modo demonstração. */
+function updateConnectionBadge() {
+  const el = document.getElementById('conn-badge');
+  if (!el) return;
+  if (state.mode === 'live') {
+    el.className = 'conn-badge conn-live';
+    el.innerHTML = '<span class="conn-dot"></span> Supabase Live';
+    el.title = 'Conectado ao Supabase em tempo real';
+  } else {
+    el.className = 'conn-badge conn-demo';
+    el.innerHTML = '<span class="conn-dot"></span> Demo';
+    el.title = 'Modo Demonstração: dados simulados localmente no navegador';
+  }
+}
+
 async function boot() {
   startClock();
   wireCollapsiblePanels();
@@ -42,6 +57,7 @@ async function boot() {
   // conexão: Supabase real ou Modo Demonstração (transparente)
   client = await clientReady;
   state.mode = client.nexusMode || 'demo';
+  updateConnectionBadge();
   if (state.mode === 'demo') document.getElementById('demo-banner')?.classList.remove('hidden');
 
   // Link de recuperação de senha abriu o app? (só com Supabase real: no modo
