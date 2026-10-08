@@ -29,7 +29,12 @@ let pickMeshes = [];
 let selectedRoom = null;
 let floorFilter = 'all';     // 'all' | número do andar
 let lastInteraction = 0;
-let desiredTarget = null;
+let flight = null;           // voo suave da câmera: { from, to, t0, dur }
+let lockedRoom = false;      // câmera fixada no cômodo selecionado
+let viewMode = 'iso';        // 'iso' | 'top'
+let spin = false;            // giro automático (desligado por padrão)
+let userMoved = false;       // o usuário mexeu na câmera desde o último enquadramento
+let planBox = null;          // caixa da planta visível (THREE.Box3)
 let downPos = null;
 const clock = { t: 0, last: performance.now() };
 
@@ -40,10 +45,10 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   const THREE = window.THREE;
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0b1120);
-  scene.fog = new THREE.Fog(0x0b1120, 26, 62);
+  scene.background = new THREE.Color(0x0c1017);
+  scene.fog = new THREE.Fog(0x0c1017, 40, 110);
 
-  camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
+  camera = new THREE.PerspectiveCamera(42, 1, 0.1, 400);
   camera.position.set(14.5, 13.5, 14.5);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -56,13 +61,17 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.target.set(0, 0.8, 0);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.06;
-  controls.minDistance = 8;
-  controls.maxDistance = 34;
-  controls.maxPolarAngle = 1.32;
-  controls.enablePan = false;
-  controls.autoRotateSpeed = 0.5;
-  ['start', 'end'].forEach((ev) => controls.addEventListener(ev, () => { lastInteraction = performance.now(); }));
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 2.5;
+  controls.maxDistance = 60;
+  controls.maxPolarAngle = 1.42;
+  controls.enablePan = true;           // botão direito / Shift+arrastar / dois dedos
+  controls.screenSpacePanning = false; // move sobre o piso, sem "voar" para cima
+  controls.panSpeed = 0.9;
+  controls.zoomSpeed = 0.9;
+  controls.autoRotateSpeed = 0.6;
+  controls.addEventListener('start', () => { lastInteraction = performance.now(); flight = null; userMoved = true; hideCamHint(); });
+  controls.addEventListener('end', () => { lastInteraction = performance.now(); });
 
   raycaster = new THREE.Raycaster();
   pointer = new THREE.Vector2();
@@ -70,6 +79,8 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   buildLights(THREE);
   buildGround(THREE);
   buildPlan(THREE);
+  fitCamera(false);
+  wireCameraUI();
 
   // interação de clique (sem confundir arrasto de câmera com clique)
   renderer.domElement.addEventListener('pointerdown', (e) => { downPos = [e.clientX, e.clientY]; });
@@ -216,8 +227,9 @@ function rebuildPlan() {
   updateLabelBadges(state.devices);
 
   // seleção pode ter ficado órfã (cômodo renomeado/removido)
-  if (selectedRoom && !rooms[selectedRoom]) selectRoom(null);
+  if (selectedRoom && !rooms[selectedRoom]) { lockedRoom = false; selectRoom(null); }
   else if (selectedRoom) selectRoom(selectedRoom); // reancora o highlight/label
+  if (!selectedRoom) fitCamera(true);                // planta nova/alterada: volta a centralizar
 }
 
 function mat(THREE, color, opts = {}) {
@@ -280,7 +292,7 @@ function buildRoom(THREE, def) {
   // moldura de seleção (highlight)
   const hl = new THREE.Mesh(
     new THREE.BoxGeometry(SX + 0.25, WALL_H + 0.4, SZ + 0.25),
-    new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.1, depthWrite: false })
+    new THREE.MeshBasicMaterial({ color: 0xf2b24a, transparent: true, opacity: 0.1, depthWrite: false })
   );
   hl.position.y = (WALL_H + 0.4) / 2 - 0.1;
   hl.visible = false;
@@ -299,6 +311,11 @@ function buildRoom(THREE, def) {
     g.add(box(THREE, SX - 0.3, 0.04, SZ - 0.3, neutralMat, 0, WALL_H - 0.09, 0, false));
     room.fx.coolGlow = neutralMat;
   }
+
+  // placas de "brilho de teto" só existem quando acesas: com tudo desligado o
+  // cômodo fica aberto por cima e dá para ver o interior (antes parecia um bloco fechado)
+  room.ceilings = g.children.filter((m) =>
+    m.isMesh && m.position.y > WALL_H - 0.2 && m.geometry?.parameters?.height <= 0.06 && m.material?.emissive);
 
   // rótulo flutuante (div sobreposta) — bolinha na cor do cômodo
   const label = document.createElement('div');
@@ -363,6 +380,7 @@ function buildFloorFilter() {
       floorFilter = val;
       applyFloorFilter();
       buildFloorFilter();
+      fitCamera(true);
     });
     el.appendChild(b);
   };
@@ -774,13 +792,16 @@ function handlePick(e) {
   const hits = raycaster.intersectObjects(pickables, false);
   if (hits.length) {
     const name = hits[0].object.userData.roomName;
+    // fixado: clicar noutro cômodo move o foco; clicar no mesmo não solta
+    if (lockedRoom) { if (name !== selectedRoom) selectRoom(name); return; }
     selectRoom(selectedRoom === name ? null : name);
-  } else {
+  } else if (!lockedRoom) {
     selectRoom(null);
   }
 }
 
 export function selectRoom(name) {
+  const changed = selectedRoom !== name;
   selectedRoom = name;
   state.selectedRoom = name;
   Object.entries(rooms).forEach(([n, r]) => {
@@ -788,11 +809,205 @@ export function selectRoom(name) {
     r.label.classList.toggle('room-label-active', n === name);
   });
   if (name && rooms[name]) {
-    const p = rooms[name].group.position;
-    desiredTarget = new window.THREE.Vector3(p.x, p.y + 0.7, p.z);
+    if (changed) focusRoom(name);
+  } else {
+    lockedRoom = false;
+    if (changed) fitCamera(true);
   }
+  syncCameraUI();
   if (onRoomSelectCb) onRoomSelectCb(name);
   emit('room-selected', name);
+}
+
+// ------------------------------------------------------------
+// Navegação da câmera: enquadrar, focar cômodo, fixar, vistas
+// ------------------------------------------------------------
+
+/** Caixa da planta visível (lajes + cômodos dos andares exibidos). */
+function computePlanBox() {
+  const THREE = window.THREE;
+  const box = new THREE.Box3();
+  floorSlabs.forEach((f) => { if (f.mesh.visible) box.expandByObject(f.mesh); });
+  Object.values(rooms).forEach((r) => { if (r.group.visible) box.expandByObject(r.group); });
+  if (box.isEmpty()) box.set(new THREE.Vector3(-6, 0, -6), new THREE.Vector3(6, WALL_H, 6));
+  return box;
+}
+
+/** Faixa livre da cena entre os trilhos laterais (px) — para centralizar a planta nela. */
+function freeBand() {
+  const w = container.clientWidth || window.innerWidth;
+  if (window.innerWidth < 900) return { w, shift: 0 };
+  const rl = document.getElementById('rail-left')?.getBoundingClientRect();
+  const rr = document.getElementById('rail-right')?.getBoundingClientRect();
+  const left = rl ? rl.right + 12 : 0;
+  const right = rr ? w - rr.left + 12 : 0;
+  return { w: Math.max(240, w - left - right), shift: (left - right) / 2 };
+}
+
+/** Distância para a esfera de raio r caber na faixa livre (com folga). */
+function distanceToFit(r) {
+  const fov = (camera.fov * Math.PI) / 180;
+  const h = container.clientHeight || window.innerHeight;
+  const band = freeBand();
+  const aspect = band.w / Math.max(1, h * 0.86);
+  const fitV = r / Math.tan(fov / 2);
+  const fitH = r / (Math.tan(fov / 2) * Math.min(1, aspect));
+  return Math.max(fitV, fitH) * 1.12;
+}
+
+function spherical(target, pos) {
+  const v = pos.clone().sub(target);
+  const radius = v.length() || 1;
+  return { radius, phi: Math.acos(Math.min(1, Math.max(-1, v.y / radius))), theta: Math.atan2(v.x, v.z) };
+}
+
+/** Voo suave até um alvo/distância/ângulos (omitidos = mantém o atual). */
+function flyTo({ target, radius, phi, theta }, dur = 650) {
+  const THREE = window.THREE;
+  const cur = spherical(controls.target, camera.position);
+  const to = {
+    target: target || controls.target.clone(),
+    radius: radius ?? cur.radius,
+    phi: phi ?? cur.phi,
+    theta: theta ?? cur.theta,
+  };
+  // menor caminho em azimute
+  let dt = to.theta - cur.theta;
+  while (dt > Math.PI) dt -= 2 * Math.PI;
+  while (dt < -Math.PI) dt += 2 * Math.PI;
+  to.theta = cur.theta + dt;
+  flight = { from: { ...cur, target: controls.target.clone() }, to, t0: performance.now(), dur };
+  void THREE;
+}
+
+export function fitCamera(animated = true) {
+  const THREE = window.THREE;
+  if (!THREE || !camera || !controls) return;
+  planBox = computePlanBox();
+  const center = planBox.getCenter(new THREE.Vector3());
+  const size = planBox.getSize(new THREE.Vector3());
+  const r = Math.max(2, Math.hypot(size.x, size.z) / 2 + 0.6);
+  center.y = Math.min(0.9, size.y / 3);
+  controls.maxDistance = Math.max(60, r * 6);
+  const phi = viewMode === 'top' ? 0.02 : 0.98;
+  const theta = viewMode === 'top' ? 0 : Math.PI / 4;
+  const radius = distanceToFit(r);
+  // a névoa acompanha o tamanho da planta (senão plantas grandes/telas estreitas somem na neblina)
+  if (scene.fog) { scene.fog.near = Math.max(40, radius * 1.4); scene.fog.far = Math.max(110, radius * 4.5); }
+  applyViewOffset();
+  if (!animated) {
+    const v = new THREE.Vector3(Math.sin(phi) * Math.sin(theta), Math.cos(phi), Math.sin(phi) * Math.cos(theta)).multiplyScalar(radius);
+    controls.target.copy(center);
+    camera.position.copy(center).add(v);
+    controls.update();
+  } else {
+    flyTo({ target: center, radius, phi, theta });
+  }
+  userMoved = false;
+}
+
+function focusRoom(name) {
+  const THREE = window.THREE;
+  const r = rooms[name];
+  if (!r) return;
+  const box = new THREE.Box3().setFromObject(r.group);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const rad = Math.max(1.6, Math.hypot(size.x, size.z) / 2 + 0.4);
+  center.y = Math.min(1.1, size.y / 2);
+  flyTo({ target: center, radius: Math.max(controls.minDistance + 0.5, distanceToFit(rad) * 0.9), phi: viewMode === 'top' ? 0.02 : 0.92 });
+  userMoved = false;
+}
+
+/** Desloca o centro de projeção para a faixa livre entre os trilhos. */
+function applyViewOffset() {
+  const w = container.clientWidth || window.innerWidth;
+  const h = container.clientHeight || window.innerHeight;
+  const { shift } = freeBand();
+  if (Math.abs(shift) < 1) { camera.clearViewOffset(); }
+  else camera.setViewOffset(w, h, -shift, 0, w, h);
+  camera.updateProjectionMatrix();
+}
+
+function toggleView() {
+  viewMode = viewMode === 'iso' ? 'top' : 'iso';
+  const phi = viewMode === 'top' ? 0.02 : 0.98;
+  flyTo({ phi, theta: viewMode === 'top' ? 0 : Math.PI / 4 });
+  syncCameraUI();
+}
+
+function toggleLock() {
+  if (!selectedRoom) return;
+  lockedRoom = !lockedRoom;
+  if (lockedRoom) focusRoom(selectedRoom);
+  syncCameraUI();
+}
+
+function zoomBy(factor) {
+  const cur = spherical(controls.target, camera.position);
+  flyTo({ radius: Math.min(controls.maxDistance, Math.max(controls.minDistance, cur.radius * factor)) }, 280);
+}
+
+function toggleSpin() {
+  spin = !spin;
+  syncCameraUI();
+}
+
+function hideCamHint() { document.getElementById('cam-hint')?.classList.add('cam-hint-hidden'); }
+
+function syncCameraUI() {
+  const bar = document.getElementById('cam-toolbar');
+  if (!bar) return;
+  const lock = bar.querySelector('[data-cam="lock"]');
+  if (lock) {
+    lock.disabled = !selectedRoom;
+    lock.classList.toggle('cam-on', lockedRoom);
+    lock.setAttribute('aria-pressed', lockedRoom ? 'true' : 'false');
+    const l = lock.querySelector('[data-cam-lock-label]');
+    if (l) l.textContent = lockedRoom ? 'Soltar cômodo' : 'Fixar cômodo';
+  }
+  const v = bar.querySelector('[data-cam-view-label]');
+  if (v) v.textContent = viewMode === 'iso' ? 'Vista topo' : 'Vista 3D';
+  const sp = bar.querySelector('[data-cam="spin"]');
+  if (sp) sp.setAttribute('aria-pressed', spin ? 'true' : 'false');
+  controls.enablePan = !lockedRoom;
+}
+
+function wireCameraUI() {
+  const bar = document.getElementById('cam-toolbar');
+  bar?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-cam]');
+    if (!b || b.disabled) return;
+    switch (b.dataset.cam) {
+      case 'fit': lockedRoom = false; if (selectedRoom) selectRoom(null); else fitCamera(true); syncCameraUI(); break;
+      case 'view': toggleView(); break;
+      case 'lock': toggleLock(); break;
+      case 'zoom-in': zoomBy(0.72); break;
+      case 'zoom-out': zoomBy(1.38); break;
+      case 'spin': toggleSpin(); break;
+      default:
+    }
+  });
+  renderer.domElement.addEventListener('dblclick', () => { lockedRoom = false; if (selectedRoom) selectRoom(null); else fitCamera(true); syncCameraUI(); });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (document.getElementById('fp-canvas')?.offsetParent) return;   // editor de planta aberto
+    if (!document.body.classList.contains('authenticated')) return;
+    const k = e.key.toLowerCase();
+    if (k === 'f') { lockedRoom = false; if (selectedRoom) selectRoom(null); else fitCamera(true); syncCameraUI(); }
+    else if (k === 'v') toggleView();
+    else if (k === 'l') toggleLock();
+    else if (k === '+' || k === '=') zoomBy(0.72);
+    else if (k === '-' || k === '_') zoomBy(1.38);
+    else if (k === 'escape') { lockedRoom = false; selectRoom(null); }
+    else return;
+    e.preventDefault();
+  });
+  setTimeout(hideCamHint, 12000);
+  syncCameraUI();
 }
 
 function updateLabelBadges(devices) {
@@ -834,19 +1049,36 @@ function animate() {
   clock.last = now;
   clock.t += dt;
 
-  // deriva suave da câmera quando o usuário está inativo
-  controls.autoRotate = now - lastInteraction > 7000;
+  // giro automático só quando o usuário liga (e nunca com a câmera fixada)
+  controls.autoRotate = spin && !lockedRoom && !flight;
 
-  // aproxima o alvo da câmera do cômodo selecionado
-  if (desiredTarget) {
-    controls.target.lerp(desiredTarget, 0.06);
-    if (controls.target.distanceTo(desiredTarget) < 0.05) desiredTarget = null;
+  // voo suave (enquadrar / focar cômodo / trocar de vista / zoom)
+  if (flight) {
+    const k = Math.min(1, (now - flight.t0) / flight.dur);
+    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    const { from, to } = flight;
+    const radius = from.radius + (to.radius - from.radius) * e;
+    const phi = from.phi + (to.phi - from.phi) * e;
+    const theta = from.theta + (to.theta - from.theta) * e;
+    controls.target.lerpVectors(from.target, to.target, e);
+    camera.position.set(
+      controls.target.x + radius * Math.sin(phi) * Math.sin(theta),
+      controls.target.y + radius * Math.cos(phi),
+      controls.target.z + radius * Math.sin(phi) * Math.cos(theta),
+    );
+    if (k >= 1) flight = null;
+  } else if (planBox && !lockedRoom) {
+    // não deixa o alvo "fugir" para longe da planta ao mover a câmera
+    const pad = 6;
+    controls.target.x = Math.min(planBox.max.x + pad, Math.max(planBox.min.x - pad, controls.target.x));
+    controls.target.z = Math.min(planBox.max.z + pad, Math.max(planBox.min.z - pad, controls.target.z));
   }
 
   // animações sutis contínuas (multiplicadas pelo fator "ghost" quando o
   // andar está semitransparente no modo Todos)
   Object.values(rooms).forEach((r) => {
     const k = r.ghost ?? 1;
+    r.ceilings?.forEach((m) => { m.visible = m.material.emissiveIntensity > 0.01; });
     if (r.fx.water?.visible) {
       r.fx.water.material.opacity = (0.4 + Math.sin(clock.t * 5) * 0.15) * k;
       r.fx.valveWheel.rotation.z += dt * 0.8;
@@ -869,8 +1101,8 @@ function resize() {
   const w = container.clientWidth || window.innerWidth;
   const h = container.clientHeight || window.innerHeight;
   camera.aspect = w / h;
-  camera.updateProjectionMatrix();
   renderer.setSize(w, h);
+  applyViewOffset();
 }
 
-const api = { applyDeviceState, selectRoom };
+const api = { applyDeviceState, selectRoom, fitCamera };
