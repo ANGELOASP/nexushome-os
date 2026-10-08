@@ -13,6 +13,7 @@
 // ============================================================
 
 import { state, on, emit, floorLabel, inferRoomKind } from './state.js';
+import { isPoly, polyCentroid, innerRect } from './geometry.js';
 
 const METER = 1.9;          // unidades de cena por metro (3.0 m → 5.7 un., paridade com o layout original)
 const WALL_H = 2.5;
@@ -25,6 +26,7 @@ let onRoomSelectCb = null;
 let planGroup = null;        // grupo reconstruível: base + cômodos
 let rooms = {};              // nome -> { group, floor, walls[], highlight, label, lights:{}, fx:{} }
 let floorSlabs = [];         // lajes por andar: [{ floor, mesh }]
+let wallMeshes = [];         // paredes vetoriais (InstancedMesh) por andar: [{ floor, mesh }]
 let pickMeshes = [];
 let selectedRoom = null;
 let floorFilter = 'all';     // 'all' | número do andar
@@ -103,6 +105,7 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
 
   // planta editada → reconstrói os cômodos sem recarregar a página
   on('rooms-changed', () => rebuildPlan());
+  on('walls-changed', () => rebuildPlan());
 
   buildFloorFilter();
   animate();
@@ -164,6 +167,7 @@ function roomDefFromRow(row) {
     sizeZ: Math.max(1, Number(row.size_z) || 3) * METER,
     color: row.color || '#818cf8',
     outdoor: kind === 'area_externa' || row.name === 'Área Externa',
+    points: isPoly(row) ? row.points.map(([x, z]) => [x * METER, z * METER]) : null,   // polígono (cena, relativo ao centro)
   };
 }
 
@@ -171,12 +175,16 @@ function buildPlan(THREE) {
   planGroup = new THREE.Group();
   scene.add(planGroup);
   floorSlabs = [];
+  wallMeshes = [];
 
-  // laje por andar, dimensionada pelos limites da planta DAQUELE andar
-  const floors = [...new Set(state.rooms.map((r) => Math.max(0, Math.trunc(Number(r.floor) || 0))))].sort((a, b) => a - b);
+  // laje por andar, dimensionada pelos limites da planta DAQUELE andar (cômodos + paredes)
+  const wallsAll = (state.walls || []).filter((w) => [w.x1, w.z1, w.x2, w.z2].every(Number.isFinite));
+  const fl = (v) => Math.max(0, Math.trunc(Number(v) || 0));
+  const floors = [...new Set([...state.rooms.map((r) => fl(r.floor)), ...wallsAll.map((w) => fl(w.floor))])].sort((a, b) => a - b);
   floors.forEach((f) => {
-    const rows = state.rooms.filter((r) => Math.max(0, Math.trunc(Number(r.floor) || 0)) === f);
-    if (!rows.length) return;
+    const rows = state.rooms.filter((r) => fl(r.floor) === f);
+    const wrows = wallsAll.filter((w) => fl(w.floor) === f);
+    if (!rows.length && !wrows.length) return;
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     rows.forEach((r) => {
       const x = Number(r.pos_x) * METER || 0, z = Number(r.pos_z) * METER || 0;
@@ -184,6 +192,10 @@ function buildPlan(THREE) {
       const hd = (Math.max(1, Number(r.size_z) || 3) * METER) / 2;
       minX = Math.min(minX, x - hw); maxX = Math.max(maxX, x + hw);
       minZ = Math.min(minZ, z - hd); maxZ = Math.max(maxZ, z + hd);
+    });
+    wrows.forEach((w) => {
+      minX = Math.min(minX, w.x1 * METER, w.x2 * METER); maxX = Math.max(maxX, w.x1 * METER, w.x2 * METER);
+      minZ = Math.min(minZ, w.z1 * METER, w.z2 * METER); maxZ = Math.max(maxZ, w.z1 * METER, w.z2 * METER);
     });
     const base = new THREE.Mesh(
       new THREE.BoxGeometry((maxX - minX) + 0.7, 0.28, (maxZ - minZ) + 0.7),
@@ -196,7 +208,10 @@ function buildPlan(THREE) {
     floorSlabs.push({ floor: f, mesh: base });
   });
 
-  state.rooms.forEach((row) => buildRoom(THREE, roomDefFromRow(row)));
+  // andares com paredes vetoriais (desenhadas/importadas) não ganham as paredes "de cenário" dos cômodos
+  const realWallFloors = new Set(wallsAll.map((w) => fl(w.floor)));
+  state.rooms.forEach((row) => buildRoom(THREE, roomDefFromRow(row), realWallFloors.has(fl(row.floor))));
+  buildRealWalls(THREE, wallsAll);
   applyFloorFilter();
 }
 
@@ -218,6 +233,7 @@ function rebuildPlan() {
   Object.values(rooms).forEach((r) => r.label?.remove());
   rooms = {};
   pickMeshes = [];
+  wallMeshes = [];
 
   buildPlan(THREE);
   buildFloorFilter();
@@ -243,7 +259,8 @@ function box(THREE, w, h, d, material, x = 0, y = 0, z = 0, castShadow = true) {
   return m;
 }
 
-function buildRoom(THREE, def) {
+function buildRoom(THREE, def, skipWalls = false) {
+  const poly = Array.isArray(def.points) && def.points.length >= 3;
   const g = new THREE.Group();
   g.position.set(def.pos[0], 0.16 + def.floorNo * FLOOR_H, def.pos[2]);
   planGroup.add(g);
@@ -255,13 +272,30 @@ function buildRoom(THREE, def) {
   const baseHex = def.outdoor ? 0x14301f : 0x111a30;
   const floorColor = new THREE.Color(def.color).lerp(new THREE.Color(baseHex), 0.78);
   const floorMat = mat(THREE, floorColor, { roughness: def.outdoor ? 1 : 0.7 });
-  const floor = box(THREE, SX, 0.12, SZ, floorMat, 0, 0, 0);
+  const floor = poly ? polyFloor(THREE, def.points, floorMat) : box(THREE, SX, 0.12, SZ, floorMat, 0, 0, 0);
   floor.userData.roomName = def.name;
   g.add(floor);
   room.floor = floor; room.floorMat = floorMat;
   pickMeshes.push(floor);
 
-  if (!def.outdoor) {
+  if (skipWalls) {
+    // o andar tem paredes vetoriais próprias (desenhadas ou importadas do CAD): sem paredes de cenário
+  } else if (poly) {
+    // polígono: todas as arestas viram paredes baixas (vista de "casa de boneca")
+    const wallMat = mat(THREE, def.outdoor ? 0x2d3a55 : 0x25304f, { roughness: 0.95 });
+    const h = def.outdoor ? 0.7 : WALL_H * 0.6;
+    const pts = def.points;
+    pts.forEach(([ax, az], i) => {
+      const [bx, bz] = pts[(i + 1) % pts.length];
+      const L = Math.hypot(bx - ax, bz - az);
+      if (L < 0.05) return;
+      const wm = wallMat.clone();
+      const m = box(THREE, L + WALL_T, h, WALL_T, wm, (ax + bx) / 2, h / 2, (az + bz) / 2);
+      m.rotation.y = -Math.atan2(bz - az, bx - ax);
+      m.userData.roomName = def.name;
+      g.add(m); room.walls.push(m); room.wallMats.push(wm); pickMeshes.push(m);
+    });
+  } else if (!def.outdoor) {
     // paredes (duas externas + meias-paredes internas para visibilidade)
     const wallMat = mat(THREE, 0x25304f, { roughness: 0.95 });
     const mkWall = (w, h, d, x, y, z) => {
@@ -290,11 +324,14 @@ function buildRoom(THREE, def) {
   }
 
   // moldura de seleção (highlight)
-  const hl = new THREE.Mesh(
-    new THREE.BoxGeometry(SX + 0.25, WALL_H + 0.4, SZ + 0.25),
-    new THREE.MeshBasicMaterial({ color: 0xf2b24a, transparent: true, opacity: 0.1, depthWrite: false })
-  );
-  hl.position.y = (WALL_H + 0.4) / 2 - 0.1;
+  const hl = poly
+    ? polyPrism(THREE, def.points, WALL_H + 0.3, new THREE.MeshBasicMaterial({ color: 0xf2b24a, transparent: true, opacity: 0.1, depthWrite: false }))
+    : new THREE.Mesh(
+      new THREE.BoxGeometry(SX + 0.25, WALL_H + 0.4, SZ + 0.25),
+      new THREE.MeshBasicMaterial({ color: 0xf2b24a, transparent: true, opacity: 0.1, depthWrite: false })
+    );
+  if (!poly) hl.position.y = (WALL_H + 0.4) / 2 - 0.1;
+  else hl.position.y = -0.1;
   hl.visible = false;
   g.add(hl);
   room.highlight = hl;
@@ -302,19 +339,38 @@ function buildRoom(THREE, def) {
   // mobiliário segue o `kind` do cômodo (presets da v1.6.0), com
   // fallback genérico para tipos desconhecidos
   const furnish = FURNISH_BY_KIND[def.kind] || furnishGeneric;
-  furnish(THREE, g, room);
+  let fg = g;
+  let FSX = SX, FSZ = SZ;
+  if (poly) {
+    // polígono: o mobiliário vai no maior retângulo que cabe dentro da forma
+    const ir = innerRect(def.points);
+    fg = new THREE.Group();
+    fg.position.set(ir.cx, 0, ir.cz);
+    g.add(fg);
+    FSX = ir.sx; FSZ = ir.sz;
+    room.def = { ...def, sizeX: FSX, sizeZ: FSZ };
+    furnish(THREE, fg, room);
+    room.def = def;
+    const [lcx, lcz] = polyCentroid(def.points);
+    const anchor = new THREE.Object3D();
+    anchor.position.set(lcx, 0, lcz);
+    g.add(anchor);
+    room.labelAnchor = anchor;
+  } else {
+    furnish(THREE, g, room);
+  }
 
   // brilho de teto neutro em cômodos internos sem "coolGlow" temático:
   // permite a reação visual de dispositivos vinculados (ex.: AC/TV SmartThings)
   if (!def.outdoor && !room.fx.coolGlow) {
     const neutralMat = mat(THREE, 0x1a2440, { emissive: 0x2563eb, emissiveIntensity: 0 });
-    g.add(box(THREE, SX - 0.3, 0.04, SZ - 0.3, neutralMat, 0, WALL_H - 0.09, 0, false));
+    fg.add(box(THREE, FSX - 0.3, 0.04, FSZ - 0.3, neutralMat, 0, WALL_H - 0.09, 0, false));
     room.fx.coolGlow = neutralMat;
   }
 
   // placas de "brilho de teto" só existem quando acesas: com tudo desligado o
   // cômodo fica aberto por cima e dá para ver o interior (antes parecia um bloco fechado)
-  room.ceilings = g.children.filter((m) =>
+  room.ceilings = fg.children.filter((m) =>
     m.isMesh && m.position.y > WALL_H - 0.2 && m.geometry?.parameters?.height <= 0.06 && m.material?.emissive);
 
   // rótulo flutuante (div sobreposta) — bolinha na cor do cômodo
@@ -334,6 +390,59 @@ function buildRoom(THREE, def) {
   g.traverse((o) => { if (o.isMesh) o.userData.roomFloor = def.floorNo; });
 
   rooms[def.name] = room;
+}
+
+// ---- polígonos: piso e prisma extrudados (pontos em unidades de cena, relativos ao centro)
+function polyShape(THREE, pts) {
+  const sh = new THREE.Shape();
+  pts.forEach(([x, z], i) => { if (i) sh.lineTo(x, -z); else sh.moveTo(x, -z); });
+  sh.closePath();
+  return sh;
+}
+function polyFloor(THREE, pts, material) {
+  const m = new THREE.Mesh(new THREE.ExtrudeGeometry(polyShape(THREE, pts), { depth: 0.12, bevelEnabled: false }), material);
+  m.rotation.x = -Math.PI / 2;      // (x, y) da forma → (x, -z) do mundo; extrusão vira altura
+  m.position.y = -0.06;
+  m.receiveShadow = true;
+  return m;
+}
+function polyPrism(THREE, pts, height, material) {
+  const m = new THREE.Mesh(new THREE.ExtrudeGeometry(polyShape(THREE, pts), { depth: height, bevelEnabled: false }), material);
+  m.rotation.x = -Math.PI / 2;
+  return m;
+}
+
+// ---- paredes vetoriais (tabela walls): um InstancedMesh por andar
+function buildRealWalls(THREE, walls) {
+  const byFloor = new Map();
+  walls.forEach((w) => {
+    const f = Math.max(0, Math.trunc(Number(w.floor) || 0));
+    if (!byFloor.has(f)) byFloor.set(f, []);
+    byFloor.get(f).push(w);
+  });
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  byFloor.forEach((list, f) => {
+    const material = new THREE.MeshStandardMaterial({ color: 0x3b4868, roughness: 0.92, metalness: 0.02 });
+    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), material, list.length);
+    list.forEach((w, i) => {
+      const x1 = w.x1 * METER, z1 = w.z1 * METER, x2 = w.x2 * METER, z2 = w.z2 * METER;
+      const dx = x2 - x1, dz = z2 - z1;
+      const len = Math.hypot(dx, dz);
+      const th = Math.max(0.1, (Number(w.th) || 0.15) * METER);
+      q.setFromAxisAngle(up, -Math.atan2(dz, dx));
+      p.set((x1 + x2) / 2, 0.16 + f * FLOOR_H + WALL_H / 2, (z1 + z2) / 2);
+      sc.set(len + th, WALL_H, th);
+      m4.compose(p, q, sc);
+      mesh.setMatrixAt(i, m4);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    mesh.frustumCulled = false;       // a caixa do InstancedMesh é a da geometria unitária
+    mesh.userData.roomFloor = f;
+    planGroup.add(mesh);
+    wallMeshes.push({ floor: f, mesh });
+  });
 }
 
 // ---- mobiliário por tipo de cômodo (kind) — v1.6.0
@@ -399,7 +508,7 @@ function applyFloorFilter() {
       setRoomGhost(room, false);
     }
   });
-  floorSlabs.forEach(({ floor, mesh }) => {
+  floorSlabs.concat(wallMeshes).forEach(({ floor, mesh }) => {
     mesh.visible = floorFilter === 'all' || floor === floorFilter;
     ghostMesh(mesh, floorFilter === 'all' && floor > 0);
   });
@@ -828,6 +937,7 @@ function computePlanBox() {
   const THREE = window.THREE;
   const box = new THREE.Box3();
   floorSlabs.forEach((f) => { if (f.mesh.visible) box.expandByObject(f.mesh); });
+  wallMeshes.forEach((w) => { if (w.mesh.visible) box.expandByObject(w.mesh); });
   Object.values(rooms).forEach((r) => { if (r.group.visible) box.expandByObject(r.group); });
   if (box.isEmpty()) box.set(new THREE.Vector3(-6, 0, -6), new THREE.Vector3(6, WALL_H, 6));
   return box;
@@ -1027,7 +1137,7 @@ function updateLabels() {
   const v = new window.THREE.Vector3();
   Object.values(rooms).forEach((r) => {
     if (!r.group.visible) { r.label.style.opacity = '0'; return; } // andar oculto pelo filtro
-    v.setFromMatrixPosition(r.group.matrixWorld);
+    v.setFromMatrixPosition((r.labelAnchor || r.group).matrixWorld);
     v.y += WALL_H + 0.7;
     v.project(camera);
     const x = (v.x * 0.5 + 0.5) * w;

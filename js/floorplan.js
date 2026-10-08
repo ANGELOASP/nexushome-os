@@ -34,10 +34,15 @@
 // ============================================================
 
 import {
-  state, setRooms, DEFAULT_ROOMS,
+  state, setRooms, DEFAULT_ROOMS, emit,
   ROOM_PRESETS, MAX_FLOORS, floorLabel, presetByKind, normalizeRoom,
 } from './state.js';
 import { toast } from './toasts.js';
+import {
+  isPoly, polyAbs, setPolyAbs, pointInPoly, polyArea, polyCentroid, distToSegment,
+  cleanPoly, isSimplePoly, rectToPoints, roomArea, MIN_POLY_AREA,
+} from './geometry.js';
+import { initDxfImport } from './dxf-import.js';
 
 const CELL_M = 0.5;        // 1 célula da grade = 0,5 m
 const MIN_SIZE = 1.0;      // tamanho mínimo do cômodo (m)
@@ -61,6 +66,9 @@ let tool = 'select';       // 'select' | 'wall' | 'erase' | 'room'
 let wallDraw = null;       // { x1, z1 } — primeiro clique da ferramenta Parede
 let wallHover = null;      // { x, z } — ponto sob o cursor (preview da parede)
 let roomDraw = null;       // { x1, z1, x2, z2, armed, snapBefore } — borracha da ferramenta Cômodo
+let polyDraw = null;       // { pts:[[x,z],...], hover:[x,z]|null, snapBefore } — ferramenta Polígono (P)
+const VERTEX_R = 0.35;     // raio de captura de vértice (m)
+let polyHover = null;      // [x,z] sob o cursor na ferramenta Polígono
 const WALL_TH = 0.15;      // espessura padrão da parede (m)
 const WALL_SNAP = 0.05;    // snap fino de endpoints de parede (m)
 const AXIS_LOCK_DEG = 8;   // trava de eixo 0°/90°/45° (SketchUp-style)
@@ -115,6 +123,12 @@ export function initFloorplan({ getClient: gc } = {}) {
   document.getElementById('btn-fp-tool-wall')?.addEventListener('click', () => setTool('wall'));
   document.getElementById('btn-fp-tool-room')?.addEventListener('click', () => setTool('room'));
   document.getElementById('btn-fp-tool-erase')?.addEventListener('click', () => setTool('erase'));
+  document.getElementById('btn-fp-tool-poly')?.addEventListener('click', () => setTool('poly'));
+  document.getElementById('btn-fp-topoly')?.addEventListener('click', convertToPolygon);
+  initDxfImport({
+    getContext: () => ({ floor: currentFloor, rooms: draft, walls: wallsDraft }),
+    apply: applyDxfImport,
+  });
 
   // fundo de referência (imagem da planta CAD)
   document.getElementById('btn-fp-bg')?.addEventListener('click', toggleBgPanel);
@@ -269,6 +283,8 @@ export async function loadWalls(client) {
     console.error('[planta] falha ao carregar walls', err);
     wallsLive = [];
   }
+  state.walls = wallsLive;
+  emit('walls-changed', state.walls);   // a cena 3D reconstrói as paredes
 }
 
 /** Assina mudanças da tabela walls em tempo real. Retorna [canal]. */
@@ -306,6 +322,7 @@ function openEditor() {
   wallDraw = null;
   wallHover = null;
   roomDraw = null;
+  polyDraw = null;
   setTool('select');
   history.past = [];
   history.future = [];
@@ -334,6 +351,7 @@ function closeEditor() {
   wallDraw = null;
   wallHover = null;
   roomDraw = null;
+  polyDraw = null;
   hideForm();
   hidePresets();
   hideBgPanel();
@@ -348,12 +366,13 @@ function setTool(t) {
   wallDraw = null;
   wallHover = null;
   roomDraw = null;
+  polyDraw = null;
   if (t !== 'select') { select(null); selectedWallId = null; }
-  const map = { select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase', room: 'btn-fp-tool-room' };
+  const map = { select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase', room: 'btn-fp-tool-room', poly: 'btn-fp-tool-poly' };
   Object.entries(map).forEach(([k, id]) => {
     document.getElementById(id)?.classList.toggle('fp-tool-active', k === t);
   });
-  if (canvas) canvas.style.cursor = (t === 'wall' || t === 'room') ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
+  if (canvas) canvas.style.cursor = (t === 'wall' || t === 'room' || t === 'poly') ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
   draw();
 }
 
@@ -565,6 +584,7 @@ function draw() {
   drawWalls();
   drawWallPreview();
   drawRoomPreview();
+  drawPolyPreview();
   drawGuides(w, h);
 }
 
@@ -893,6 +913,7 @@ function drawGuides(w, h) {
 }
 
 function drawRoom(r, flashing) {
+  if (isPoly(r)) { drawPolyRoom(r, flashing); return; }
   const x = w2sx(r.pos_x - r.size_x / 2);
   const y = w2sz(r.pos_z - r.size_z / 2);
   const w = r.size_x * view.scale;
@@ -941,6 +962,235 @@ function drawRoom(r, flashing) {
 }
 
 // ------------------------------------------------------------
+// Cômodos poligonais (v2.0)
+// ------------------------------------------------------------
+
+/** Snap de ponto de polígono: vértices/cantos de outros cômodos, depois paredes e grade. */
+function snapPolyPoint(wx, wz, excludeRoomId = null) {
+  const thr = SNAP_PX / view.scale;
+  let best = null;
+  const consider = (x, z) => {
+    const d = Math.hypot(wx - x, wz - z);
+    if (d <= thr && (!best || d < best.d)) best = { d, x, z };
+  };
+  floorRooms().forEach((o) => {
+    if (o.id === excludeRoomId) return;
+    if (isPoly(o)) polyAbs(o).forEach(([x, z]) => consider(x, z));
+    else {
+      const hx = o.size_x / 2, hz = o.size_z / 2;
+      [[-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz]].forEach(([dx, dz]) => consider(o.pos_x + dx, o.pos_z + dz));
+    }
+  });
+  if (polyDraw?.pts.length) consider(polyDraw.pts[0][0], polyDraw.pts[0][1]);
+  if (best) return [best.x, best.z];
+  const q = snapRoomPoint(wx, wz);
+  return [q.x, q.z];
+}
+
+/** Shift: trava o próximo vértice no múltiplo de 45° mais próximo. */
+function forceAxis(from, p) {
+  const dx = p[0] - from[0], dz = p[1] - from[1];
+  const len = Math.hypot(dx, dz);
+  if (len < 1e-6) return p;
+  const step = Math.PI / 4;
+  const a = Math.round(Math.atan2(dz, dx) / step) * step;
+  return [from[0] + len * Math.cos(a), from[1] + len * Math.sin(a)];
+}
+
+function commitPoly() {
+  if (!polyDraw) return;
+  const abs = cleanPoly(polyDraw.pts);
+  const snapBefore = polyDraw.snapBefore;
+  if (abs.length < 3) {
+    toast('Polígono incompleto', 'Marque ao menos 3 vértices (clique no 1º vértice, Enter ou duplo clique para fechar).', 'warning');
+    return;
+  }
+  if (!isSimplePoly(abs)) {
+    toast('Forma inválida', 'As arestas se cruzam. Use Backspace para desfazer o último vértice.', 'warning');
+    return;
+  }
+  if (polyArea(abs) < MIN_POLY_AREA) {
+    toast('Cômodo pequeno demais', `Área mínima: ${fmt1(MIN_POLY_AREA)} m².`, 'warning');
+    return;
+  }
+  const room = setPolyAbs({
+    id: genUuid(),
+    name: uniqueName('Cômodo'),
+    color: '#818cf8',
+    kind: 'personalizado',
+    floor: currentFloor,
+    sort_order: draft.reduce((m, r) => Math.max(m, r.sort_order ?? 0), 0) + 1,
+  }, abs);
+  pushHistorySnap(snapBefore);
+  draft.push(room);
+  polyDraw = null;
+  setTool('select');
+  select(room.id);
+  showForm(room);
+  renderFloorTabs();
+  syncToolbar();
+  draw();
+  toast('Cômodo poligonal criado', `${fmt1(polyArea(abs))} m² · arraste os vértices para ajustar a forma.`, 'success');
+}
+
+function deleteVertex(r, idx) {
+  const abs = polyAbs(r);
+  if (abs.length <= 3) {
+    toast('Mínimo de 3 vértices', 'Um polígono precisa de ao menos 3 pontos.', 'warning');
+    return;
+  }
+  pushHistory();
+  abs.splice(idx, 1);
+  setPolyAbs(r, abs);
+  syncForm(r);
+  syncToolbar();
+  draw();
+}
+
+function convertToPolygon() {
+  const r = sel();
+  if (!r || isPoly(r)) return;
+  pushHistory();
+  r.points = rectToPoints(r);
+  syncForm(r);
+  draw();
+  toast('Convertido em polígono', 'Arraste os vértices; clique no “+” de uma aresta para criar mais um.', 'info');
+}
+
+function drawPolyPath(abs) {
+  ctx.beginPath();
+  abs.forEach(([x, z], i) => {
+    const sx = w2sx(x), sz = w2sz(z);
+    if (i) ctx.lineTo(sx, sz); else ctx.moveTo(sx, sz);
+  });
+  ctx.closePath();
+}
+
+function drawPolyRoom(r, flashing) {
+  const abs = polyAbs(r);
+  const isSel = r.id === selectedId;
+  drawPolyPath(abs);
+  ctx.fillStyle = hexA(r.color, isSel ? 0.30 : 0.18);
+  ctx.fill();
+  ctx.lineWidth = isSel ? 2.5 : 2;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = flashing ? '#ef4444' : (isSel ? '#f2b24a' : shade(r.color, 0.45));
+  ctx.stroke();
+
+  // nome + área no centroide (cai dentro do polígono mesmo em L)
+  const [cx, cz] = polyCentroid(r.points);
+  const inside = pointInPoly(r.pos_x + cx, r.pos_z + cz, abs);
+  const lx = w2sx(inside ? r.pos_x + cx : r.pos_x), ly = w2sz(inside ? r.pos_z + cz : r.pos_z);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = `600 ${Math.max(11, Math.min(14, view.scale * 0.28))}px 'IBM Plex Sans', sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (view.scale * Math.sqrt(polyArea(r.points)) > 50) {
+    ctx.fillText(r.name || '(sem nome)', lx, ly - 8, 160);
+    ctx.fillStyle = 'rgba(148,163,184,0.9)';
+    ctx.font = `500 ${Math.max(9, Math.min(11, view.scale * 0.22))}px 'IBM Plex Sans', sans-serif`;
+    ctx.fillText(`${fmt1(polyArea(r.points))} m²`, lx, ly + 9, 160);
+  }
+
+  if (isSel && !flashing) {
+    // pontos médios das arestas ("+" insere vértice) e vértices (arrastáveis)
+    abs.forEach((a, i) => {
+      const b = abs[(i + 1) % abs.length];
+      if (Math.hypot(b[0] - a[0], b[1] - a[1]) <= 0.6) return;
+      const mx = w2sx((a[0] + b[0]) / 2), mz = w2sz((a[1] + b[1]) / 2);
+      ctx.fillStyle = 'rgba(12,16,23,0.9)';
+      ctx.strokeStyle = 'rgba(242,178,74,0.8)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(mx, mz, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(mx - 2.5, mz); ctx.lineTo(mx + 2.5, mz); ctx.moveTo(mx, mz - 2.5); ctx.lineTo(mx, mz + 2.5); ctx.stroke();
+    });
+    abs.forEach(([x, z]) => {
+      ctx.fillStyle = '#f2b24a';
+      ctx.strokeStyle = '#0c1017';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(w2sx(x), w2sz(z), 5.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    });
+  }
+}
+
+function drawPolyPreview() {
+  if (tool !== 'poly') return;
+  const pts = polyDraw?.pts || [];
+  if (pts.length) {
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#f2b24a';
+    ctx.fillStyle = 'rgba(242,178,74,0.10)';
+    ctx.beginPath();
+    pts.forEach(([x, z], i) => { const sx = w2sx(x), sz = w2sz(z); if (i) ctx.lineTo(sx, sz); else ctx.moveTo(sx, sz); });
+    if (polyHover) ctx.lineTo(w2sx(polyHover[0]), w2sz(polyHover[1]));
+    ctx.closePath();
+    ctx.fill();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    pts.forEach(([x, z], i) => { const sx = w2sx(x), sz = w2sz(z); if (i) ctx.lineTo(sx, sz); else ctx.moveTo(sx, sz); });
+    ctx.stroke();
+    if (polyHover) {
+      const l = pts[pts.length - 1];
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.moveTo(w2sx(l[0]), w2sz(l[1])); ctx.lineTo(w2sx(polyHover[0]), w2sz(polyHover[1])); ctx.stroke();
+      ctx.setLineDash([]);
+      const len = Math.hypot(polyHover[0] - l[0], polyHover[1] - l[1]);
+      ctx.fillStyle = '#f2b24a';
+      ctx.font = "600 11px 'IBM Plex Sans', sans-serif";
+      ctx.textAlign = 'left';
+      ctx.fillText(`${fmt1(len)} m`, w2sx(polyHover[0]) + 12, w2sz(polyHover[1]) - 10);
+    }
+    pts.forEach(([x, z], i) => {
+      ctx.fillStyle = i === 0 ? '#fff' : '#f2b24a';
+      ctx.strokeStyle = '#0c1017';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(w2sx(x), w2sz(z), i === 0 ? 6.5 : 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    });
+    ctx.restore();
+  } else if (polyHover) {
+    ctx.save();
+    ctx.strokeStyle = '#f2b24a';
+    ctx.lineWidth = 1.5;
+    const sx = w2sx(polyHover[0]), sz = w2sz(polyHover[1]);
+    ctx.beginPath(); ctx.moveTo(sx - 8, sz); ctx.lineTo(sx + 8, sz); ctx.moveTo(sx, sz - 8); ctx.lineTo(sx, sz + 8); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/** Aplica o resultado da importação DXF ao rascunho (desfazível com Ctrl+Z). */
+function applyDxfImport(plan, opts = {}) {
+  pushHistory();
+  if (opts.replace) {
+    draft = draft.filter((r) => (r.floor ?? 0) !== currentFloor);
+    wallsDraft = wallsDraft.filter((w) => (w.floor ?? 0) !== currentFloor);
+  }
+  const maxWallSort = wallsDraft.reduce((m, w) => Math.max(m, w.sort_order ?? 0), 0);
+  plan.walls.forEach((w, i) => wallsDraft.push({
+    id: genUuid(), floor: currentFloor,
+    x1: w.x1, z1: w.z1, x2: w.x2, z2: w.z2,
+    th: opts.wallThickness || WALL_TH, sort_order: maxWallSort + i + 1,
+  }));
+  const palette = ['#818cf8', '#38bdf8', '#fbbf24', '#4ade80', '#f472b6', '#fb923c', '#a78bfa', '#2dd4bf'];
+  let n = 0;
+  plan.rooms.forEach((rm) => {
+    const room = setPolyAbs({
+      id: genUuid(), name: uniqueName('Cômodo'), color: palette[n++ % palette.length],
+      kind: 'personalizado', floor: currentFloor,
+      sort_order: draft.reduce((m, r) => Math.max(m, r.sort_order ?? 0), 0) + 1,
+    }, rm.points);
+    draft.push(room);
+  });
+  select(null);
+  selectedWallId = null;
+  renderFloorTabs();
+  syncToolbar();
+  fitView();
+  draw();
+  toast('Planta importada', `${plan.walls.length} parede(s) e ${plan.rooms.length} cômodo(s) adicionados. Revise e clique em Salvar planta.` + (plan.rooms.length ? '' : ' Nenhum cômodo fechado foi detectado: use a ferramenta Polígono sobre as paredes.'), 'success');
+}
+
+// ------------------------------------------------------------
 // Zoom (roda do mouse, ancorado no cursor) + status da toolbar
 // ------------------------------------------------------------
 
@@ -968,7 +1218,7 @@ function syncToolbar() {
   const el = document.getElementById('fp-area-status');
   if (el) {
     const rooms = floorRooms();
-    const area = rooms.reduce((s, r) => s + r.size_x * r.size_z, 0);
+    const area = rooms.reduce((s, r) => s + roomArea(r), 0);
     el.textContent = `${floorLabel(currentFloor)} · ${rooms.length} cômodo${rooms.length === 1 ? '' : 's'} · ${fmt1(area)} m²`;
   }
 }
@@ -987,12 +1237,14 @@ function roomAt(wx, wz) {
   const rooms = floorRooms();
   for (let i = rooms.length - 1; i >= 0; i--) {
     const r = rooms[i];
+    if (isPoly(r)) { if (pointInPoly(wx, wz, polyAbs(r))) return r; continue; }
     if (Math.abs(wx - r.pos_x) <= r.size_x / 2 && Math.abs(wz - r.pos_z) <= r.size_z / 2) return r;
   }
   return null;
 }
 
 function onHandle(r, wx, wz) {
+  if (isPoly(r)) return false;   // polígono não tem alça de canto: edita-se pelos vértices
   const hx = r.pos_x + r.size_x / 2, hz = r.pos_z + r.size_z / 2;
   return Math.abs(wx - hx) <= HANDLE_M && Math.abs(wz - hz) <= HANDLE_M;
 }
@@ -1039,6 +1291,56 @@ function onPointerDown(e) {
   hidePresets();
   const { px, py } = canvasPos(e);
   let wx = s2wx(px), wz = s2wz(py);
+
+  // ferramenta POLÍGONO: um clique por vértice; fecha clicando no 1º vértice, Enter ou duplo clique
+  if (tool === 'poly') {
+    if (e.button !== 0) return;
+    let p = snapPolyPoint(wx, wz);
+    if (!polyDraw) polyDraw = { pts: [], snapBefore: snapshot() };
+    const last = polyDraw.pts[polyDraw.pts.length - 1];
+    if (e.shiftKey && last) p = forceAxis(last, p);
+    if (polyDraw.pts.length >= 3 && Math.hypot(p[0] - polyDraw.pts[0][0], p[1] - polyDraw.pts[0][1]) <= VERTEX_R) {
+      commitPoly();
+    } else if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 0.05) {
+      polyDraw.pts.push(p);
+    }
+    draw();
+    e.preventDefault();
+    return;
+  }
+
+  // vértices do polígono selecionado: arrastar move; Alt/botão direito apaga; "+" na aresta insere
+  {
+    const selR = sel();
+    if (tool === 'select' && selR && isPoly(selR) && e.button !== 1) {
+      const abs = polyAbs(selR);
+      const vi = abs.findIndex(([x, z]) => Math.hypot(wx - x, wz - z) <= VERTEX_R);
+      if (vi >= 0) {
+        if (e.button === 2 || e.altKey) { deleteVertex(selR, vi); e.preventDefault(); return; }
+        drag = { mode: 'vertex', id: selR.id, index: vi, snapBefore: snapshot(), changed: false };
+        canvas.setPointerCapture(e.pointerId);
+        canvas.style.cursor = 'move';
+        e.preventDefault();
+        return;
+      }
+      for (let i = 0; i < abs.length; i++) {
+        const a = abs[i], b = abs[(i + 1) % abs.length];
+        const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        if (Math.hypot(wx - mid[0], wz - mid[1]) <= VERTEX_R * 0.8 && Math.hypot(b[0] - a[0], b[1] - a[1]) > 0.6) {
+          const snapBefore = snapshot();
+          abs.splice(i + 1, 0, mid);
+          setPolyAbs(selR, abs);
+          drag = { mode: 'vertex', id: selR.id, index: i + 1, snapBefore, changed: true };
+          canvas.setPointerCapture(e.pointerId);
+          canvas.style.cursor = 'move';
+          syncForm(selR);
+          draw();
+          e.preventDefault();
+          return;
+        }
+      }
+    }
+  }
 
   // ferramenta PAREDE: clique-clique com encadeamento (como SketchUp)
   if (tool === 'wall') {
@@ -1168,6 +1470,14 @@ function onPointerMove(e) {
     return;
   }
   if (tool === 'room' && !drag) { draw(); return; }
+  if (tool === 'poly') {
+    let p = snapPolyPoint(wx, wz);
+    const last = polyDraw?.pts[polyDraw.pts.length - 1];
+    if (e.shiftKey && last) p = forceAxis(last, p);
+    polyHover = p;
+    draw();
+    return;
+  }
 
   // ferramenta Parede: acompanha o cursor para o preview elástico
   if (tool === 'wall') {
@@ -1191,6 +1501,8 @@ function onPointerMove(e) {
       canvas.style.cursor = (wl.id === selectedWallId && (nearP1 || nearP2)) ? 'nwse-resize' : 'grab';
       return;
     }
+    const sr = sel();
+    if (sr && isPoly(sr) && polyAbs(sr).some(([x, z]) => Math.hypot(wx - x, wz - z) <= VERTEX_R)) { canvas.style.cursor = 'move'; return; }
     const r = roomAt(wx, wz);
     canvas.style.cursor = !r ? 'default' : (r.id === selectedId && onHandle(r, wx, wz)) ? 'nwse-resize' : 'grab';
     return;
@@ -1217,6 +1529,19 @@ function onPointerMove(e) {
       else { wl.x2 = p.x; wl.z2 = p.z; }
     }
     drag.changed = true;
+    syncToolbar();
+    draw();
+    return;
+  }
+
+  if (drag.mode === 'vertex') {
+    const rv = draft.find((d) => d.id === drag.id);
+    if (!rv || !isPoly(rv)) { drag = null; return; }
+    const abs = polyAbs(rv);
+    abs[drag.index] = snapPolyPoint(wx, wz, rv.id);
+    setPolyAbs(rv, abs);
+    drag.changed = true;
+    syncForm(rv);
     syncToolbar();
     draw();
     return;
@@ -1305,6 +1630,27 @@ function onPointerUp(e) {
     return;
   }
 
+  if (mode === 'vertex') {
+    const rv = draft.find((d) => d.id === drag.id);
+    const { snapBefore, changed } = drag;
+    drag = null;
+    canvas.style.cursor = 'default';
+    try { canvas.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+    if (!rv || !changed) return;
+    if (!isSimplePoly(polyAbs(rv))) {
+      restore(snapBefore);
+      flash();
+      draw();
+      toast('Forma inválida', 'As arestas do cômodo se cruzariam — o vértice voltou ao lugar.', 'warning');
+      return;
+    }
+    pushHistorySnap(snapBefore);
+    syncForm(rv);
+    syncToolbar();
+    draw();
+    return;
+  }
+
   const r = draft.find((d) => d.id === drag.id);
   const { orig, snapBefore, changed } = drag;
   drag = null;
@@ -1328,6 +1674,7 @@ function onPointerUp(e) {
 }
 
 function onDblClick(e) {
+  if (tool === 'poly') { if (polyDraw?.pts.length >= 3) commitPoly(); return; }
   const { px, py } = canvasPos(e);
   const r = roomAt(s2wx(px), s2wz(py));
   if (r) { select(r.id); showForm(r); }
@@ -1402,6 +1749,7 @@ function onKeyDown(e) {
     if (k === 'w') { setTool('wall'); return; }
     if (k === 'r') { setTool('room'); return; }
     if (k === 'e') { setTool('erase'); return; }
+    if (k === 'p') { setTool('poly'); return; }
   }
 
   if (mod && !e.shiftKey && e.key.toLowerCase() === 'z' && !typing) {
@@ -1415,7 +1763,19 @@ function onKeyDown(e) {
     e.preventDefault(); duplicateSelected(); return;
   }
 
+  if (tool === 'poly' && polyDraw && !typing) {
+    if (e.key === 'Enter') { e.preventDefault(); commitPoly(); return; }
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      e.preventDefault();
+      polyDraw.pts.pop();
+      if (!polyDraw.pts.length) polyDraw = null;
+      draw();
+      return;
+    }
+  }
+
   if (e.key === 'Escape') {
+    if (polyDraw) { polyDraw = null; draw(); return; }          // cancela o polígono em andamento
     if (roomDraw?.armed) { roomDraw = null; draw(); return; } // cancela o clique-clique do cômodo
     if (drag?.mode === 'room-draw') { drag = null; roomDraw = null; draw(); return; } // cancela o arrasto do cômodo
     if (wallDraw) { wallDraw = null; draw(); return; } // encerra o encadeamento de paredes
@@ -1512,12 +1872,19 @@ function syncForm(r) {
   setIfIdle('fp-in-pz', fmt1(r.pos_z));
   setIfIdle('fp-in-sx', fmt1(r.size_x));
   setIfIdle('fp-in-sz', fmt1(r.size_z));
+  const poly = isPoly(r);
+  ['fp-in-sx', 'fp-in-sz'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) { el.disabled = poly; el.title = poly ? 'Polígono: arraste os vértices para mudar a forma' : ''; }
+  });
+  document.getElementById('btn-fp-topoly')?.classList.toggle('hidden', poly);
+  document.getElementById('fp-poly-note')?.classList.toggle('hidden', !poly);
   syncArea(r);
 }
 
 function syncArea(r) {
   const el = document.getElementById('fp-area');
-  if (el) el.textContent = `${fmt1(r.size_x * r.size_z)} m²`;
+  if (el) el.textContent = `${fmt1(roomArea(r))} m²`;
 }
 
 // ------------------------------------------------------------
@@ -1608,6 +1975,7 @@ function duplicateSelected() {
     id: genUuid(),
     name: uniqueName(`${r.name} (cópia)`),
     pos_x: px, pos_z: pz,
+    points: r.points ? r.points.map((q) => [...q]) : null,
     sort_order: maxSort + 1,
   };
   draft.push(copy);
@@ -1649,8 +2017,8 @@ async function savePlan() {
   if (saving) return;
 
   // validações
-  if (!draft.length) {
-    toast('Planta vazia', 'Adicione ao menos um cômodo antes de salvar.', 'warning');
+  if (!draft.length && !wallsDraft.length) {
+    toast('Planta vazia', 'Adicione ao menos um cômodo ou uma parede antes de salvar.', 'warning');
     return;
   }
   const names = draft.map((r) => (r.name || '').trim());
@@ -1690,6 +2058,7 @@ async function savePlan() {
       if (e2) throw new Error(e2.message);
     }
 
+    let pointsDropped = false;
     // insert dos novos / update dos existentes (com floor + kind, v1.6.0)
     for (const r of draft) {
       const row = {
@@ -1699,11 +2068,18 @@ async function savePlan() {
         color: r.color, sort_order: r.sort_order ?? 0,
         floor: r.floor ?? 0,
         kind: r.kind || 'personalizado',
+        points: isPoly(r) ? r.points : null,
       };
-      const q = existingIds.has(r.id)
-        ? client.from('rooms').update(row).eq('id', r.id)
-        : client.from('rooms').insert(row);
-      const { error: e3 } = await q;
+      const send = (rw) => (existingIds.has(r.id)
+        ? client.from('rooms').update(rw).eq('id', r.id)
+        : client.from('rooms').insert(rw));
+      let { error: e3 } = await send(row);
+      if (e3 && /points/i.test(e3.message || '')) {
+        // migração 008 ainda não aplicada: salva como retângulo (caixa) e avisa
+        const { points: _p, ...rowNoPoints } = row;
+        ({ error: e3 } = await send(rowNoPoints));
+        if (!e3) pointsDropped = true;
+      }
       if (e3) throw new Error(e3.message);
     }
 
@@ -1754,6 +2130,9 @@ async function savePlan() {
     draft = baseline.map((r) => ({ ...r }));
     history.past = [];
     history.future = [];
+    if (pointsDropped) {
+      toast('Cômodos poligonais salvos como retângulos', 'Execute a migração 008_room_polygons.sql no Supabase para guardar a forma exata.', 'warning');
+    }
     toast('Planta salva com sucesso!', 'A cena 3D e os painéis já refletem a nova planta.', 'success');
     closeEditor();
   } catch (err) {
@@ -1783,6 +2162,7 @@ function fmt1(v) { return (Math.round(v * 10) / 10).toLocaleString('pt-BR'); }
 /** Sobreposição só conta dentro do MESMO andar. */
 function overlaps(a, b) {
   if ((Number(a.floor) || 0) !== (Number(b.floor) || 0)) return false;
+  if (isPoly(a) || isPoly(b)) return false;   // a caixa de um polígono engana (ex.: planta em L)
   return (
     Math.abs(a.pos_x - b.pos_x) * 2 < a.size_x + b.size_x - 1e-9 &&
     Math.abs(a.pos_z - b.pos_z) * 2 < a.size_z + b.size_z - 1e-9

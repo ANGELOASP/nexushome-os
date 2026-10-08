@@ -748,3 +748,29 @@ button.from-indigo-500.to-cyan-500, a.from-indigo-500.to-cyan-500 {
 }
 button.from-indigo-500.to-cyan-500:hover { background-color: #f7c46f; filter: none; }
 button.from-indigo-500.to-cyan-500.text-white { color: var(--accent-ink); }
+
+/* ---------- importação de planta CAD ---------- */
+.dxf-drop {
+  display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
+  padding: 2rem 1rem; border: 1.5px dashed var(--line); border-radius: var(--radius);
+  background: var(--raised); cursor: pointer; text-align: center;
+  transition: border-color 0.2s, background 0.2s;
+}
+.dxf-drop:hover, .dxf-drop.dxf-drop-over { border-color: var(--accent); background: rgba(242, 178, 74, 0.06); }
+.dxf-help {
+  font-size: 0.72rem; line-height: 1.45; color: #cbd5e1;
+  padding: 0.7rem 0.85rem; border-radius: 0.7rem;
+  background: rgba(242, 178, 74, 0.08); border: 1px solid rgba(242, 178, 74, 0.3);
+}
+.dxf-layers { max-height: 12.5rem; overflow-y: auto; border: 1px solid var(--line-soft); border-radius: 0.7rem; background: var(--raised); }
+.dxf-layer-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.65rem; font-size: 0.72rem; cursor: pointer; }
+.dxf-layer-row:hover { background: rgba(255, 255, 255, 0.04); }
+.dxf-layer-row input { accent-color: var(--accent); }
+.dxf-layer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e2e8f0; }
+.dxf-layer-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.dxf-preview { width: 100%; height: auto; border: 1px solid var(--line-soft); border-radius: 0.7rem; background: #0a0e15; }
+.dxf-check { display: flex; align-items: center; gap: 0.5rem; font-size: 0.74rem; color: #cbd5e1; cursor: pointer; }
+.dxf-check input { accent-color: var(--accent); }
+.fp-btn-primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 700; }
+.fp-btn-primary:hover { background: #f7c46f; }
+.fp-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
