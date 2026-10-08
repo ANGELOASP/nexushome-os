@@ -431,7 +431,12 @@ export async function createNexusClient() {
 
   if (url && key && window.supabase?.createClient) {
     try {
-      const client = window.supabase.createClient(url, key);
+      // Sessão só na aba/janela (sessionStorage): fechar o navegador encerra o login.
+      // Recarregar a página (F5) continua entrando direto.
+      purgeLegacyAuthTokens();
+      const client = window.supabase.createClient(url, key, {
+        auth: { storage: window.sessionStorage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      });
       const probe = client.from('devices').select('id').limit(1);
       const { error } = await withTimeout(probe, 6000);
       if (!error) {
@@ -449,6 +454,15 @@ export async function createNexusClient() {
 
   const mock = new MockSupabaseClient();
   return mock;
+}
+
+/** Remove sessões antigas gravadas em localStorage (versões anteriores persistiam o login). */
+function purgeLegacyAuthTokens() {
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith('sb-') && k.endsWith('-auth-token'))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch { /* storage bloqueado: nada a limpar */ }
 }
 
 function withTimeout(promise, ms) {
