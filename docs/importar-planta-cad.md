@@ -32,3 +32,7 @@ Limite: 30000 segmentos por importação — selecione só as camadas de paredes
 ## 4. Persistência
 
 Para salvar cômodos poligonais com a forma exata, rode `supabase/migrations/008_room_polygons.sql` no SQL Editor. Sem a migração, os cômodos são salvos como retângulos e o editor avisa.
+
+## 5. Planta de exemplo pronta (RESIDENCIA)
+
+`supabase/seeds/residencia.sql` carrega a planta "RESIDENCIA" já importada: 9 cômodos internos (Quarto Principal, Quartos 2 e 3, Banheiros 1 e 2, Cozinha, Sala de Estar, Sala de TV, Lavanderia), uma Área Externa e 129 paredes. Rode no SQL Editor do projeto **depois** das migrações 001–008. **Substitui toda a planta atual** (apaga `rooms` e `walls`); dispositivos e telemetria não são tocados, e os nomes "Sala de Estar", "Quarto Principal", "Cozinha" e "Área Externa" foram mantidos para os dispositivos continuarem nos cômodos certos. É uma transação: ou entra tudo ou nada.
