@@ -436,6 +436,12 @@
           <button id="btn-fp-tool-wall" type="button" class="fp-tool" title="Desenhar parede (W)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20h18"/><path d="M5 20v-4h4v-4h4V8h4V4"/></svg><span class="fp-tool-label">Parede</span><kbd>W</kbd>
           </button>
+          <button id="btn-fp-tool-door" type="button" class="fp-tool" title="Inserir porta (D): clique numa parede">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4"/><path d="M4 20h4"/><path d="M4 4h10v16"/><path d="M14 20h6"/><circle cx="11.5" cy="12.5" r="0.6" fill="currentColor"/></svg><span class="fp-tool-label">Porta</span><kbd>D</kbd>
+          </button>
+          <button id="btn-fp-tool-window" type="button" class="fp-tool" title="Inserir janela (J): clique numa parede">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M12 4v16"/><path d="M4 12h16"/></svg><span class="fp-tool-label">Janela</span><kbd>J</kbd>
+          </button>
           <button id="btn-fp-tool-erase" type="button" class="fp-tool" title="Apagar parede (E)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21 9.5-9.5a2.1 2.1 0 0 0-3-3L4 18z"/><path d="M13 7.5l3 3"/><path d="M16 21h5"/></svg><span class="fp-tool-label">Apagar</span><kbd>E</kbd>
           </button>
@@ -460,7 +466,14 @@
             <label>Espessura <input id="fp-wall-th" type="number" step="0.01" min="0.03" max="0.6" inputmode="decimal" /> m</label>
             <button id="fp-wall-del" type="button" class="fp-icon-btn" title="Apagar parede (Delete)">Apagar</button>
           </div>
-          <p class="fp-hint">Arraste uma parede para movê-la · Shift+clique soma · Shift+arraste seleciona uma área · alças esticam · Espaço ou botão direito movem a vista</p>
+          <div id="fp-open-panel" class="fp-wall-panel fp-open-panel hidden">
+            <strong id="fp-open-title">Porta</strong>
+            <label>Largura <input id="fp-open-w" type="number" step="0.05" min="0.3" max="6" inputmode="decimal" /> m</label>
+            <label>Altura <input id="fp-open-h" type="number" step="0.05" min="0.3" max="4" inputmode="decimal" /> m</label>
+            <label id="fp-open-sill-wrap">Peitoril <input id="fp-open-sill" type="number" step="0.05" min="0" max="2.5" inputmode="decimal" /> m</label>
+            <button id="fp-open-del" type="button" class="fp-icon-btn" title="Apagar (Delete)">Apagar</button>
+          </div>
+          <p class="fp-hint">Arraste uma parede para movê-la · Porta (D) e Janela (J): clique numa parede · Shift+clique soma · Shift+arraste seleciona uma área · alças esticam · Espaço ou botão direito movem a vista</p>
           <div id="fp-presets" class="fp-presets hidden"></div>
           <div id="fp-bg-panel" class="fp-presets fp-bg-panel hidden">
             <p class="fp-presets-title">Fundo de referência (planta CAD)</p>

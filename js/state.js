@@ -91,6 +91,7 @@ export const state = {
   alerts: [],              // linhas da tabela alerts (mais recentes primeiro)
   rooms: [],               // linhas da tabela rooms (planta da residência)
   walls: [],               // paredes vetoriais da planta (tabela walls) — renderizadas no 3D
+  openings: [],            // portas e janelas (tabela openings) — recortam as paredes no 3D
   selectedRoom: null,      // nome do cômodo selecionado no 3D
   health: 'safe',          // 'safe' | 'warning' | 'critical'
   lastTelemetry: {         // último valor conhecido por métrica

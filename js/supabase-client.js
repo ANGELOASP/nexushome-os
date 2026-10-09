@@ -39,6 +39,14 @@ function loadDemoRooms() {
 //      nh_floorplan_walls), assim como os cômodos. Sem seed — a planta
 //      desenhada pelo usuário começa vazia até ele traçar as paredes.
 const WALLS_KEY = 'nh_floorplan_walls';
+const OPENINGS_KEY = 'nh_floorplan_openings';   // portas e janelas (demo)
+
+function loadDemoOpenings() {
+  try {
+    const rows = JSON.parse(localStorage.getItem(OPENINGS_KEY) || '[]');
+    return Array.isArray(rows) ? rows : [];
+  } catch { return []; }
+}
 
 function loadDemoWalls() {
   try {
@@ -325,6 +333,7 @@ export class MockSupabaseClient {
       alerts: [],
       rooms: loadDemoRooms(),
       walls: loadDemoWalls(),
+      openings: loadDemoOpenings(),
     };
     this._simTimer = null;
     this._waterTicksLeft = 0;
@@ -340,6 +349,8 @@ export class MockSupabaseClient {
         localStorage.setItem(FLOORPLAN_KEY, JSON.stringify(this._db.rooms));
       } else if (table === 'walls') {
         localStorage.setItem(WALLS_KEY, JSON.stringify(this._db.walls || []));
+      } else if (table === 'openings') {
+        localStorage.setItem(OPENINGS_KEY, JSON.stringify(this._db.openings || []));
       }
     } catch { /* modo restrito */ }
   }

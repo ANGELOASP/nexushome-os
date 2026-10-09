@@ -877,6 +877,8 @@ button.from-indigo-500.to-cyan-500.text-white { color: var(--accent-ink); }
   font-size: 0.72rem; color: var(--muted);
 }
 .fp-wall-panel.hidden { display: none; }
+.fp-open-panel { border-color: rgba(34, 211, 238, 0.5); }
+.fp-open-panel strong { color: #a5f3fc; }
 .fp-wall-panel strong { color: #f6cf8a; font-weight: 700; }
 .fp-wall-panel label { display: inline-flex; align-items: center; gap: 0.35rem; }
 .fp-wall-panel input {
