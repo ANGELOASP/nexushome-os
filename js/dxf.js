@@ -277,6 +277,7 @@ export function dxfToPlan(parsed, opts = {}) {
     layers = null, scale = parsed.units ?? guessUnitScale(parsed.bounds),
     walls: wantWalls = true, rooms: wantRooms = true, recenter = true,
     minRoomArea = 1.5, maxRoomArea = 600,
+    detectRooms = false, openingLayers = null, closeGap = 0.5,
   } = opts;
 
   const sel = parsed.items.filter((it) => !layers || layers.has(it.layer));
@@ -339,7 +340,28 @@ export function dxfToPlan(parsed, opts = {}) {
     const covers = (x1 - x0) >= W * 0.95 && (z1 - z0) >= D * 0.95;
     if (contained >= 2 || (covers && walls.length > r.points.length + 1)) envelope.add(i);
   });
-  const finalRooms = rooms.filter((_, i) => !envelope.has(i));
+  let finalRooms = rooms.filter((_, i) => !envelope.has(i));
+
+  // plantas reais costumam ter só linhas (paredes em linha dupla, vãos de portas/janelas):
+  // sem polilinhas fechadas, os cômodos são detectados pelas áreas cercadas pelas paredes
+  if (detectRooms && !finalRooms.length && walls.length) {
+    const segs = walls.map((w) => ({ x1: w.x1, z1: w.z1, x2: w.x2, z2: w.z2 }));
+    if (openingLayers) {
+      // janelas/portas só fecham vãos se os dois extremos encostam numa parede
+      // (descarta folha da porta, box do chuveiro e outros riscos soltos)
+      const wallSegs = segs.slice();
+      const nearWall = (x, z) => wallSegs.some((w) => distToSeg([x, z], [w.x1, w.z1], [w.x2, w.z2]) <= 0.25);
+      parsed.items.filter((it) => openingLayers.has(it.layer)).forEach((it) => {
+        const pts = it.pts.map(T);
+        for (let i = 0; i + 1 < pts.length; i++) {
+          const [a, b] = [pts[i], pts[i + 1]];
+          if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 0.3) continue;
+          if (nearWall(a[0], a[1]) && nearWall(b[0], b[1])) segs.push({ x1: a[0], z1: a[1], x2: b[0], z2: b[1] });
+        }
+      });
+    }
+    finalRooms = detectRoomsFromWalls(segs, { closeGap, minArea: minRoomArea, maxArea: maxRoomArea });
+  }
 
   if (walls.length > MAX_SEGMENTS) {
     throw new DxfError(`O desenho tem ${walls.length} segmentos (limite ${MAX_SEGMENTS}). Selecione apenas as camadas de paredes.`);
@@ -354,3 +376,191 @@ export function dxfToPlan(parsed, opts = {}) {
 
 function round(v) { return Math.round(v * 1000) / 1000; }
 function r2(v) { return Math.round(v * 50) / 50; }   // grade de 2 cm para detectar duplicatas
+
+
+/**
+ * Detecta cômodos como regiões fechadas pelas paredes. As paredes viram uma grade de
+ * células (5 cm), são engrossadas por `closeGap`/2... para fechar portas e janelas,
+ * o exterior é descartado e cada região interna é devolvida até encostar nas paredes.
+ * segs: [{x1,z1,x2,z2}] em metros. Retorna [{points:[[x,z]...], area}].
+ */
+export function detectRoomsFromWalls(segs, { closeGap = 0.5, minArea = 1.5, maxArea = 600, cell = 0.05 } = {}) {
+  // vários vãos: o menor acha os cômodos pequenos; os maiores fecham entradas largas
+  // (porta de entrada sem folha desenhada) e só acrescentam o que ainda não foi achado
+  const gaps = [closeGap, closeGap * 1.6, closeGap * 2.2];
+  const accepted = [];
+  const centroid = (poly) => poly.reduce((c, p) => [c[0] + p[0] / poly.length, c[1] + p[1] / poly.length], [0, 0]);
+  for (const g of gaps) {
+    const found = detectPass(segs, { closeGap: g, minArea, maxArea, cell });
+    for (const cand of found) {
+      const c = centroid(cand.points);
+      const clash = accepted.some((a) => pointInPoly(c[0], c[1], a.points) || pointInPoly(...centroid(a.points), cand.points));
+      if (!clash) accepted.push(cand);
+    }
+  }
+  return accepted.sort((a, b) => b.area - a.area);
+}
+
+function detectPass(segs, { closeGap, minArea, maxArea, cell: cell0 }) {
+  if (!segs.length) return [];
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  segs.forEach((s) => {
+    minX = Math.min(minX, s.x1, s.x2); maxX = Math.max(maxX, s.x1, s.x2);
+    minZ = Math.min(minZ, s.z1, s.z2); maxZ = Math.max(maxZ, s.z1, s.z2);
+  });
+  const margin = closeGap + 0.5;
+  let cell = cell0;
+  while (((maxX - minX + 2 * margin) / cell) * ((maxZ - minZ + 2 * margin) / cell) > 6e6) cell *= 1.5;
+  const ox = minX - margin, oz = minZ - margin;
+  const W = Math.ceil((maxX - minX + 2 * margin) / cell) + 1;
+  const H = Math.ceil((maxZ - minZ + 2 * margin) / cell) + 1;
+  const idx = (x, z) => z * W + x;
+
+  // 1) paredes -> células bloqueadas
+  const blocked = new Uint8Array(W * H);
+  segs.forEach((s) => {
+    const len = Math.hypot(s.x2 - s.x1, s.z2 - s.z1);
+    const n = Math.max(1, Math.ceil(len / (cell * 0.5)));
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const cx = Math.round((s.x1 + (s.x2 - s.x1) * t - ox) / cell);
+      const cz = Math.round((s.z1 + (s.z2 - s.z1) * t - oz) / cell);
+      if (cx >= 0 && cz >= 0 && cx < W && cz < H) blocked[idx(cx, cz)] = 1;
+    }
+  });
+
+  // 2) engrossa (disco de raio r) para fechar vãos
+  const r = Math.max(1, Math.round(closeGap / cell));
+  const disk = [];
+  for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) if (dx * dx + dz * dz <= r * r) disk.push([dx, dz]);
+  const thick = new Uint8Array(W * H);
+  for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
+    if (!blocked[idx(x, z)]) continue;
+    for (const [dx, dz] of disk) {
+      const nx = x + dx, nz = z + dz;
+      if (nx >= 0 && nz >= 0 && nx < W && nz < H) thick[idx(nx, nz)] = 1;
+    }
+  }
+
+  // 3) rótulos: -1 = exterior, >0 = região interna
+  const lab = new Int32Array(W * H);
+  const stack = [];
+  const flood = (sx, sz, id) => {
+    let count = 0;
+    stack.push(idx(sx, sz)); lab[idx(sx, sz)] = id;
+    while (stack.length) {
+      const c = stack.pop(); count++;
+      const x = c % W, z = (c - x) / W;
+      if (x > 0 && !thick[c - 1] && !lab[c - 1]) { lab[c - 1] = id; stack.push(c - 1); }
+      if (x < W - 1 && !thick[c + 1] && !lab[c + 1]) { lab[c + 1] = id; stack.push(c + 1); }
+      if (z > 0 && !thick[c - W] && !lab[c - W]) { lab[c - W] = id; stack.push(c - W); }
+      if (z < H - 1 && !thick[c + W] && !lab[c + W]) { lab[c + W] = id; stack.push(c + W); }
+    }
+    return count;
+  };
+  flood(0, 0, -1);
+  let nextId = 0;
+  const coreCells = [];
+  for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
+    const c = idx(x, z);
+    if (thick[c] || lab[c]) continue;
+    const id = ++nextId;
+    coreCells[id] = flood(x, z, id);
+  }
+
+  // 4) cada região cresce r células (quadrado: cantos retos) de volta até as paredes
+  let frontier = [];
+  for (let c = 0; c < W * H; c++) if (lab[c]) frontier.push(c);
+  for (let step = 0; step < r + 1 && frontier.length; step++) {
+    const next = [];
+    for (const c of frontier) {
+      const x = c % W, z = (c - x) / W, id = lab[c];
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx, nz = z + dz;
+        if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue;
+        const n = nz * W + nx;
+        if (!lab[n] && !blocked[n]) { lab[n] = id; next.push(n); }
+      }
+    }
+    frontier = next;
+  }
+
+  // 5) contorno de cada região -> polígono simplificado
+  const rooms = [];
+  for (let id = 1; id <= nextId; id++) {
+    if (!coreCells[id]) continue;
+    const poly = traceRegion(lab, id, W, H);
+    if (!poly || poly.length < 3) continue;
+    const abs = poly.map(([x, z]) => [x * cell + ox, z * cell + oz]);
+    let clean = [];
+    for (const eps of [cell * 1.6, cell * 3, cell * 5, cell * 8]) {
+      clean = cleanPoly(simplifyPoly(abs, eps).map(([x, z]) => [round(x), round(z)]));
+      if (clean.length >= 3 && isSimplePoly(clean)) break;
+    }
+    if (clean.length < 3) continue;
+    const area = polyArea(clean);
+    if (area >= minArea && area <= maxArea && isSimplePoly(clean)) rooms.push({ points: clean, area });
+  }
+  return rooms.sort((a, b) => b.area - a.area);
+}
+
+/** Contorno externo (maior laço) das células com rótulo `id`. Vértices na grade de células. */
+function traceRegion(lab, id, W, H) {
+  const inR = (x, z) => x >= 0 && z >= 0 && x < W && z < H && lab[z * W + x] === id;
+  const V = W + 1;
+  const next = new Map();   // vértice -> lista de vértices destino (região à esquerda)
+  const add = (a, b) => { const k = a[1] * V + a[0]; (next.get(k) || next.set(k, []).get(k)).push(b); };
+  for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
+    if (!inR(x, z)) continue;
+    if (!inR(x, z - 1)) add([x, z], [x + 1, z]);
+    if (!inR(x + 1, z)) add([x + 1, z], [x + 1, z + 1]);
+    if (!inR(x, z + 1)) add([x + 1, z + 1], [x, z + 1]);
+    if (!inR(x - 1, z)) add([x, z + 1], [x, z]);
+  }
+  let best = null, bestA = 0;
+  for (const [k, list] of next) {
+    while (list.length) {
+      const start = [k % V, Math.floor(k / V)];
+      const loop = [start];
+      let cur = list.pop();
+      let guard = 0;
+      while (!(cur[0] === start[0] && cur[1] === start[1]) && guard++ < 4e6) {
+        loop.push(cur);
+        const l = next.get(cur[1] * V + cur[0]);
+        if (!l || !l.length) break;
+        cur = l.pop();
+      }
+      const a = Math.abs(polyArea(loop));
+      if (a > bestA) { bestA = a; best = loop; }
+    }
+  }
+  return best;
+}
+
+/** Douglas–Peucker em polígono fechado (ancora nos dois pontos mais distantes). */
+function simplifyPoly(pts, eps) {
+  if (pts.length < 4) return pts;
+  let i0 = 0, i1 = 0, dmax = -1;
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.hypot(pts[i][0] - pts[0][0], pts[i][1] - pts[0][1]);
+    if (d > dmax) { dmax = d; i1 = i; }
+  }
+  const dp = (a) => {
+    if (a.length < 3) return a;
+    const [p, q] = [a[0], a[a.length - 1]];
+    let m = -1, mi = 0;
+    for (let i = 1; i < a.length - 1; i++) {
+      const d = distToSeg(a[i], p, q);
+      if (d > m) { m = d; mi = i; }
+    }
+    if (m <= eps) return [p, q];
+    return dp(a.slice(0, mi + 1)).slice(0, -1).concat(dp(a.slice(mi)));
+  };
+  const A = pts.slice(i0, i1 + 1), B = pts.slice(i1).concat([pts[0]]);
+  return dp(A).slice(0, -1).concat(dp(B).slice(0, -1));
+}
+function distToSeg(p, a, b) {
+  const dx = b[0] - a[0], dz = b[1] - a[1], L = dx * dx + dz * dz;
+  const t = L ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / L)) : 0;
+  return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dz));
+}
