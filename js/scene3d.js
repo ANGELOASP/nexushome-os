@@ -1152,9 +1152,13 @@ function updateLabels() {
 // Loop de renderização
 // ------------------------------------------------------------
 
+let scenePaused = false;
+on('editor-open', (open) => { scenePaused = !!open; });
+
 function animate() {
   requestAnimationFrame(animate);
   const now = performance.now();
+  if (scenePaused) { clock.last = now; return; }   // editor de planta aberto: não gasta GPU
   const dt = Math.min(0.05, (now - clock.last) / 1000);
   clock.last = now;
   clock.t += dt;
