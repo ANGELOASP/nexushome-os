@@ -47,6 +47,9 @@ export function initAutomationsPanel(nexusClient) {
   on('telemetry', ({ metric, value }) => evaluate(metric, value));
   on('st-readings', (readings) => evaluateStReadings(readings));   // gatilhos Samsung (v1.5.0)
   on('st-connection-changed', renderList);                         // badge "SmartThings offline"
+  // um dispositivo excluído deixa regras sem alvo: redesenha só quando o conjunto de regras quebradas muda
+  let brokenKey = brokenRuleIds();
+  on('devices-changed', () => { const k = brokenRuleIds(); if (k !== brokenKey) { brokenKey = k; renderList(); } });
 
   document.getElementById('btn-new-automation')?.addEventListener('click', openModal);
   document.getElementById('btn-cancel-automation')?.addEventListener('click', closeModal);
@@ -76,6 +79,11 @@ function renderList() {
       ? `<span class="inline-flex items-center rounded-full border border-sky-400/40 bg-sky-400/10 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-sky-300">Samsung</span>
          ${stOffline ? '<span class="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-1.5 py-px text-[8px] font-bold tracking-wider text-amber-300">⏸ SmartThings offline</span>' : ''}`
       : '';
+    // regra de dispositivo nativo cujo alvo foi excluído: sinaliza (ela não consegue mais agir)
+    const broken = !st && a.action_payload?.device_id && !getDevice(a.action_payload.device_id);
+    const brokenBadge = broken
+      ? '<span class="inline-flex items-center rounded-full border border-rose-400/40 bg-rose-400/10 px-1.5 py-px text-[8px] font-bold tracking-wider text-rose-300" title="O dispositivo desta regra foi excluído. Apague a regra e crie outra apontando para o aparelho certo.">⚠ DISPOSITIVO REMOVIDO</span>'
+      : '';
     const el = document.createElement('div');
     el.className = `automation-item glass-soft rounded-xl p-3 ${a.is_active ? '' : 'automation-off'}`;
     el.innerHTML = `
@@ -87,11 +95,17 @@ function renderList() {
         <div class="min-w-0 flex-1">
           <p class="text-xs font-semibold text-slate-100 truncate">${escapeHtml(a.name || 'Automação')}</p>
           <p class="text-[11px] text-slate-400 leading-snug mt-0.5">${escapeHtml(describe(a))}</p>
-          ${badges ? `<div class="mt-1 flex flex-wrap gap-1">${badges}</div>` : ''}
+          ${(badges || brokenBadge) ? `<div class="mt-1 flex flex-wrap gap-1">${badges}${brokenBadge}</div>` : ''}
         </div>
       </div>`;
     list.appendChild(el);
   });
+}
+
+function brokenRuleIds() {
+  return state.automations
+    .filter((a) => a.action_payload?.device_id && !getDevice(a.action_payload.device_id))
+    .map((a) => a.id).sort().join(',');
 }
 
 function isStRule(a) {
@@ -117,7 +131,7 @@ function describe(a) {
 }
 
 function describeAction(device, p) {
-  const name = device?.name || 'dispositivo';
+  const name = device?.name || 'dispositivo removido';
   switch (p.action) {
     case 'power': return `${p.value ? 'ligar' : 'desligar'} ${name}`;
     case 'valve': return `${p.value ? 'abrir' : 'fechar'} ${name}`;
