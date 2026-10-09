@@ -10,6 +10,25 @@ import { toast, escapeHtml } from '../toasts.js';
 let client = null;
 let listEl = null;
 
+// Dispositivos virtuais (SmartThings `st-…`, Tuya `tuya-…`) vinculados a um cômodo também
+// aparecem no grupo do cômodo, mas quem sabe desenhá-los e comandá-los é o painel de origem:
+// ele registra aqui um renderizador por prefixo de id.
+const virtualRenderers = new Map();   // prefixo -> (device) => HTMLElement | null
+
+export function registerVirtualRenderer(prefix, fn) {
+  virtualRenderers.set(prefix, fn);
+  if (listEl) render();
+}
+
+function virtualRenderer(d) {
+  if (!d.virtual) return null;
+  for (const [prefix, fn] of virtualRenderers) if (d.id.startsWith(prefix)) return fn;
+  return null;
+}
+
+/** Aparece no painel: dispositivos normais + virtuais que têm renderizador registrado. */
+function listable(d) { return !d.virtual || !!virtualRenderer(d); }
+
 const TYPE_ICONS = {
   light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3A7 7 0 0 0 12 2z"/></svg>',
   ac: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"/><path d="m4.9 4.9 14.2 14.2"/><path d="M2 12h20"/><path d="m19.1 4.9-14.2 14.2"/></svg>',
@@ -31,8 +50,7 @@ export function initDevicesPanel(nexusClient) {
 
 function render() {
   if (!listEl) return;
-  // dispositivos virtuais (ex.: SmartThings) são controlados no próprio painel
-  const devices = state.devices.filter((d) => !d.virtual);
+  const devices = state.devices.filter(listable);
   listEl.innerHTML = '';
 
   // cômodos da planta + eventuais grupos órfãos (cômodo renomeado/excluído)
@@ -52,7 +70,10 @@ function render() {
       </button>
       <div class="device-room-body space-y-2"></div>`;
     const body = group.querySelector('.device-room-body');
-    roomDevices.forEach((d) => body.appendChild(renderDevice(d)));
+    roomDevices.forEach((d) => {
+      const card = virtualRenderer(d)?.(d) || (d.virtual ? null : renderDevice(d));
+      if (card) body.appendChild(card);
+    });
     group.querySelector('.device-room-header').addEventListener('click', () => emit('ui-select-room', room));
     listEl.appendChild(group);
   }
@@ -178,7 +199,7 @@ function highlightRoom(room) {
 
 function updateActiveCounts() {
   listEl?.querySelectorAll('.device-room-group').forEach((g) => {
-    const n = state.devices.filter((d) => !d.virtual && d.room === g.dataset.room && (d.type === 'light' || d.type === 'ac') && d.status?.on).length;
+    const n = state.devices.filter((d) => listable(d) && d.room === g.dataset.room && (d.type === 'light' || d.type === 'ac' || d.type === 'tv') && d.status?.on).length;
     const el = g.querySelector('.room-active-count');
     if (el) el.textContent = n ? `${n} ativo${n > 1 ? 's' : ''}` : '';
   });

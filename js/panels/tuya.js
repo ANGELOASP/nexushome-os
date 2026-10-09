@@ -48,9 +48,10 @@
 // e um evento raro de vazamento — nenhuma chamada de rede.
 // ============================================================
 
-import { state, on, getRoomNames, upsertDevice } from '../state.js';
+import { state, on, getRoomNames, upsertDevice, removeDevice } from '../state.js';
 import { toast, escapeHtml } from '../toasts.js';
 import { insertAlert } from './monitor.js';
+import { registerVirtualRenderer } from './devices.js';
 
 const CREDS_KEY = 'nh_tuya_creds';
 const LINKS_KEY = 'nh_tuya_links';
@@ -122,6 +123,11 @@ export function initTuyaPanel(nexusClient) {
   demo = state.mode === 'demo';
   listEl = document.getElementById('ty-list');
   loadLinks();
+  // dispositivos vinculados a um cômodo também aparecem (e são comandados) no painel Dispositivos
+  registerVirtualRenderer('tuya-', (v) => {
+    const td = tuyaDevices.find((x) => `tuya-${x.id}` === v.id);
+    return td ? renderDevice(td, { compact: true }) : null;
+  });
 
   document.getElementById('btn-ty-connect')?.addEventListener('click', onConnect);
   document.getElementById('btn-ty-disconnect')?.addEventListener('click', disconnect);
@@ -243,8 +249,10 @@ function disconnect() {
   if (demo) {
     tuyaDevices = DEMO_TUYA.map((d) => ({ ...d, dp: { ...d.dp }, raw: [...d.raw] }));
     renderDevices();
+    syncVirtualDevices();
     return;
   }
+  syncVirtualDevices();
   showSetup();
   toast('Tuya desconectado', 'Credenciais e vínculos removidos deste navegador.', 'info');
 }
@@ -516,6 +524,9 @@ function saveLinks() {
 }
 
 function syncVirtualDevices() {
+  // desvinculados (ou removidos da conta) saem do painel Dispositivos e da cena 3D
+  const keep = new Set(tuyaDevices.filter((d) => links[d.id] && links[d.id] !== MAIN_VALVE_LINK).map((d) => `tuya-${d.id}`));
+  state.devices.filter((d) => d.virtual && d.id.startsWith('tuya-') && !keep.has(d.id)).forEach((d) => removeDevice(d.id));
   tuyaDevices.forEach((d) => {
     const room = links[d.id];
     if (!room || room === MAIN_VALVE_LINK) return; // vínculo com a válvula nativa não cria device virtual
@@ -623,7 +634,8 @@ function renderDevices() {
   });
 }
 
-function renderDevice(d) {
+function renderDevice(d, opts = {}) {
+  const compact = !!opts.compact;   // no painel Dispositivos: sem dados brutos nem seletor de vínculo
   const card = document.createElement('div');
   card.className = 'device-card glass-soft rounded-xl p-3 transition-all duration-200';
   card.dataset.tyId = d.id;
@@ -695,11 +707,11 @@ function renderDevice(d) {
       </div>
     </div>
     ${controls}
-    ${rawSection}
+    ${compact ? '' : `${rawSection}
     <div class="mt-2">
       <label class="form-label">Vincular a</label>
       <select data-ctl="link" class="form-input">${linkOpts}</select>
-    </div>`;
+    </div>`}`;
 
   wireDevice(card, d);
   return card;
