@@ -661,10 +661,10 @@ function render() {
   const flashing = performance.now() < flashUntil;
   const rooms = floorRooms();
   rooms.filter((r) => r.id !== selectedId).forEach((r) => drawRoom(r, false));
+  drawWalls();
+  // o cômodo selecionado vai para o primeiro plano: por cima das paredes e dos vizinhos
   const selRoom = rooms.find((r) => r.id === selectedId);
   if (selRoom) drawRoom(selRoom, flashing);
-
-  drawWalls();
   drawWallPreview();
   drawRoomPreview();
   drawPolyPreview();
@@ -2328,6 +2328,9 @@ function sel() { return draft.find((d) => d.id === selectedId) || null; }
 
 function select(id) {
   selectedId = id;
+  // traz para a frente: vai para o fim da lista (desenhado por último e primeiro a receber o clique)
+  const i = id ? draft.findIndex((d) => d.id === id) : -1;
+  if (i >= 0 && i < draft.length - 1) draft.push(draft.splice(i, 1)[0]);
   if (!id) hideForm();
   else {
     const r = sel();
