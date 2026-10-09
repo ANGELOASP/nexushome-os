@@ -49,6 +49,7 @@ let stDevices = [];      // [{ id, name, kind, caps[], st:{}, online }]
 let pollTimer = null;
 let driftTimer = null;   // deriva de sensores simulados (modo demo)
 let listEl = null;
+let refreshing = false;  // evita duas atualizações ao mesmo tempo (duplo clique / polling)
 
 // ------------------------------------------------------------
 // Init / teardown
@@ -183,8 +184,11 @@ async function stCall(path, method = 'GET', payload = undefined) {
   if (error) {
     let body = null;
     try { body = await error.context?.json?.(); } catch { /* sem corpo */ }
-    const err = new Error(body?.error || error.message || 'Falha na chamada SmartThings');
+    const raw = body?.error ?? body?.message;
+    const msg = typeof raw === 'string' ? raw : (raw?.message || raw?.code || '');
+    const err = new Error(msg || error.message || 'Falha na chamada SmartThings');
     err.status = error.context?.status ?? 0;
+    err.sessionExpired = err.status === 401 && /login necess/i.test(msg);   // JWT do app, não o token Samsung
     throw err;
   }
   return data;
@@ -193,24 +197,23 @@ async function stCall(path, method = 'GET', payload = undefined) {
 async function listDevices() {
   const data = await stCall('/devices');
   const items = data?.items || [];
-  // status sequencial (a API limita concorrência; 30 s de polling já é conservador)
-  const out = [];
-  for (const item of items) {
-    const id = item.deviceId;
+  const out = items.map((item) => {
     const caps = (item.components?.[0]?.capabilities || []).map((c) => c.id);
-    const kind = detectKind(item, caps);
-    const entry = {
-      id,
+    return {
+      id: item.deviceId,
       name: item.label || item.name || 'Aparelho Samsung',
-      kind, caps, online: true, st: {},
+      kind: detectKind(item, caps), caps, online: true, st: {},
     };
-    try {
-      const status = await stCall(`/devices/${id}/status`);
-      entry.st = mapStatus(status);
-    } catch {
-      entry.online = false; // aparelho inalcançável no momento
-    }
-    out.push(entry);
+  });
+  // status em lotes de 4 em paralelo (um por vez deixava a atualização lenta com muitos aparelhos)
+  for (let i = 0; i < out.length; i += 4) {
+    await Promise.all(out.slice(i, i + 4).map(async (entry) => {
+      try {
+        entry.st = mapStatus(await stCall(`/devices/${entry.id}/status`));
+      } catch {
+        entry.online = false; // aparelho inalcançável no momento
+      }
+    }));
   }
   stDevices = out;
   return out;
@@ -281,7 +284,9 @@ function applyDemoCommand(d, capability, command, args) {
 
 function handleError(err, contexto) {
   console.error(`[smartthings] ${contexto}:`, err);
-  if (err.status === 401) {
+  if (err.sessionExpired) {
+    toast('Sua sessão do NexusHome expirou', 'Saia e entre de novo para atualizar a SmartThings.', 'critical');
+  } else if (err.status === 401) {
     toast('Token inválido — gere outro em account.smartthings.com/tokens', contexto, 'critical');
   } else if (err.status === 403) {
     toast('Sem permissão — o token precisa dos escopos de Devices (Read/Execute).', contexto, 'critical');
@@ -303,20 +308,45 @@ function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
+function setRefreshBusy(busy) {
+  const btn = document.getElementById('btn-st-refresh');
+  if (!btn) return;
+  btn.disabled = busy;
+  btn.textContent = busy ? 'Atualizando…' : 'Atualizar';
+}
+
+function markUpdated() {
+  const el = document.getElementById('st-updated');
+  if (el) el.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
+}
+
 async function refresh(manual) {
-  if (demo) { renderDevices(); publishReadings(); return; }
+  if (refreshing) return;
+  if (demo) {
+    renderDevices(); publishReadings(); markUpdated();
+    if (manual) toast('SmartThings atualizado', 'Aparelhos simulados (modo demonstração).', 'info');
+    return;
+  }
   if (!token) return;
+  refreshing = true;
+  if (manual) setRefreshBusy(true);
   try {
     const n = (await listDevices()).length;
-    if (!n && manual) {
-      toast('Nenhum aparelho encontrado na sua conta SmartThings', '', 'warning');
-    }
     renderDevices();
     syncVirtualDevices();
     publishReadings(); // alimenta as automações com gatilho SmartThings
+    markUpdated();
+    if (!pollTimer) startPolling();   // após carregar com token salvo, o polling também precisa rodar
+    if (manual) {
+      if (n) toast('SmartThings atualizado', `${n} aparelho(s) lido(s).`, 'success');
+      else toast('Nenhum aparelho encontrado na sua conta SmartThings', '', 'warning');
+    }
   } catch (err) {
     handleError(err, 'Atualizar aparelhos');
-    if (err.status === 401) { setStConnected(false); stopPolling(); showSetup(); }
+    if (err.status === 401 && !err.sessionExpired) { setStConnected(false); stopPolling(); showSetup(); }
+  } finally {
+    refreshing = false;
+    if (manual) setRefreshBusy(false);
   }
 }
 
