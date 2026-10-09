@@ -4,7 +4,7 @@
 // válvula (abrir/fechar), medidor/sensor (leituras).
 // ============================================================
 
-import { state, on, emit, getRoomNames, getDevice, upsertDevice } from '../state.js';
+import { state, on, emit, getRoomNames, getDevice, upsertDevice, removeDevice } from '../state.js';
 import { toast, escapeHtml } from '../toasts.js';
 
 let client = null;
@@ -14,6 +14,7 @@ let listEl = null;
 // aparecem no grupo do cômodo, mas quem sabe desenhá-los e comandá-los é o painel de origem:
 // ele registra aqui um renderizador por prefixo de id.
 const virtualRenderers = new Map();   // prefixo -> (device) => HTMLElement | null
+const openMenus = new Set();          // ids com o menu ⋯ aberto (sobrevive aos redesenhos do painel)
 
 export function registerVirtualRenderer(prefix, fn) {
   virtualRenderers.set(prefix, fn);
@@ -65,7 +66,7 @@ function render() {
     group.dataset.room = room;
     group.innerHTML = `
       <button class="device-room-header" data-room="${escapeHtml(room)}">
-        <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-400">${escapeHtml(room)}</span>
+        <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-400">${escapeHtml(room)}${names.includes(room) ? '' : ' <span class="normal-case tracking-normal text-amber-300/90" title="Este cômodo não existe mais na planta. Mova ou exclua os dispositivos pelo menu ⋯ de cada card.">· fora da planta</span>'}</span>
         <span class="room-active-count text-[10px] text-cyan-300/80"></span>
       </button>
       <div class="device-room-body space-y-2"></div>`;
@@ -134,6 +135,10 @@ function renderDevice(d) {
     controls = `<p class="mt-2 text-xs text-slate-500">Dispositivo monitorado</p>`;
   }
 
+  const names = getRoomNames();
+  const roomOpts = [...new Set([...names, d.room])]
+    .map((r) => `<option value="${escapeHtml(r)}" ${r === d.room ? 'selected' : ''}>${escapeHtml(r)}${names.includes(r) ? '' : ' (fora da planta)'}</option>`)
+    .join('');
   card.innerHTML = `
     <div class="flex items-center gap-2.5">
       <span class="device-icon text-slate-300">${icon}</span>
@@ -141,9 +146,19 @@ function renderDevice(d) {
         <p class="text-sm font-medium text-slate-100 truncate">${escapeHtml(d.name)}</p>
         <p class="text-[10px] text-slate-500">${online ? '<span class="text-emerald-400">●</span> online' : '<span class="text-slate-500">●</span> offline'}</p>
       </div>
+      <button data-ctl="menu" type="button" class="device-menu-btn" title="Mover de cômodo ou excluir" aria-label="Opções do dispositivo" aria-expanded="false">⋯</button>
     </div>
-    ${controls}`;
+    ${controls}
+    <div class="device-menu hidden mt-2 space-y-2 border-t border-white/10 pt-2" data-menu>
+      <label class="form-label">Mover para o cômodo</label>
+      <select data-ctl="move" class="form-input">${roomOpts}</select>
+      <button data-ctl="delete" type="button" class="fp-btn fp-btn-danger w-full">Excluir dispositivo</button>
+    </div>`;
 
+  if (openMenus.has(d.id)) {
+    card.querySelector('[data-menu]')?.classList.remove('hidden');
+    card.querySelector('[data-ctl="menu"]')?.setAttribute('aria-expanded', 'true');
+  }
   wireControls(card, d);
   return card;
 }
@@ -151,7 +166,18 @@ function renderDevice(d) {
 function wireControls(card, d) {
   card.querySelectorAll('[data-ctl]').forEach((el) => {
     const ctl = el.dataset.ctl;
-    if (ctl === 'power') {
+    if (ctl === 'menu') {
+      el.addEventListener('click', () => {
+        const menu = card.querySelector('[data-menu]');
+        const open = menu?.classList.toggle('hidden') === false;
+        el.setAttribute('aria-expanded', String(open));
+        if (open) openMenus.add(d.id); else openMenus.delete(d.id);
+      });
+    } else if (ctl === 'move') {
+      el.addEventListener('change', () => moveDevice(d, el.value));
+    } else if (ctl === 'delete') {
+      el.addEventListener('click', () => deleteDevice(d));
+    } else if (ctl === 'power') {
       el.addEventListener('change', () => updateStatus(d, { on: el.checked }, el.checked ? `${d.name} ligado` : `${d.name} desligado`));
     } else if (ctl === 'brightness') {
       const lbl = card.querySelector('[data-lbl="brightness"]');
@@ -170,6 +196,41 @@ function wireControls(card, d) {
       });
     }
   });
+}
+
+/** Move o dispositivo para outro cômodo (persiste no banco). */
+async function moveDevice(device, room) {
+  if (!room || room === device.room) return;
+  const current = getDevice(device.id) || device;
+  try {
+    const { error } = await client.from('devices').update({ room }).eq('id', device.id);
+    if (error) throw new Error(error.message);
+    upsertDevice({ ...current, room });
+    toast('Dispositivo movido', `${device.name} → ${room}`, 'success');
+  } catch (err) {
+    console.error('[devices] falha ao mover', err);
+    toast('Não foi possível mover o dispositivo', err.message, 'critical');
+    render();
+  }
+}
+
+/** Exclui o dispositivo (e a telemetria dele, por cascata). Avisa se alguma automação o usa. */
+async function deleteDevice(device) {
+  const used = state.automations.filter((a) => a.action_payload?.device_id === device.id);
+  const warn = used.length
+    ? `\n\nAtenção: ${used.length} automação(ões) usam este dispositivo e deixarão de funcionar: ${used.map((a) => a.name).join(', ')}.`
+    : '';
+  if (!window.confirm(`Excluir “${device.name}” (${device.room})? A telemetria dele também será apagada.${warn}`)) return;
+  try {
+    const { error } = await client.from('devices').delete().eq('id', device.id);
+    if (error) throw new Error(error.message);
+    openMenus.delete(device.id);
+    removeDevice(device.id);
+    toast('Dispositivo excluído', device.name, 'info');
+  } catch (err) {
+    console.error('[devices] falha ao excluir', err);
+    toast('Não foi possível excluir o dispositivo', err.message, 'critical');
+  }
 }
 
 /** Atualização otimista + persistência (Supabase ou mock). */

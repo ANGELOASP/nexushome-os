@@ -898,3 +898,10 @@ button.from-indigo-500.to-cyan-500.text-white { color: var(--accent-ink); }
 #editor-planta { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(5, 8, 13, 0.86); }
 .fp-card, .fp-card.glass { backdrop-filter: none; -webkit-backdrop-filter: none; }
 .fp-canvas-wrap canvas { will-change: auto; }
+
+/* menu ⋯ dos dispositivos (mover de cômodo / excluir) */
+.device-menu-btn {
+  width: 1.7rem; height: 1.7rem; flex: none; border-radius: 8px; border: 1px solid transparent;
+  background: transparent; color: var(--muted); font-size: 1.05rem; line-height: 1; cursor: pointer;
+}
+.device-menu-btn:hover, .device-menu-btn[aria-expanded="true"] { background: var(--raised); color: var(--text); border-color: var(--line); }
