@@ -132,6 +132,14 @@ export function upsertDevice(row) {
   emit('device-changed', getDevice(row.id));
 }
 
+/** Remove um dispositivo do estado (ex.: aparelho SmartThings/Tuya desvinculado do cômodo). */
+export function removeDevice(id) {
+  const i = state.devices.findIndex((d) => d.id === id);
+  if (i < 0) return;
+  state.devices.splice(i, 1);
+  emit('devices-changed', state.devices);
+}
+
 export function upsertAutomation(row) {
   const i = state.automations.findIndex((a) => a.id === row.id);
   if (i >= 0) state.automations[i] = { ...state.automations[i], ...row };

@@ -20,8 +20,9 @@
 // cena 3D reage (tons frios do AC, brilho sutil da TV).
 // ============================================================
 
-import { state, on, emit, getRoomNames, upsertDevice } from '../state.js';
+import { state, on, emit, getRoomNames, upsertDevice, removeDevice } from '../state.js';
 import { toast, escapeHtml } from '../toasts.js';
+import { registerVirtualRenderer } from './devices.js';
 
 const TOKEN_KEY = 'nh_smartthings_token';
 const LINKS_KEY = 'nh_smartthings_links';
@@ -60,6 +61,11 @@ export function initSmartThingsPanel(nexusClient) {
   demo = state.mode === 'demo';
   listEl = document.getElementById('st-list');
   loadLinks();
+  // aparelhos vinculados a um cômodo também aparecem (e são comandados) no painel Dispositivos
+  registerVirtualRenderer('st-', (v) => {
+    const sd = stDevices.find((x) => `st-${x.id}` === v.id);
+    return sd ? renderDevice(sd, { compact: true }) : null;
+  });
 
   document.getElementById('btn-st-connect')?.addEventListener('click', onConnect);
   document.getElementById('btn-st-disconnect')?.addEventListener('click', disconnect);
@@ -160,8 +166,10 @@ function disconnect() {
   if (demo) {
     stDevices = DEMO_ST.map((d) => ({ ...d, st: { ...d.st } }));
     renderDevices();
+    syncVirtualDevices();
     return;
   }
+  syncVirtualDevices();
   setStConnected(false);
   showSetup();
   toast('SmartThings desconectado', 'Token e vínculos removidos deste navegador.', 'info');
@@ -416,6 +424,9 @@ function saveLinks() {
 }
 
 function syncVirtualDevices() {
+  // aparelhos desvinculados (ou que sumiram da conta) saem do painel Dispositivos e da cena 3D
+  const keep = new Set(stDevices.filter((d) => links[d.id]).map((d) => `st-${d.id}`));
+  state.devices.filter((d) => d.virtual && d.id.startsWith('st-') && !keep.has(d.id)).forEach((d) => removeDevice(d.id));
   stDevices.forEach((d) => {
     const room = links[d.id];
     if (!room) return;
@@ -549,7 +560,8 @@ function renderDevices() {
   stDevices.forEach((d) => listEl.appendChild(renderDevice(d)));
 }
 
-function renderDevice(d) {
+function renderDevice(d, opts = {}) {
+  const compact = !!opts.compact;   // no painel Dispositivos: sem o seletor de vínculo
   const card = document.createElement('div');
   card.className = 'device-card glass-soft rounded-xl p-3 transition-all duration-200';
   card.dataset.stId = d.id;
@@ -617,16 +629,16 @@ function renderDevice(d) {
       <div class="min-w-0 flex-1">
         <p class="text-sm font-medium text-slate-100 truncate">${escapeHtml(d.name)}</p>
         <p class="text-[10px] text-slate-500">
-          ${KIND_LABEL[d.kind] || 'Aparelho'} ·
+          ${KIND_LABEL[d.kind] || 'Aparelho'} · Samsung ·
           ${d.online ? '<span class="text-emerald-400">●</span> online' : '<span class="text-slate-500">●</span> offline'}
         </p>
       </div>
     </div>
     ${controls}
-    <div class="mt-2">
+    ${compact ? '' : `<div class="mt-2">
       <label class="form-label">Vincular a cômodo</label>
       <select data-ctl="room" class="form-input">${roomOpts}</select>
-    </div>`;
+    </div>`}`;
 
   wireDevice(card, d);
   return card;
