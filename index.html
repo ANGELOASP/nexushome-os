@@ -391,72 +391,53 @@
   <div id="editor-planta" class="modal">
     <div class="modal-card fp-card glass rounded-2xl">
       <div class="fp-toolbar">
-        <div class="flex items-center gap-2 min-w-0">
-          <svg class="w-4 h-4 text-cyan-300 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 8.5V21h14V8.5"/><path d="M9 21v-5h6v5"/></svg>
-          <div class="min-w-0">
-            <h3 class="text-base font-bold gradient-text truncate">Editor de Planta</h3>
-            <p class="text-[10px] text-slate-500 leading-none mt-0.5">W parede · R cômodo (2 cliques ou arrasta) · V seleciona · E apaga · Ctrl+Z desfaz · roda do mouse dá zoom</p>
-          </div>
+        <div class="fp-title">
+          <h3>Editor de Planta</h3>
+          <p>Desenhe cômodos e paredes, ou importe uma planta CAD (DXF)</p>
         </div>
         <div class="fp-actions">
-          <div class="fp-tools" role="toolbar" aria-label="Ferramentas">
-            <button id="btn-fp-tool-select" type="button" class="fp-btn fp-btn-ghost fp-tool-active" title="Selecionar (V)">
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3l7 18 2.5-7.5L21 11z"/></svg>
-            </button>
-            <button id="btn-fp-tool-wall" type="button" class="fp-btn fp-btn-ghost" title="Desenhar parede (W) — clique, arraste o olho, clique de novo">
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="M5 20v-4h4v-4h4V8h4V4"/></svg>
-            </button>
-            <button id="btn-fp-tool-room" type="button" class="fp-btn fp-btn-ghost" title="Desenhar cômodo (R) — 2 cliques nos cantos ou arraste; gruda nas paredes">
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="M12 9v6M9 12h6"/></svg>
-            </button>
-            <button id="btn-fp-tool-poly" type="button" class="fp-btn fp-btn-ghost" title="Cômodo poligonal (P) — um clique por vértice; clique no 1º, Enter ou duplo clique fecha; Shift trava 45°">
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8 11 3l9 6-3 11H6z"/><circle cx="4" cy="8" r="1.2" fill="currentColor"/><circle cx="11" cy="3" r="1.2" fill="currentColor"/><circle cx="20" cy="9" r="1.2" fill="currentColor"/><circle cx="17" cy="20" r="1.2" fill="currentColor"/><circle cx="6" cy="20" r="1.2" fill="currentColor"/></svg>
-            </button>
-            <button id="btn-fp-tool-erase" type="button" class="fp-btn fp-btn-ghost" title="Apagar parede (E)">
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21 9.5-9.5a2.1 2.1 0 0 0-3-3L4 18z"/><path d="M13 7.5l3 3"/><path d="M16 21h5"/></svg>
-            </button>
-          </div>
-          <button id="btn-fp-undo" type="button" class="fp-btn fp-btn-ghost" title="Desfazer (Ctrl+Z)">
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>
-          </button>
-          <button id="btn-fp-redo" type="button" class="fp-btn fp-btn-ghost" title="Refazer (Ctrl+Shift+Z)">
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/></svg>
-          </button>
-          <button id="btn-fp-fit" type="button" class="fp-btn fp-btn-ghost" title="Ajustar à tela">
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M16 21h3a2 2 0 0 0 2-2v-3M8 21H5a2 2 0 0 1-2-2v-3"/></svg>
-            Ajustar
-          </button>
-          <label class="fp-snap-toggle" title="Snap na grade de 0,5 m">
-            <input id="fp-snap" type="checkbox" checked />
-            Snap
-          </label>
-          <button id="btn-fp-import" type="button" class="fp-btn fp-btn-ghost" title="Importar planta CAD (DXF): paredes e cômodos">
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>
-            Importar CAD
-          </button>
-          <button id="btn-fp-bg" type="button" class="fp-btn fp-btn-ghost" title="Imagem de fundo de referência (planta CAD)">
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
-            Fundo
-          </button>
-          <button id="btn-fp-add" type="button" class="fp-btn fp-btn-ghost">
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Adicionar cômodo
-          </button>
-          <button id="btn-fp-reset" type="button" class="fp-btn fp-btn-ghost">Restaurar padrão</button>
-          <button id="btn-fp-save" type="button" class="fp-btn fp-btn-primary">Salvar planta</button>
-          <button id="btn-fp-close" type="button" class="fp-btn fp-btn-ghost" aria-label="Fechar editor">
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            Fechar
-          </button>
+          <button id="btn-fp-import" type="button" class="fp-btn fp-btn-outline" title="Importar planta CAD (DXF): paredes e cômodos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>Importar CAD (DXF)</button>
+          <button id="btn-fp-bg" type="button" class="fp-btn fp-btn-ghost" title="Imagem de fundo de referência"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>Fundo</button>
+          <button id="btn-fp-reset" type="button" class="fp-btn fp-btn-ghost" title="Voltar aos 4 cômodos originais">Restaurar padrão</button>
+          <span class="fp-sep"></span>
+          <button id="btn-fp-save" type="button" class="fp-btn fp-btn-primary" title="Salvar no Supabase e atualizar o 3D">Salvar planta</button>
+          <button id="btn-fp-close" type="button" class="fp-btn fp-btn-ghost" title="Fechar editor (Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Fechar</button>
         </div>
       </div>
 
       <div class="fp-subbar">
         <div id="fp-floor-tabs" class="fp-tabs"></div>
-        <span id="fp-area-status" class="fp-area-status">Térreo · 0 cômodos · 0 m²</span>
+        <div class="fp-view-actions">
+          <button id="btn-fp-undo" type="button" class="fp-icon-btn" title="Desfazer (Ctrl+Z)" aria-label="Desfazer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg></button>
+          <button id="btn-fp-redo" type="button" class="fp-icon-btn" title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/></svg></button>
+          <button id="btn-fp-fit" type="button" class="fp-icon-btn fp-icon-btn-text" title="Ajustar à tela"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M16 21h3a2 2 0 0 0 2-2v-3M8 21H5a2 2 0 0 1-2-2v-3"/></svg>Ajustar</button>
+          <label class="fp-snap-toggle" title="Snap na grade de 0,5 m"><input id="fp-snap" type="checkbox" checked />Snap 0,5 m</label>
+          <span id="fp-area-status" class="fp-area-status">Térreo · 0 cômodos · 0 m²</span>
+        </div>
       </div>
 
       <div class="fp-body">
+        <div class="fp-rail" role="toolbar" aria-label="Ferramentas" aria-orientation="vertical">
+          <button id="btn-fp-tool-select" type="button" class="fp-tool fp-tool-active" title="Selecionar e mover (V)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3l7 18 2.5-7.5L21 11z"/></svg><span class="fp-tool-label">Selecionar</span><kbd>V</kbd>
+          </button>
+          <button id="btn-fp-tool-room" type="button" class="fp-tool" title="Cômodo retangular (R): 2 cliques nos cantos ou arraste">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1"/></svg><span class="fp-tool-label">Cômodo</span><kbd>R</kbd>
+          </button>
+          <button id="btn-fp-tool-poly" type="button" class="fp-tool" title="Cômodo poligonal (P): um clique por vértice; Enter ou clique no 1º ponto fecha; Shift trava 45°">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8 11 3l9 6-3 11H6z"/><circle cx="4" cy="8" r="1.2" fill="currentColor"/><circle cx="11" cy="3" r="1.2" fill="currentColor"/><circle cx="20" cy="9" r="1.2" fill="currentColor"/><circle cx="17" cy="20" r="1.2" fill="currentColor"/><circle cx="6" cy="20" r="1.2" fill="currentColor"/></svg><span class="fp-tool-label">Polígono</span><kbd>P</kbd>
+          </button>
+          <button id="btn-fp-tool-wall" type="button" class="fp-tool" title="Desenhar parede (W)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20h18"/><path d="M5 20v-4h4v-4h4V8h4V4"/></svg><span class="fp-tool-label">Parede</span><kbd>W</kbd>
+          </button>
+          <button id="btn-fp-tool-erase" type="button" class="fp-tool" title="Apagar parede (E)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21 9.5-9.5a2.1 2.1 0 0 0-3-3L4 18z"/><path d="M13 7.5l3 3"/><path d="M16 21h5"/></svg><span class="fp-tool-label">Apagar</span><kbd>E</kbd>
+          </button>
+          <span class="fp-rail-gap"></span>
+          <button id="btn-fp-add" type="button" class="fp-tool fp-tool-add" title="Escolher um tipo de cômodo (sala, quarto, cozinha...)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><span class="fp-tool-label">Tipos de cômodo</span>
+          </button>
+        </div>
         <div class="fp-canvas-wrap">
           <canvas id="fp-canvas"></canvas>
           <div id="fp-presets" class="fp-presets hidden"></div>
