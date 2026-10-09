@@ -25,8 +25,14 @@ Use versões R12 a 2018 em **ASCII** (não "binary DXF").
 3. Escolha **Substituir o conteúdo deste andar** ou **Adicionar**.
 4. Revise no editor e clique em **Salvar planta**. O desenho é centralizado na origem.
 
+**Cômodos detectados automaticamente:** quando o desenho não tem polilinhas fechadas (caso comum: paredes em linha dupla, com vãos de portas e janelas), o importador procura as áreas cercadas pelas paredes e cria um cômodo para cada uma. Vãos de até ~1 m são fechados; entradas mais largas são fechadas numa segunda passada. Camadas de janelas/portas (nomes como `ESQUADRIA`, `JANELA`, `PORTA`) ajudam a fechar os vãos, mas não viram paredes. Os cômodos vêm como "Cômodo N": renomeie e ajuste o tipo no editor. Confira o resultado antes de salvar.
+
 Limite: 30000 segmentos por importação — selecione só as camadas de paredes se o arquivo for grande.
 
 ## 4. Persistência
 
 Para salvar cômodos poligonais com a forma exata, rode `supabase/migrations/008_room_polygons.sql` no SQL Editor. Sem a migração, os cômodos são salvos como retângulos e o editor avisa.
+
+## 5. Planta de exemplo pronta (RESIDENCIA)
+
+`supabase/seeds/residencia.sql` carrega a planta "RESIDENCIA" já importada: 9 cômodos internos (Quarto Principal, Quartos 2 e 3, Banheiros 1 e 2, Cozinha, Sala de Estar, Sala de TV, Lavanderia), uma Área Externa e 129 paredes. Rode no SQL Editor do projeto **depois** das migrações 001–008. **Substitui toda a planta atual** (apaga `rooms` e `walls`); dispositivos e telemetria não são tocados, e os nomes "Sala de Estar", "Quarto Principal", "Cozinha" e "Área Externa" foram mantidos para os dispositivos continuarem nos cômodos certos. É uma transação: ou entra tudo ou nada.

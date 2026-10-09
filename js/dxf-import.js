@@ -129,6 +129,12 @@ function currentScale() {
   return parsed.units ?? guessUnitScale(parsed.bounds);
 }
 
+// camadas de portas/janelas: usadas só para fechar os vãos na detecção de cômodos
+function openingLayerSet() {
+  const names = Object.keys(parsed.layers).filter((n) => /esquadria|janela|porta|door|window|abertura|opening/i.test(n));
+  return names.length ? new Set(names) : null;
+}
+
 function buildPlan() {
   try {
     return dxfToPlan(parsed, {
@@ -136,6 +142,8 @@ function buildPlan() {
       scale: currentScale(),
       walls: ui.optWalls.checked,
       rooms: ui.optRooms.checked,
+      detectRooms: ui.optRooms.checked,
+      openingLayers: openingLayerSet(),
       recenter: ui.optCenter.checked,
     });
   } catch (err) {
