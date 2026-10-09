@@ -90,6 +90,13 @@ A casa 3D é gerada a partir da tabela `rooms` (migrações 003 + 004) — posi�
 
 Barra inferior: **Centralizar**, **Vista topo/3D**, **Fixar cômodo** (clique num cômodo e depois no cadeado), zoom +/−, girar. Atalhos: `F` centraliza, `V` topo/3D, `L` fixa, `+`/`−` zoom, `Esc` solta; duplo-clique também centraliza. Os painéis laterais recolhem pelo cabeçalho (estado lembrado) e em telas estreitas viram gavetas.
 
+### Edição de paredes e zoom (v2.1.0)
+
+- **Paredes**: clique para selecionar e arraste para mover; **Shift+clique** soma à seleção e **Shift+arraste** no espaço vazio seleciona uma área; **Ctrl+A** seleciona todas. As **alças das pontas** esticam ou encurtam, e as paredes vizinhas coladas na ponta acompanham (segure **Alt** para soltar). **Shift** ao arrastar trava o eixo. As **setas** movem 0,1 m (Shift = 0,5 m). O painel sob a planta mostra **comprimento e espessura** (editáveis) e apaga.
+- **Cômodos retangulares**: 8 alças (4 cantos + 4 lados) para aumentar/diminuir; guias de alinhamento e snap continuam.
+- **Zoom**: roda do mouse (ou pinça no trackpad/celular) ancorada no cursor, botões **− / % / +**, **Tudo** (0) e **Seleção** (F), de 4 a 400 px/m (plantas grandes). **Espaço**, botão do meio ou direito movem a vista; dois dedos fazem zoom e pan. Barra de escala no canto.
+- **Desempenho**: o canvas só redesenha quando algo muda (antes redesenhava sem parar), as paredes saem em poucos traçados e o editor não usa desfoque de fundo; a cena 3D pausa enquanto o editor está aberto.
+
 ### Atalhos do editor
 
 | Atalho | Ação |
@@ -102,6 +109,9 @@ Barra inferior: **Centralizar**, **Vista topo/3D**, **Fixar cômodo** (clique nu
 | Arrastar espaço vazio / botão do meio | Mover a vista (pan) |
 | Duplo-clique | Abrir o formulário do cômodo |
 | `Esc` | Fechar painéis / editor |
+| `+` / `−` / `0` / `F` | Zoom in / out / enquadrar tudo / enquadrar seleção |
+| `Espaço` + arrastar | Mover a vista |
+| `Ctrl+A` | Selecionar todas as paredes do andar |
 
 ## Integração Samsung SmartThings
 
