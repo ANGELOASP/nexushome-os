@@ -236,6 +236,7 @@ function mapStatus(status) {
     channel: val('tvChannel', 'tvChannel') ?? null,
     setpoint: Number(val('thermostatCoolingSetpoint', 'coolingSetpoint') ?? 23),
     mode: val('airConditionerMode', 'airConditionerMode') || 'cool',
+    modes: Array.isArray(val('airConditionerMode', 'supportedAcModes')) ? val('airConditionerMode', 'supportedAcModes') : null,
     // sensores ambientais reportados pelo próprio aparelho (quando existem)
     temperature: numOrNull(val('temperatureMeasurement', 'temperature')),
     humidity: numOrNull(val('relativeHumidityMeasurement', 'humidity')),
@@ -263,11 +264,62 @@ async function sendCommand(d, capability, command, args, label) {
     await stCall(`/devices/${d.id}/commands`, 'POST', {
       commands: [{ component: 'main', capability, command, arguments: args ?? [] }],
     });
+    hideStError();
     toast(`Comando enviado: ${label}`, d.name, 'success');
-    setTimeout(() => refresh(false), 1500); // reflete o novo estado
+    verifyCommand(d, capability, command, args, label);   // confere se o aparelho aplicou de fato
   } catch (err) {
     handleError(err, label);
+    showStError(`${label}: ${err.message}`);
+    renderDevices();   // desfaz a mudança otimista do controle: volta ao estado real do aparelho
   }
+}
+
+/** O que o status deve mostrar quando o comando foi aplicado (null = não dá para conferir). */
+function expectation(capability, command, args) {
+  if (capability === 'switch') return (st) => st.on === (command === 'on');
+  if (capability === 'audioVolume') return (st) => st.volume === args[0];
+  if (capability === 'audioMute') return (st) => st.mute === (command === 'mute');
+  if (capability === 'thermostatCoolingSetpoint') return (st) => st.setpoint === args[0];
+  if (capability === 'airConditionerMode') return (st) => st.mode === args[0];
+  return null;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * A nuvem Samsung aceita o comando na hora, mas o aparelho demora alguns segundos para
+ * aplicar e reportar. Lê o status em 1,5 s / 4 s / 8 s; se não confirmar, avisa — em vez
+ * de deixar o controle mostrando um valor que o aparelho não tem.
+ */
+async function verifyCommand(d, capability, command, args, label) {
+  const ok = expectation(capability, command, args);
+  if (!ok) { setTimeout(() => refresh(false), 1500); return; }
+  for (const wait of [1500, 2500, 3500]) {
+    await sleep(wait);
+    if (!token) return;
+    try {
+      d.st = mapStatus(await stCall(`/devices/${d.id}/status`));
+    } catch { continue; }
+    renderDevices();
+    if (ok(d.st)) {
+      syncVirtualDevices();
+      publishReadings();
+      markUpdated();
+      hideStError();
+      return;
+    }
+  }
+  showStError(`${label}: o aparelho recebeu o comando, mas não aplicou. Alguns modelos recusam essa mudança no estado atual — confira no controle remoto ou no app SmartThings.`);
+  toast('O aparelho não confirmou a mudança', label, 'warning');
+}
+
+function showStError(msg) {
+  const el = document.getElementById('st-error');
+  if (el) { el.textContent = msg; el.classList.remove('hidden'); }
+}
+
+function hideStError() {
+  document.getElementById('st-error')?.classList.add('hidden');
 }
 
 function applyDemoCommand(d, capability, command, args) {
@@ -542,7 +594,8 @@ function renderDevice(d) {
         <span class="text-[10px] text-slate-500">30°</span>
       </div>
       <select data-ctl="mode" class="form-input mt-2">
-        ${AC_MODES.map(([v, l]) => `<option value="${v}" ${st.mode === v ? 'selected' : ''}>${l}</option>`).join('')}
+        ${AC_MODES.filter(([v]) => !st.modes?.length || st.modes.includes(v) || st.mode === v)
+          .map(([v, l]) => `<option value="${v}" ${st.mode === v ? 'selected' : ''}>${l}</option>`).join('')}
       </select>`;
   } else {
     controls = `
