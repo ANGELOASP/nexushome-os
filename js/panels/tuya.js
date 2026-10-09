@@ -416,20 +416,40 @@ function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
+let refreshing = false;   // evita duas atualizações ao mesmo tempo
+
+function setRefreshBusy(busy) {
+  const btn = document.getElementById('btn-ty-refresh');
+  if (!btn) return;
+  btn.disabled = busy;
+  btn.textContent = busy ? 'Atualizando…' : 'Atualizar';
+}
+
 async function refresh(manual) {
-  if (demo) { renderDevices(); return; }
+  if (refreshing) return;
+  if (demo) {
+    renderDevices();
+    if (manual) toast('Tuya atualizado', 'Dispositivos simulados (modo demonstração).', 'info');
+    return;
+  }
   if (!creds) return;
+  refreshing = true;
+  if (manual) setRefreshBusy(true);
   try {
     const n = (await listDevices()).length;
-    if (!n && manual) {
-      toast('Nenhum dispositivo encontrado', 'Confira se o app Smart Life está vinculado ao projeto e se a região está correta.', 'warning');
-    }
     renderDevices();
     syncVirtualDevices();
     processWaterSignals(); // alimenta métrica de água + alertas de vazamento
+    if (manual) {
+      if (n) toast('Tuya atualizado', `${n} dispositivo(s) lido(s).`, 'success');
+      else toast('Nenhum dispositivo encontrado', 'Confira se o app Smart Life está vinculado ao projeto e se a região está correta.', 'warning');
+    }
   } catch (err) {
     handleError(err, 'Atualizar dispositivos');
     if (err.status === 401) { stopPolling(); creds = null; showSetup(); }
+  } finally {
+    refreshing = false;
+    if (manual) setRefreshBusy(false);
   }
 }
 
