@@ -43,9 +43,10 @@ import {
   cleanPoly, isSimplePoly, rectToPoints, roomArea, MIN_POLY_AREA,
 } from './geometry.js';
 import { initDxfImport } from './dxf-import.js';
+import { roomFromPoint } from './dxf.js';
 
 const CELL_M = 0.5;        // 1 célula da grade = 0,5 m
-const MIN_SIZE = 1.0;      // tamanho mínimo do cômodo (m)
+const MIN_SIZE = 0.5;      // tamanho mínimo do cômodo (m) — corredores têm ~0,9 m
 const MAX_SIZE = 12.0;     // tamanho máximo (m)
 const HANDLE_M = 0.45;     // alça de resize, em metros de tela-mundo
 const SNAP_PX = 6;         // raio de atração das guias de alinhamento (px de tela)
@@ -134,6 +135,7 @@ export function initFloorplan({ getClient: gc } = {}) {
   document.getElementById('btn-fp-tool-room')?.addEventListener('click', () => setTool('room'));
   document.getElementById('btn-fp-tool-erase')?.addEventListener('click', () => setTool('erase'));
   document.getElementById('btn-fp-tool-poly')?.addEventListener('click', () => setTool('poly'));
+  document.getElementById('btn-fp-tool-fill')?.addEventListener('click', () => setTool('fill'));
   document.getElementById('btn-fp-topoly')?.addEventListener('click', convertToPolygon);
   initDxfImport({
     getContext: () => ({ floor: currentFloor, rooms: draft, walls: wallsDraft }),
@@ -277,29 +279,40 @@ export function initFloorplan({ getClient: gc } = {}) {
   if (import.meta.env?.DEV) window.__fp = { w2sx, w2sz, s2wx, s2wz, get view() { return view; }, get walls() { return wallsDraft; }, get rooms() { return draft; }, get sel() { return [...selWalls]; } };
 }
 
-/** Carrega a planta da tabela rooms (live) ou do mock (demo). */
+/** Carrega a planta da tabela rooms (live) ou do mock (demo). Retorna true se leu do banco. */
 export async function loadRooms(client) {
   try {
     const { data, error } = await client.from('rooms').select('*').order('sort_order');
     if (error) throw new Error(error.message);
     setRooms(data?.length ? data : DEFAULT_ROOMS);
+    return true;
   } catch (err) {
     console.error('[planta] falha ao carregar rooms', err);
-    setRooms(DEFAULT_ROOMS);
-    toast('Planta padrão carregada', 'Não foi possível ler a tabela rooms.', 'warning');
+    // erro transitório NÃO pode trocar a planta do usuário pela padrão (o próximo "Salvar" apagaria tudo)
+    if (!state.rooms.length) setRooms(DEFAULT_ROOMS);
+    toast('Não foi possível ler a planta agora', 'Mantive a que está na tela. Tente salvar de novo em instantes.', 'warning');
+    return false;
   }
+}
+
+// Salvar uma planta grande dispara um evento realtime POR LINHA: sem agrupar, cada um recarregava a
+// tabela inteira e reconstruía a cena 3D (centenas de vezes) — travava o app e atrapalhava o 2º salvar.
+const reloadTimers = {};
+function debounced(key, fn, ms = 400) {
+  clearTimeout(reloadTimers[key]);
+  reloadTimers[key] = setTimeout(fn, ms);
 }
 
 /** Assina mudanças da tabela rooms em tempo real. Retorna [canal]. */
 export function subscribeRooms(client) {
   const ch = client
     .channel('rooms-live')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, () => loadRooms(client))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, () => debounced('rooms', () => loadRooms(client)))
     .subscribe();
   return [ch];
 }
 
-/** Carrega as paredes da tabela walls (live). Demo: lista vazia. */
+/** Carrega as paredes da tabela walls. Retorna true se leu do banco (em erro mantém as atuais). */
 export async function loadWalls(client) {
   try {
     const { data, error } = await client.from('walls').select('*').order('sort_order');
@@ -307,17 +320,18 @@ export async function loadWalls(client) {
     wallsLive = (data || []).map(normalizeWall);
   } catch (err) {
     console.error('[planta] falha ao carregar walls', err);
-    wallsLive = [];
+    return false;   // mantém as paredes que já estavam (zerar aqui faria o próximo "Salvar" apagar todas)
   }
   state.walls = wallsLive;
   emit('walls-changed', state.walls);   // a cena 3D reconstrói as paredes
+  return true;
 }
 
 /** Assina mudanças da tabela walls em tempo real. Retorna [canal]. */
 export function subscribeWalls(client) {
   const ch = client
     .channel('walls-live')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'walls' }, () => loadWalls(client))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'walls' }, () => debounced('walls', () => loadWalls(client)))
     .subscribe();
   return [ch];
 }
@@ -396,11 +410,11 @@ function setTool(t) {
   roomDraw = null;
   polyDraw = null;
   if (t !== 'select') { select(null); selWalls.clear(); }
-  const map = { select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase', room: 'btn-fp-tool-room', poly: 'btn-fp-tool-poly' };
+  const map = { select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase', room: 'btn-fp-tool-room', poly: 'btn-fp-tool-poly', fill: 'btn-fp-tool-fill' };
   Object.entries(map).forEach(([k, id]) => {
     document.getElementById(id)?.classList.toggle('fp-tool-active', k === t);
   });
-  if (canvas) canvas.style.cursor = (t === 'wall' || t === 'room' || t === 'poly') ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
+  if (canvas) canvas.style.cursor = (t === 'wall' || t === 'room' || t === 'poly' || t === 'fill') ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
   draw();
 }
 
@@ -1281,6 +1295,43 @@ function commitPoly() {
   toast('Cômodo poligonal criado', `${fmt1(polyArea(abs))} m² · arraste os vértices para ajustar a forma.`, 'success');
 }
 
+/** Cria o cômodo a partir da área fechada por paredes sob o clique (ferramenta Preencher). */
+function createRoomFromClick(wx, wz) {
+  const segs = floorWalls().map((w) => ({ x1: w.x1, z1: w.z1, x2: w.x2, z2: w.z2 }));
+  const hadWalls = segs.length > 0;
+  // as bordas dos cômodos já criados também limitam a área (o novo cômodo não invade os vizinhos)
+  floorRooms().forEach((r) => {
+    const poly = isPoly(r) ? polyAbs(r) : [[r.pos_x - r.size_x / 2, r.pos_z - r.size_z / 2], [r.pos_x + r.size_x / 2, r.pos_z - r.size_z / 2], [r.pos_x + r.size_x / 2, r.pos_z + r.size_z / 2], [r.pos_x - r.size_x / 2, r.pos_z + r.size_z / 2]];
+    poly.forEach((a, i) => { const b = poly[(i + 1) % poly.length]; segs.push({ x1: a[0], z1: a[1], x2: b[0], z2: b[1] }); });
+  });
+  if (!hadWalls) { toast('Sem paredes neste andar', 'Desenhe ou importe as paredes primeiro; a ferramenta Preencher usa as paredes como limite.', 'warning'); return; }
+  const res = roomFromPoint(segs, wx, wz);
+  if (res.error === 'fora') { toast('Clique dentro da planta', 'O clique caiu fora das paredes.', 'info'); return; }
+  if (res.error === 'aberta') { toast('Área não fechada', 'Há uma abertura grande nas paredes (porta/janela sem parede). Feche o vão com uma parede ou use a ferramenta Polígono.', 'warning'); return; }
+  if (res.error || !res.points) { toast('Área pequena demais', 'Não consegui formar um cômodo aqui.', 'warning'); return; }
+  // já existe um cômodo cobrindo esse ponto? então não duplica
+  const hit = roomAt(wx, wz);
+  if (hit) { toast('Já existe um cômodo aqui', `“${hit.name}” cobre este ponto. Selecione-o com a ferramenta Selecionar.`, 'info'); return; }
+  const snapBefore = snapshot();
+  const room = setPolyAbs({
+    id: genUuid(),
+    name: uniqueName('Cômodo'),
+    color: '#818cf8',
+    kind: 'personalizado',
+    floor: currentFloor,
+    sort_order: draft.reduce((m, r) => Math.max(m, r.sort_order ?? 0), 0) + 1,
+  }, res.points);
+  pushHistorySnap(snapBefore);
+  draft.push(room);
+  setTool('select');
+  select(room.id);
+  showForm(room);
+  renderFloorTabs();
+  syncToolbar();
+  draw();
+  toast('Cômodo criado pela área', `${fmt1(res.area)} m² · renomeie e ajuste o tipo no painel.`, 'success');
+}
+
 function deleteVertex(r, idx) {
   const abs = polyAbs(r);
   if (abs.length <= 3) {
@@ -1707,6 +1758,14 @@ function onPointerDown(e) {
       wallDraw = { x1: q.x, z1: q.z }; // encadeia o próximo segmento
     }
     draw();
+    e.preventDefault();
+    return;
+  }
+
+  // ferramenta PREENCHER: clique dentro de uma área fechada por paredes e o cômodo nasce com o formato dela
+  if (tool === 'fill') {
+    if (e.button !== 0) return;
+    createRoomFromClick(wx, wz);
     e.preventDefault();
     return;
   }
@@ -2210,6 +2269,7 @@ function onKeyDown(e) {
     if (k === 'r') { setTool('room'); return; }
     if (k === 'e') { setTool('erase'); return; }
     if (k === 'p') { setTool('poly'); return; }
+    if (k === 'b') { setTool('fill'); return; }
     // zoom e vista: + − 0 (tudo) F (seleção) Espaço (mover a vista)
     if (k === '+' || k === '=') { e.preventDefault(); zoomCenter(1.25); return; }
     if (k === '-' || k === '_') { e.preventDefault(); zoomCenter(1 / 1.25); return; }
@@ -2539,64 +2599,56 @@ async function savePlan() {
   try {
     const { data: existing, error } = await client.from('rooms').select('id, name');
     if (error) throw new Error(error.message);
-    const existingIds = new Set((existing || []).map((r) => r.id));
 
-    // remove cômodos excluídos
+    // remove cômodos excluídos (um pedido só)
     const removed = (existing || []).filter((r) => !draft.some((d) => d.id === r.id));
-    for (const r of removed) {
-      const { error: e2 } = await client.from('rooms').delete().eq('id', r.id);
+    for (const ids of chunk(removed.map((r) => r.id), 50)) {
+      const { error: e2 } = await client.from('rooms').delete().in('id', ids);
       if (e2) throw new Error(e2.message);
     }
 
+    // cômodos novos e alterados num único upsert
+    const roomRows = draft.map((r) => ({
+      id: r.id, name: r.name.trim(),
+      pos_x: r.pos_x, pos_z: r.pos_z,
+      size_x: r.size_x, size_z: r.size_z,
+      color: r.color, sort_order: r.sort_order ?? 0,
+      floor: r.floor ?? 0,
+      kind: r.kind || 'personalizado',
+      points: isPoly(r) ? r.points : null,
+    }));
     let pointsDropped = false;
-    // insert dos novos / update dos existentes (com floor + kind, v1.6.0)
-    for (const r of draft) {
-      const row = {
-        id: r.id, name: r.name.trim(),
-        pos_x: r.pos_x, pos_z: r.pos_z,
-        size_x: r.size_x, size_z: r.size_z,
-        color: r.color, sort_order: r.sort_order ?? 0,
-        floor: r.floor ?? 0,
-        kind: r.kind || 'personalizado',
-        points: isPoly(r) ? r.points : null,
-      };
-      const send = (rw) => (existingIds.has(r.id)
-        ? client.from('rooms').update(rw).eq('id', r.id)
-        : client.from('rooms').insert(rw));
-      let { error: e3 } = await send(row);
-      if (e3 && /points/i.test(e3.message || '')) {
-        // migração 008 ainda não aplicada: salva como retângulo (caixa) e avisa
-        const { points: _p, ...rowNoPoints } = row;
-        ({ error: e3 } = await send(rowNoPoints));
-        if (!e3) pointsDropped = true;
-      }
-      if (e3) throw new Error(e3.message);
+    let { error: e3 } = await client.from('rooms').upsert(roomRows);
+    if (e3 && /points/i.test(e3.message || '')) {
+      // migração 008 ainda não aplicada: salva como retângulo (caixa) e avisa
+      ({ error: e3 } = await client.from('rooms').upsert(roomRows.map(({ points: _p, ...rest }) => rest)));
+      if (!e3) pointsDropped = true;
     }
+    if (e3) throw new Error(e3.message);
 
-    // paredes (v1.9.0): remove apagadas, insere novas, atualiza existentes
+    // paredes: remove apagadas, grava novas e alteradas em lotes (antes era uma chamada por parede)
     const { data: existingWalls, error: ew } = await client.from('walls').select('id');
     if (ew) throw new Error(ew.message);
-    const existingWallIds = new Set((existingWalls || []).map((w) => w.id));
     const removedWalls = (existingWalls || []).filter((w) => !wallsDraft.some((d) => d.id === w.id));
-    for (const w of removedWalls) {
-      const { error: e4 } = await client.from('walls').delete().eq('id', w.id);
+    for (const ids of chunk(removedWalls.map((w) => w.id), 50)) {
+      const { error: e4 } = await client.from('walls').delete().in('id', ids);
       if (e4) throw new Error(e4.message);
     }
-    for (const wl of wallsDraft) {
-      const row = {
-        id: wl.id, floor: wl.floor ?? 0,
-        x1: wl.x1, z1: wl.z1, x2: wl.x2, z2: wl.z2,
-        th: wl.th || WALL_TH, sort_order: wl.sort_order ?? 0,
-      };
-      const q = existingWallIds.has(wl.id)
-        ? client.from('walls').update(row).eq('id', wl.id)
-        : client.from('walls').insert(row);
-      const { error: e5 } = await q;
+    const wallRows = wallsDraft.map((wl) => ({
+      id: wl.id, floor: wl.floor ?? 0,
+      x1: wl.x1, z1: wl.z1, x2: wl.x2, z2: wl.z2,
+      th: wl.th || WALL_TH, sort_order: wl.sort_order ?? 0,
+    }));
+    for (const rows of chunk(wallRows, 200)) {
+      const { error: e5 } = await client.from('walls').upsert(rows);
       if (e5) throw new Error(e5.message);
     }
-    await loadWalls(client);
-    wallsBaseline = wallsLive.map((w) => ({ ...w }));
-    wallsDraft = wallsBaseline.map((w) => ({ ...w }));
+
+    // recarrega do banco; só troca o rascunho se a leitura funcionou (senão mantém o que está na tela)
+    if (await loadWalls(client)) {
+      wallsBaseline = wallsLive.map((w) => ({ ...w }));
+      wallsDraft = wallsBaseline.map((w) => ({ ...w }));
+    }
 
     // avisa sobre dispositivos órfãos de cômodo (rename/exclusão)
     const baseById = new Map(baseline.map((r) => [r.id, r.name]));
@@ -2615,16 +2667,22 @@ async function savePlan() {
       );
     }
 
-    await loadRooms(client);
-    baseline = state.rooms.map((r) => ({ ...r }));
-    draft = baseline.map((r) => ({ ...r }));
+    if (await loadRooms(client)) {
+      const keepSel = selectedId;
+      baseline = state.rooms.map((r) => ({ ...r }));
+      draft = baseline.map((r) => ({ ...r }));
+      if (keepSel && !draft.some((r) => r.id === keepSel)) { selectedId = null; hideForm(); }
+    }
     history.past = [];
     history.future = [];
+    selWalls.clear();
     if (pointsDropped) {
       toast('Cômodos poligonais salvos como retângulos', 'Execute a migração 008_room_polygons.sql no Supabase para guardar a forma exata.', 'warning');
     }
-    toast('Planta salva com sucesso!', 'A cena 3D e os painéis já refletem a nova planta.', 'success');
-    closeEditor();
+    toast('Planta salva com sucesso!', 'A cena 3D e os painéis já refletem a nova planta. Você pode continuar editando e salvar de novo.', 'success');
+    renderFloorTabs();
+    syncToolbar();
+    draw();
   } catch (err) {
     console.error('[planta] falha ao salvar', err);
     toast('Falha ao salvar a planta', err.message, 'critical');
@@ -2632,6 +2690,12 @@ async function savePlan() {
     saving = false;
     setBusy(false);
   }
+}
+
+function chunk(arr, n) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
 }
 
 function setBusy(b) {

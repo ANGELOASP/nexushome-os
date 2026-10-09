@@ -45,13 +45,14 @@ export function initAutomationsPanel(nexusClient) {
   renderList();
   on('automations-changed', renderList);
   on('telemetry', ({ metric, value }) => evaluate(metric, value));
-  on('st-readings', (readings) => evaluateStReadings(readings));   // gatilhos Samsung (v1.5.0)
+  on('st-readings', (readings) => { evaluateStReadings(readings); syncEnergyRulesButton(); });   // gatilhos Samsung (v1.5.0)
   on('st-connection-changed', renderList);                         // badge "SmartThings offline"
   // um dispositivo excluído deixa regras sem alvo: redesenha só quando o conjunto de regras quebradas muda
   let brokenKey = brokenRuleIds();
   on('devices-changed', () => { const k = brokenRuleIds(); if (k !== brokenKey) { brokenKey = k; renderList(); } });
 
   document.getElementById('btn-new-automation')?.addEventListener('click', openModal);
+  document.getElementById('btn-st-energy-rules')?.addEventListener('click', createEnergyRules);
   document.getElementById('btn-cancel-automation')?.addEventListener('click', closeModal);
   modal?.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
   document.getElementById('f-device')?.addEventListener('change', refreshActionOptions);
@@ -100,6 +101,49 @@ function renderList() {
       </div>`;
     list.appendChild(el);
   });
+  syncEnergyRulesButton();
+}
+
+// ---- proteção de pico de energia para os ares-condicionados Samsung ----
+const ENERGY_LIMIT_W = 3000;
+
+function energyRuleFor(stDeviceId) {
+  return state.automations.find((a) => a.trigger_condition?.metric === 'energy_watts'
+    && a.action_payload?.type === 'smartthings'
+    && a.action_payload?.stDeviceId === stDeviceId
+    && (a.action_payload.commands || []).some((c) => c.capability === 'switch' && c.command === 'off'));
+}
+
+function syncEnergyRulesButton() {
+  const btn = document.getElementById('btn-st-energy-rules');
+  if (!btn) return;
+  const acs = getStDevices().filter((d) => d.kind === 'ac');
+  btn.classList.toggle('hidden', !(isStConnected() && acs.length));
+  const missing = acs.filter((d) => !energyRuleFor(d.id));
+  btn.disabled = !missing.length;
+  btn.textContent = missing.length
+    ? `Proteger ${missing.length === 1 ? 'o ar-condicionado Samsung' : `os ${missing.length} ares-condicionados Samsung`}: desligar acima de ${ENERGY_LIMIT_W} W`
+    : '✓ Ares-condicionados Samsung protegidos contra pico de energia';
+}
+
+/** Uma regra "Energia > 3000 W → desligar" para cada ar-condicionado Samsung que ainda não tem. */
+async function createEnergyRules() {
+  const missing = getStDevices().filter((d) => d.kind === 'ac' && !energyRuleFor(d.id));
+  if (!missing.length) return;
+  const rows = missing.map((d) => ({
+    name: `Desligar ${d.name} em pico de energia`,
+    trigger_condition: { metric: 'energy_watts', operator: '>', threshold: ENERGY_LIMIT_W },
+    action_payload: { type: 'smartthings', stDeviceId: d.id, commands: [{ component: 'main', capability: 'switch', command: 'off', arguments: [] }] },
+    is_active: true,
+  }));
+  try {
+    const { data, error } = await client.from('automations').insert(rows).select();
+    if (error) throw new Error(error.message);
+    (data || []).forEach((r) => upsertAutomation(r));
+    toast(`${rows.length} regra(s) criada(s)`, `${missing.map((d) => d.name).join(' e ')}: desligam quando a energia passar de ${ENERGY_LIMIT_W} W.`, 'success');
+  } catch (err) {
+    toast('Falha ao criar as regras', err.message, 'critical');
+  }
 }
 
 function brokenRuleIds() {
