@@ -37,3 +37,12 @@ test('projectOnWall: projeção e distância', () => {
   const r = projectOnWall({ x1: 0, z1: 0, x2: 4, z2: 0 }, 1, 0.3);
   assert.ok(Math.abs(r.t - 1) < 1e-9 && Math.abs(r.d - 0.3) < 1e-9 && r.len === 4);
 });
+
+test('wallPieces: porta carrega dobradiça e lado de abertura', () => {
+  const p = wallPieces(4, 0.15, [{ kind: 'door', offset_m: 2, width: 0.9, hinge: 'end', side: -1 }], 2.5);
+  assert.equal(p.doors[0].hinge, 'end');
+  assert.equal(p.doors[0].side, -1);
+  const d = wallPieces(4, 0.15, [{ kind: 'door', offset_m: 2, width: 0.9 }], 2.5).doors[0];
+  assert.equal(d.hinge, 'start');
+  assert.equal(d.side, 1);
+});

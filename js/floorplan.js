@@ -380,6 +380,8 @@ function normalizeOpening(o) {
     width: Number(o.width) || d.width,
     height: Number(o.height) || d.height,
     sill: o.sill === undefined || o.sill === null ? d.sill : Number(o.sill) || 0,
+    hinge: o.hinge === 'end' ? 'end' : 'start',
+    side: Number(o.side) === -1 ? -1 : 1,
     sort_order: o.sort_order ?? 0,
   };
 }
@@ -2616,7 +2618,8 @@ function placeOpening(kind, wl, wx, wz) {
   if (openingOverlaps(wl.id, off, d.width)) { toast('Já existe uma abertura aqui', 'Escolha outro ponto da parede.', 'warning'); return; }
   pushHistory();
   const maxSort = openingsDraft.reduce((m, o) => Math.max(m, o.sort_order ?? 0), 0);
-  const o = { id: genUuid(), wall_id: wl.id, kind, offset_m: off, width: d.width, height: d.height, sill: d.sill, sort_order: maxSort + 1 };
+  const o = { id: genUuid(), wall_id: wl.id, kind, offset_m: off, width: d.width, height: d.height, sill: d.sill, hinge: 'start', side: 1, sort_order: maxSort + 1 };
+  if (kind === 'door') { o.side = insideSide(o); }   // por padrão a porta abre para dentro do cômodo
   openingsDraft.push(o);
   selOpening = o.id;
   syncToolbar();
@@ -2635,6 +2638,35 @@ function deleteOpening(id) {
 /** Ponto (tela) a t metros ao longo da parede e n metros para o lado. */
 function openingPt(L, t, n = 0) {
   return [w2sx(L.wl.x1 + L.ux * t - L.uz * n), w2sz(L.wl.z1 + L.uz * t + L.ux * n)];
+}
+
+/** Lado (+1/-1) da parede que fica "dentro" de um cômodo: onde a porta abre por padrão. */
+function insideSide(o) {
+  const wl = wallById(o.wall_id);
+  if (!wl) return 1;
+  const len = wallLen(wl);
+  if (len < 1e-6) return 1;
+  const ux = (wl.x2 - wl.x1) / len, uz = (wl.z2 - wl.z1) / len;
+  const px = wl.x1 + ux * o.offset_m, pz = wl.z1 + uz * o.offset_m;
+  const d = wl.th / 2 + 0.35;
+  const rA = roomAt(px - uz * d, pz + ux * d), rB = roomAt(px + uz * d, pz - ux * d);
+  if (rA && !rB) return 1;
+  if (rB && !rA) return -1;
+  if (rA && rB) return roomArea(rA) <= roomArea(rB) ? 1 : -1;   // entre dois cômodos: abre para o menor
+  return 1;
+}
+
+/** Estado da porta em termos humanos: abre para dentro/fora; dobradiça à esquerda/direita (vista por quem empurra). */
+function doorState(o) {
+  const side = o.side === -1 ? -1 : 1;
+  const hinge = o.hinge === 'end' ? 'end' : 'start';
+  return { swing: side === insideSide(o) ? 'in' : 'out', hand: (hinge === 'start') === (side === -1) ? 'left' : 'right' };
+}
+
+function setDoorState(o, { swing, hand }) {
+  const ins = insideSide(o);
+  o.side = swing === 'in' ? ins : -ins;
+  o.hinge = ((hand === 'left') === (o.side === -1)) ? 'start' : 'end';
 }
 
 function drawOneOpening(L, mode = '') {
@@ -2658,12 +2690,14 @@ function drawOneOpening(L, mode = '') {
   } else {
     // porta: folha aberta 90° + arco de giro (dobradiça no início do vão)
     const wd = L.b - L.a;
+    const atEnd = o.hinge === 'end', side = o.side === -1 ? -1 : 1;
+    const ht = atEnd ? L.b : L.a, ot = atEnd ? L.a : L.b;
     ctx.strokeStyle = col; ctx.lineWidth = 2;
-    const [hx, hy] = openingPt(L, L.a), [tx, ty] = openingPt(L, L.a, wd);
+    const [hx, hy] = openingPt(L, ht), [tx, ty] = openingPt(L, ht, side * wd), [cx, cy] = openingPt(L, ot);
     line(hx, hy, tx, ty);
     ctx.lineWidth = 1.2; ctx.setLineDash([4, 3]);
     ctx.beginPath();
-    const a0 = Math.atan2(by - ay, bx - ax), a1 = Math.atan2(ty - hy, tx - hx);
+    const a0 = Math.atan2(cy - hy, cx - hx), a1 = Math.atan2(ty - hy, tx - hx);
     const ccw = ((a1 - a0 + Math.PI * 3) % (Math.PI * 2)) - Math.PI < 0;
     ctx.arc(hx, hy, wd * view.scale, a0, a1, ccw);
     ctx.stroke();
@@ -2721,6 +2755,15 @@ function initOpeningPanel() {
     el?.addEventListener('change', () => { if (snap) { pushHistorySnap(snap); snap = null; } syncToolbar(); openPanelKey = ''; draw(); });
     el?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } });
   });
+  const swingEl = document.getElementById('fp-open-swing'), handEl = document.getElementById('fp-open-hinge');
+  [swingEl, handEl].forEach((el) => el?.addEventListener('change', () => {
+    const o = selectedOpening();
+    if (!o || o.kind !== 'door') return;
+    pushHistory();
+    setDoorState(o, { swing: swingEl.value, hand: handEl.value });
+    openPanelKey = '';
+    draw();
+  }));
   document.getElementById('fp-open-del')?.addEventListener('click', () => { if (selOpening) deleteOpening(selOpening); });
 }
 
@@ -2729,7 +2772,7 @@ function syncOpeningPanel() {
   const panel = document.getElementById('fp-open-panel');
   if (!panel) return;
   const o = selectedOpening();
-  const key = o ? `${o.id}:${o.kind}:${o.width},${o.height},${o.sill}` : '';
+  const key = o ? `${o.id}:${o.kind}:${o.width},${o.height},${o.sill},${o.hinge},${o.side}:${o.kind === 'door' ? Object.values(doorState(o)).join() : ''}` : '';
   if (key === openPanelKey) return;
   openPanelKey = key;
   panel.classList.toggle('hidden', !o);
@@ -2738,6 +2781,8 @@ function syncOpeningPanel() {
   document.getElementById('fp-open-sill-wrap')?.classList.toggle('hidden', o.kind === 'door');
   const set = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = String(v); };
   set('fp-open-w', o.width); set('fp-open-h', o.height); set('fp-open-sill', o.sill);
+  document.getElementById('fp-open-door-wrap')?.classList.toggle('hidden', o.kind !== 'door');
+  if (o.kind === 'door') { const st = doorState(o); set('fp-open-swing', st.swing); set('fp-open-hinge', st.hand); }
 }
 
 // ------------------------------------------------------------
@@ -3006,7 +3051,7 @@ async function savePlan() {
 
     // portas e janelas (migração 009): remove as apagadas e grava as demais; sem a tabela, avisa e segue
     pruneOpenings();
-    let openingsSkipped = false;
+    let openingsSkipped = false, swingDropped = false;
     {
       const { data: existingOps, error: eo } = await client.from('openings').select('id');
       if (eo) {
@@ -3020,9 +3065,15 @@ async function savePlan() {
         const opRows = openingsDraft.map((o) => ({
           id: o.id, wall_id: o.wall_id, kind: o.kind,
           offset_m: o.offset_m, width: o.width, height: o.height, sill: o.sill, sort_order: o.sort_order ?? 0,
+          hinge: o.hinge === 'end' ? 'end' : 'start', side: o.side === -1 ? -1 : 1,
         }));
         for (const rows of chunk(opRows, 200)) {
-          const { error: e7 } = await client.from('openings').upsert(rows);
+          let { error: e7 } = await client.from('openings').upsert(rows);
+          if (e7 && /hinge|side/i.test(e7.message || '')) {
+            // migração 010 ainda não aplicada: grava sem o sentido de abertura e avisa
+            ({ error: e7 } = await client.from('openings').upsert(rows.map(({ hinge: _h, side: _s, ...rest }) => rest)));
+            if (!e7) swingDropped = true;
+          }
           if (e7) throw new Error(e7.message);
         }
       }
@@ -3036,6 +3087,9 @@ async function savePlan() {
       wallsBaseline = wallsLive.map((w) => ({ ...w }));
       wallsDraft = wallsBaseline.map((w) => ({ ...w }));
       if (!openingsSkipped) openingsDraft = openingsBaseline.map((o) => ({ ...o }));
+    }
+    if (swingDropped) {
+      toast('Sentido de abertura das portas não gravado', 'Execute a migração 010_door_swing.sql no Supabase e salve de novo.', 'warning');
     }
     if (openingsSkipped) {
       toast('Portas e janelas não foram gravadas', 'Execute a migração 009_openings.sql no Supabase e salve de novo. O resto da planta foi salvo.', 'warning');
