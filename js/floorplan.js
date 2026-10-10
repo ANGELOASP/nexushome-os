@@ -289,17 +289,23 @@ export function initFloorplan({ getClient: gc } = {}) {
   if (import.meta.env?.DEV) window.__fp = { w2sx, w2sz, s2wx, s2wz, get view() { return view; }, get walls() { return wallsDraft; }, get rooms() { return draft; }, get openings() { return openingsDraft; }, get sel() { return [...selWalls]; } };
 }
 
+/** Planta padrão (4 cômodos) apenas se não existe nenhuma parede: evita ressuscitar cômodos que o usuário apagou. */
+function defaultRoomsIfBlank() {
+  return (wallsLive.length || state.walls?.length) ? [] : DEFAULT_ROOMS;
+}
+
 /** Carrega a planta da tabela rooms (live) ou do mock (demo). Retorna true se leu do banco. */
 export async function loadRooms(client) {
   try {
     const { data, error } = await client.from('rooms').select('*').order('sort_order');
     if (error) throw new Error(error.message);
-    setRooms(data?.length ? data : DEFAULT_ROOMS);
+    // sem cômodos no banco: só planta nova (sem paredes) recebe a padrão; quem desenhou/importou paredes fica sem cômodos
+    setRooms(data?.length ? data : defaultRoomsIfBlank());
     return true;
   } catch (err) {
     console.error('[planta] falha ao carregar rooms', err);
     // erro transitório NÃO pode trocar a planta do usuário pela padrão (o próximo "Salvar" apagaria tudo)
-    if (!state.rooms.length) setRooms(DEFAULT_ROOMS);
+    if (!state.rooms.length) setRooms(defaultRoomsIfBlank());
     toast('Não foi possível ler a planta agora', 'Mantive a que está na tela. Tente salvar de novo em instantes.', 'warning');
     return false;
   }
@@ -401,7 +407,7 @@ function normalizeWall(w) {
 function isOpen() { return modal?.classList.contains('modal-open'); }
 
 function openEditor() {
-  baseline = (state.rooms.length ? state.rooms : DEFAULT_ROOMS).map(normalizeRoom);
+  baseline = (state.rooms.length ? state.rooms : defaultRoomsIfBlank()).map(normalizeRoom);
   draft = baseline.map((r) => ({ ...r }));
   wallsBaseline = wallsLive.map((w) => ({ ...w }));
   wallsDraft = wallsBaseline.map((w) => ({ ...w }));
@@ -3023,7 +3029,7 @@ async function savePlan() {
       points: isPoly(r) ? r.points : null,
     }));
     let pointsDropped = false;
-    let { error: e3 } = await client.from('rooms').upsert(roomRows);
+    let { error: e3 } = roomRows.length ? await client.from('rooms').upsert(roomRows) : { error: null };
     if (e3 && /points/i.test(e3.message || '')) {
       // migração 008 ainda não aplicada: salva como retângulo (caixa) e avisa
       ({ error: e3 } = await client.from('rooms').upsert(roomRows.map(({ points: _p, ...rest }) => rest)));
@@ -3051,11 +3057,12 @@ async function savePlan() {
 
     // portas e janelas (migração 009): remove as apagadas e grava as demais; sem a tabela, avisa e segue
     pruneOpenings();
-    let openingsSkipped = false, swingDropped = false;
+    let openingsSkipped = false, swingDropped = false, openingsError = '';
     {
       const { data: existingOps, error: eo } = await client.from('openings').select('id');
       if (eo) {
         openingsSkipped = openingsDraft.length > 0 || openingsLive.length > 0;
+        openingsError = eo.message || 'erro desconhecido';
       } else {
         const removedOps = (existingOps || []).filter((o) => !openingsDraft.some((d) => d.id === o.id));
         for (const ids of chunk(removedOps.map((o) => o.id), 50)) {
@@ -3092,7 +3099,7 @@ async function savePlan() {
       toast('Sentido de abertura das portas não gravado', 'Execute a migração 010_door_swing.sql no Supabase e salve de novo.', 'warning');
     }
     if (openingsSkipped) {
-      toast('Portas e janelas não foram gravadas', 'Execute a migração 009_openings.sql no Supabase e salve de novo. O resto da planta foi salvo.', 'warning');
+      toast('Portas e janelas não foram gravadas', `${openingsError} — confirme que a migração 009_openings.sql rodou no Supabase e salve de novo. O resto da planta foi salvo.`, 'critical');
     }
 
     // avisa sobre dispositivos órfãos de cômodo (rename/exclusão)
