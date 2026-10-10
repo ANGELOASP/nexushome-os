@@ -24,6 +24,7 @@ function loadDemoRooms() {
     const raw = localStorage.getItem(FLOORPLAN_KEY);
     if (raw) {
       const rows = JSON.parse(raw);
+      if (Array.isArray(rows) && !rows.length) return [];   // usuário apagou todos os cômodos de propósito
       if (Array.isArray(rows) && rows.length) {
         const migrated = rows.map(normalizeRoom);
         // regrava já migrado (floor/kind preenchidos)

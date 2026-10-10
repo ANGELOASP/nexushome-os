@@ -123,8 +123,8 @@ async function enterApp(user) {
     updateUserChip(user);
 
     // planta da residência primeiro: painéis e cena 3D dependem dela
+    await loadWalls(client);   // antes dos cômodos: a planta padrão só vale para quem não tem nada desenhado
     await loadRooms(client);
-    await loadWalls(client);
     await loadOpenings(client);
 
     // painéis e cena são inicializados uma única vez
