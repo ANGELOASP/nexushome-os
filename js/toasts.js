@@ -27,7 +27,8 @@ export function toast(title, message = '', type = 'info') {
   if (!root) return;
 
   const el = document.createElement('div');
-  el.className = 'toast glass rounded-xl px-4 py-3 flex items-start gap-3 shadow-2xl max-w-xs w-full pointer-events-auto';
+  el.className = `toast glass rounded-xl px-4 py-3 flex items-start gap-3 shadow-2xl ${type === 'critical' ? 'max-w-md' : 'max-w-xs'} w-full pointer-events-auto break-words`;
+  el.title = 'Clique para fechar';
   el.innerHTML = `
     <span class="toast-icon ${COLORS[type] || COLORS.info}">${ICONS[type] || ICONS.info}</span>
     <div class="min-w-0">
@@ -37,11 +38,14 @@ export function toast(title, message = '', type = 'info') {
   root.appendChild(el);
 
   requestAnimationFrame(() => el.classList.add('toast-in'));
-  setTimeout(() => {
+  const close = () => {
     el.classList.remove('toast-in');
     el.classList.add('toast-out');
     setTimeout(() => el.remove(), 350);
-  }, 4200);
+  };
+  el.addEventListener('click', close);
+  // erros ficam mais tempo na tela (dá para ler e copiar a mensagem); clique fecha
+  setTimeout(close, type === 'critical' ? 20000 : type === 'warning' ? 9000 : 4200);
 
   // no máximo 5 toasts empilhados
   while (root.children.length > 5) root.firstChild.remove();
