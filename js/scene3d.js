@@ -17,6 +17,8 @@ import { isPoly, polyCentroid, innerRect, wallPieces } from './geometry.js';
 
 const METER = 1.9;          // unidades de cena por metro (3.0 m → 5.7 un., paridade com o layout original)
 const WALL_H = 2.5;
+const VSCALE = WALL_H / 2.5;  // escala vertical: parede padrão de 2,5 m = WALL_H unidades
+const WALL_H_MAX_M = 3.0;     // acima disso a parede atravessaria a laje do andar de cima (FLOOR_H)
 const WALL_T = 0.16;
 const FLOOR_H = 3.0;        // altura de um andar na pilha (laje + pé direito)
 
@@ -450,10 +452,11 @@ function buildRealWalls(THREE, walls, openings = []) {
       const th = Math.max(0.1, (Number(w.th) || 0.15) * METER);
       const q = new THREE.Quaternion().setFromAxisAngle(up, -Math.atan2(dz, dx));
       const ux = dx / len, uz = dz / len;
-      // medidas das aberturas estão em metros reais; a cena usa METER unidades por metro
+      // horizontal: METER unidades por metro; vertical: VSCALE (altura própria da parede, padrão 2,5 m)
+      const wallH = Math.min(WALL_H_MAX_M, Math.max(0.3, Number(w.height) || 2.5)) * VSCALE;
       const pieces = wallPieces(len, th, (opsByWall.get(w.id) || []).map((o) => ({
-        ...o, offset_m: o.offset_m * METER, width: o.width * METER, height: o.height * METER, sill: o.sill * METER,
-      })), WALL_H);
+        ...o, offset_m: o.offset_m * METER, width: o.width * METER, height: o.height * VSCALE, sill: o.sill * VSCALE,
+      })), wallH);
       const place = (a, b, ya, yb, depth) => {
         const c = (a + b) / 2;
         return new THREE.Matrix4().compose(

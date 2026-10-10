@@ -87,6 +87,7 @@ let roomDraw = null;       // { x1, z1, x2, z2, armed, snapBefore } — borracha
 let polyDraw = null;       // { pts:[[x,z],...], hover:[x,z]|null, snapBefore } — ferramenta Polígono (P)
 const VERTEX_R = 0.35;     // raio de captura de vértice (m)
 let polyHover = null;      // [x,z] sob o cursor na ferramenta Polígono
+const WALL_H_DEFAULT = 2.5, WALL_H_MIN = 0.3, WALL_H_MAX = 3.0;   // altura da parede (m)
 const WALL_TH = 0.15;      // espessura padrão da parede (m)
 const WALL_SNAP = 0.05;    // snap fino de endpoints de parede (m)
 const AXIS_LOCK_DEG = 8;   // trava de eixo 0°/90°/45° (SketchUp-style)
@@ -397,6 +398,7 @@ function normalizeWall(w) {
     id: w.id, floor: Number(w.floor) || 0,
     x1: Number(w.x1), z1: Number(w.z1), x2: Number(w.x2), z2: Number(w.z2),
     th: Number(w.th) || WALL_TH, sort_order: w.sort_order ?? 0,
+    height: clamp(Number(w.height) || WALL_H_DEFAULT, WALL_H_MIN, WALL_H_MAX),
   };
 }
 
@@ -1231,7 +1233,7 @@ let wallPanelKey = '';
 function selectedWalls() { return wallsDraft.filter((w) => selWalls.has(w.id)); }
 
 function initWallPanel() {
-  const lenEl = document.getElementById('fp-wall-len'), thEl = document.getElementById('fp-wall-th');
+  const lenEl = document.getElementById('fp-wall-len'), thEl = document.getElementById('fp-wall-th'), hEl = document.getElementById('fp-wall-h');
   const panel = document.getElementById('fp-wall-panel');
   if (!panel) return;
   panel.addEventListener('focusin', () => { if (!wallFormSnap) wallFormSnap = snapshot(); });
@@ -1256,7 +1258,13 @@ function initWallPanel() {
     selectedWalls().forEach((w) => { w.th = Math.round(v * 1000) / 1000; });
     draw();
   });
-  [lenEl, thEl].forEach((el) => {
+  hEl?.addEventListener('input', () => {
+    const v = parseFloat(String(hEl.value).replace(',', '.'));
+    if (!Number.isFinite(v) || v < WALL_H_MIN || v > WALL_H_MAX) return;
+    selectedWalls().forEach((w) => { w.height = Math.round(v * 100) / 100; });
+    draw();
+  });
+  [lenEl, thEl, hEl].forEach((el) => {
     el?.addEventListener('change', commit);
     el?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } });
   });
@@ -1275,7 +1283,7 @@ function syncWallPanel() {
   const panel = document.getElementById('fp-wall-panel');
   if (!panel) return;
   const ws = selectedWalls();
-  const key = ws.map((w) => `${w.id}:${w.x1},${w.z1},${w.x2},${w.z2},${w.th}`).join('|');
+  const key = ws.map((w) => `${w.id}:${w.x1},${w.z1},${w.x2},${w.z2},${w.th},${w.height}`).join('|');
   if (key === wallPanelKey) return;
   wallPanelKey = key;
   panel.classList.toggle('hidden', !ws.length);
@@ -1289,6 +1297,11 @@ function syncWallPanel() {
   if (thEl && document.activeElement !== thEl) {
     const t = ws[0].th;
     thEl.value = ws.every((w) => w.th === t) ? (Math.round(t * 1000) / 1000).toString() : '';
+  }
+  const hEl = document.getElementById('fp-wall-h');
+  if (hEl && document.activeElement !== hEl) {
+    const hh = ws[0].height ?? WALL_H_DEFAULT;
+    hEl.value = ws.every((w) => (w.height ?? WALL_H_DEFAULT) === hh) ? String(hh) : '';   // vazio = alturas diferentes
   }
 }
 
@@ -3049,9 +3062,16 @@ async function savePlan() {
       id: wl.id, floor: wl.floor ?? 0,
       x1: wl.x1, z1: wl.z1, x2: wl.x2, z2: wl.z2,
       th: wl.th || WALL_TH, sort_order: wl.sort_order ?? 0,
+      height: wl.height ?? WALL_H_DEFAULT,
     }));
+    let heightDropped = false;
     for (const rows of chunk(wallRows, 200)) {
-      const { error: e5 } = await client.from('walls').upsert(rows);
+      let { error: e5 } = await client.from('walls').upsert(heightDropped ? rows.map(({ height: _h, ...r }) => r) : rows);
+      if (e5 && !heightDropped && /height/i.test(e5.message || '')) {
+        // migração 012 ainda não aplicada: grava sem a altura e avisa
+        heightDropped = true;
+        ({ error: e5 } = await client.from('walls').upsert(rows.map(({ height: _h, ...r }) => r)));
+      }
       if (e5) throw new Error(e5.message);
     }
 
@@ -3094,6 +3114,9 @@ async function savePlan() {
       wallsBaseline = wallsLive.map((w) => ({ ...w }));
       wallsDraft = wallsBaseline.map((w) => ({ ...w }));
       if (!openingsSkipped) openingsDraft = openingsBaseline.map((o) => ({ ...o }));
+    }
+    if (heightDropped) {
+      toast('Altura das paredes não gravada', 'Execute a migração 012_wall_height.sql no Supabase e salve de novo. O resto da planta foi salvo.', 'warning');
     }
     if (swingDropped) {
       toast('Sentido de abertura das portas não gravado', 'Execute a migração 010_door_swing.sql no Supabase e salve de novo.', 'warning');
