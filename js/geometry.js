@@ -173,3 +173,79 @@ export function innerRect(points) {
 }
 
 function round3(v) { return Math.round(v * 1000) / 1000; }
+
+// ------------------------------------------------------------
+// Portas e janelas (tabela openings): recortes em uma parede
+// ------------------------------------------------------------
+
+export const OPENING_DEFAULTS = {
+  door:   { width: 0.9, height: 2.1, sill: 0 },
+  window: { width: 1.2, height: 1.2, sill: 1.0 },
+};
+export const MIN_OPENING = 0.3;     // largura mínima (m)
+const OPEN_MARGIN = 0.05;           // folga mínima até a ponta da parede (m)
+
+/**
+ * Normaliza e valida as aberturas de UMA parede de comprimento `len`:
+ * limita ao vão da parede, descarta as menores que MIN_OPENING e as que se sobrepõem.
+ * Retorna [{ ...o, a, b }] ordenadas, onde a/b são as bordas (m) medidas desde o início da parede.
+ */
+export function layoutOpenings(len, openings, wallH = 2.5) {
+  const out = [];
+  const list = (openings || [])
+    .map((o) => ({ o, c: Number(o.offset_m) }))
+    .filter(({ c }) => Number.isFinite(c))
+    .sort((p, q) => p.c - q.c);
+  let lastB = OPEN_MARGIN;
+  for (const { o, c } of list) {
+    const w = Number(o.width) || OPENING_DEFAULTS[o.kind]?.width || 0.9;
+    const a = Math.max(c - w / 2, lastB);
+    const b = Math.min(c + w / 2, len - OPEN_MARGIN);
+    if (b - a < MIN_OPENING) continue;
+    const sill = Math.max(0, Math.min(Number(o.sill) || 0, wallH - 0.3));
+    const top = Math.min(wallH, sill + (Number(o.height) || OPENING_DEFAULTS[o.kind]?.height || 2.1));
+    out.push({ ...o, a, b, sill, top });
+    lastB = b;
+  }
+  return out;
+}
+
+/**
+ * Peças de uma parede com aberturas (tudo ao longo do eixo da parede, a partir do início):
+ *   solids: blocos de parede [{a, b, y0, y1}] (as pontas se estendem th/2, como a caixa da parede inteira)
+ *   glass:  vidros das janelas [{a, b, y0, y1}]
+ *   doors:  folhas de porta [{a, b, h}] (a = lado da dobradiça)
+ */
+export function wallPieces(len, th, openings, wallH = 2.5) {
+  const ops = layoutOpenings(len, openings, wallH);
+  const solids = [], glass = [], doors = [];
+  let cur = 0;
+  ops.forEach((o) => {
+    if (o.a > cur + 1e-6) solids.push({ a: cur, b: o.a, y0: 0, y1: wallH });
+    if (o.sill > 0) solids.push({ a: o.a, b: o.b, y0: 0, y1: o.sill });
+    if (o.top < wallH - 1e-6) solids.push({ a: o.a, b: o.b, y0: o.top, y1: wallH });
+    if (o.kind === 'window') glass.push({ a: o.a, b: o.b, y0: o.sill, y1: o.top });
+    else doors.push({ a: o.a, b: o.b, h: o.top - o.sill });
+    cur = o.b;
+  });
+  if (len > cur + 1e-6) solids.push({ a: cur, b: len, y0: 0, y1: wallH });
+  if (solids.length) {
+    // pontas: a caixa original tem len + th (cobre as quinas)
+    const first = solids.reduce((m, s) => (s.a < m.a ? s : m), solids[0]);
+    const last = solids.reduce((m, s) => (s.b > m.b ? s : m), solids[0]);
+    if (first.a <= 1e-6) first.a -= th / 2;
+    if (last.b >= len - 1e-6) last.b += th / 2;
+  }
+  return { solids, glass, doors };
+}
+
+/** Posição (m desde o início da parede) mais próxima de (x,z), limitada ao vão útil da parede. */
+export function projectOnWall(wl, x, z) {
+  const dx = wl.x2 - wl.x1, dz = wl.z2 - wl.z1;
+  const len = Math.hypot(dx, dz);
+  if (!len) return { t: 0, d: Math.hypot(x - wl.x1, z - wl.z1), len };
+  const t = ((x - wl.x1) * dx + (z - wl.z1) * dz) / len;
+  const tc = Math.max(0, Math.min(len, t));
+  const d = Math.hypot(x - (wl.x1 + (dx / len) * tc), z - (wl.z1 + (dz / len) * tc));
+  return { t, d, len };
+}

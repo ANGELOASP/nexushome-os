@@ -13,7 +13,7 @@
 // ============================================================
 
 import { state, on, emit, floorLabel, inferRoomKind } from './state.js';
-import { isPoly, polyCentroid, innerRect } from './geometry.js';
+import { isPoly, polyCentroid, innerRect, wallPieces } from './geometry.js';
 
 const METER = 1.9;          // unidades de cena por metro (3.0 m → 5.7 un., paridade com o layout original)
 const WALL_H = 2.5;
@@ -106,6 +106,7 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   // planta editada → reconstrói os cômodos sem recarregar a página
   on('rooms-changed', () => rebuildPlan());
   on('walls-changed', () => rebuildPlan());
+  on('openings-changed', () => rebuildPlan());
 
   buildFloorFilter();
   animate();
@@ -211,7 +212,7 @@ function buildPlan(THREE) {
   // andares com paredes vetoriais (desenhadas/importadas) não ganham as paredes "de cenário" dos cômodos
   const realWallFloors = new Set(wallsAll.map((w) => fl(w.floor)));
   state.rooms.forEach((row) => buildRoom(THREE, roomDefFromRow(row), realWallFloors.has(fl(row.floor))));
-  buildRealWalls(THREE, wallsAll);
+  buildRealWalls(THREE, wallsAll, state.openings || []);
   applyFloorFilter();
 }
 
@@ -412,36 +413,69 @@ function polyPrism(THREE, pts, height, material) {
   return m;
 }
 
-// ---- paredes vetoriais (tabela walls): um InstancedMesh por andar
-function buildRealWalls(THREE, walls) {
+// ---- paredes vetoriais (tabela walls): InstancedMesh por andar; portas/janelas (openings) recortam o vão
+function buildRealWalls(THREE, walls, openings = []) {
   const byFloor = new Map();
   walls.forEach((w) => {
     const f = Math.max(0, Math.trunc(Number(w.floor) || 0));
     if (!byFloor.has(f)) byFloor.set(f, []);
     byFloor.get(f).push(w);
   });
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+  const opsByWall = new Map();
+  (openings || []).forEach((o) => {
+    if (!opsByWall.has(o.wall_id)) opsByWall.set(o.wall_id, []);
+    opsByWall.get(o.wall_id).push(o);
+  });
   const up = new THREE.Vector3(0, 1, 0);
-  byFloor.forEach((list, f) => {
-    const material = new THREE.MeshStandardMaterial({ color: 0x3b4868, roughness: 0.92, metalness: 0.02 });
-    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), material, list.length);
-    list.forEach((w, i) => {
-      const x1 = w.x1 * METER, z1 = w.z1 * METER, x2 = w.x2 * METER, z2 = w.z2 * METER;
-      const dx = x2 - x1, dz = z2 - z1;
-      const len = Math.hypot(dx, dz);
-      const th = Math.max(0.1, (Number(w.th) || 0.15) * METER);
-      q.setFromAxisAngle(up, -Math.atan2(dz, dx));
-      p.set((x1 + x2) / 2, 0.16 + f * FLOOR_H + WALL_H / 2, (z1 + z2) / 2);
-      sc.set(len + th, WALL_H, th);
-      m4.compose(p, q, sc);
-      mesh.setMatrixAt(i, m4);
-    });
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  const addInstanced = (f, items, material, cast = true) => {
+    if (!items.length) return;
+    const mesh = new THREE.InstancedMesh(box, material, items.length);
+    items.forEach((m4, i) => mesh.setMatrixAt(i, m4));
     mesh.instanceMatrix.needsUpdate = true;
-    mesh.castShadow = true; mesh.receiveShadow = true;
+    mesh.castShadow = cast; mesh.receiveShadow = true;
     mesh.frustumCulled = false;       // a caixa do InstancedMesh é a da geometria unitária
     mesh.userData.roomFloor = f;
     planGroup.add(mesh);
     wallMeshes.push({ floor: f, mesh });
+  };
+  byFloor.forEach((list, f) => {
+    const solids = [], glass = [], leaves = [];
+    const y0 = 0.16 + f * FLOOR_H;
+    list.forEach((w) => {
+      const x1 = w.x1 * METER, z1 = w.z1 * METER, x2 = w.x2 * METER, z2 = w.z2 * METER;
+      const dx = x2 - x1, dz = z2 - z1;
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-6) return;
+      const th = Math.max(0.1, (Number(w.th) || 0.15) * METER);
+      const q = new THREE.Quaternion().setFromAxisAngle(up, -Math.atan2(dz, dx));
+      const ux = dx / len, uz = dz / len;
+      // medidas das aberturas estão em metros reais; a cena usa METER unidades por metro
+      const pieces = wallPieces(len, th, (opsByWall.get(w.id) || []).map((o) => ({
+        ...o, offset_m: o.offset_m * METER, width: o.width * METER, height: o.height * METER, sill: o.sill * METER,
+      })), WALL_H);
+      const place = (a, b, ya, yb, depth) => {
+        const c = (a + b) / 2;
+        return new THREE.Matrix4().compose(
+          new THREE.Vector3(x1 + ux * c, y0 + (ya + yb) / 2, z1 + uz * c),
+          q, new THREE.Vector3(b - a, yb - ya, depth));
+      };
+      pieces.solids.forEach((s) => solids.push(place(s.a, s.b, s.y0, s.y1, th)));
+      pieces.glass.forEach((g) => glass.push(place(g.a, g.b, g.y0, g.y1, Math.max(0.03, th * 0.18))));
+      pieces.doors.forEach((d) => {
+        // folha entreaberta (~65°) presa na borda "a"
+        const wd = d.b - d.a, ang = 1.15, lt = Math.max(0.04, th * 0.3);
+        const ql = q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(up, -ang));
+        const cu = d.a + (wd / 2) * Math.cos(ang), cn = (wd / 2) * Math.sin(ang);
+        // eixo normal da parede no mundo: perpendicular a u
+        leaves.push(new THREE.Matrix4().compose(
+          new THREE.Vector3(x1 + ux * cu - uz * cn, y0 + d.h / 2, z1 + uz * cu + ux * cn),
+          ql, new THREE.Vector3(wd, d.h, lt)));
+      });
+    });
+    addInstanced(f, solids, new THREE.MeshStandardMaterial({ color: 0x3b4868, roughness: 0.92, metalness: 0.02 }));
+    addInstanced(f, glass, new THREE.MeshStandardMaterial({ color: 0x9ad8ff, roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.35, depthWrite: false }), false);
+    addInstanced(f, leaves, new THREE.MeshStandardMaterial({ color: 0x8b6b4a, roughness: 0.7, metalness: 0.05 }));
   });
 }
 

@@ -125,6 +125,7 @@
       </div>
       <div class="panel-body">
         <div id="automations-list" class="space-y-2"></div>
+        <button id="btn-st-energy-rules" type="button" class="hidden mt-3 w-full rounded-xl border border-sky-400/40 bg-sky-400/10 px-3 py-2.5 text-xs font-semibold text-sky-200 hover:bg-sky-400/20 transition-all disabled:opacity-60 disabled:cursor-default"></button>
         <button id="btn-new-automation" class="mt-3 w-full rounded-xl border border-dashed border-indigo-400/40 bg-indigo-500/10 px-3 py-2.5 text-xs font-semibold text-indigo-200 hover:bg-indigo-500/20 hover:border-indigo-300/60 transition-all flex items-center justify-center gap-2">
           <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Nova automação
@@ -429,8 +430,17 @@
           <button id="btn-fp-tool-poly" type="button" class="fp-tool" title="Cômodo poligonal (P): um clique por vértice; Enter ou clique no 1º ponto fecha; Shift trava 45°">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8 11 3l9 6-3 11H6z"/><circle cx="4" cy="8" r="1.2" fill="currentColor"/><circle cx="11" cy="3" r="1.2" fill="currentColor"/><circle cx="20" cy="9" r="1.2" fill="currentColor"/><circle cx="17" cy="20" r="1.2" fill="currentColor"/><circle cx="6" cy="20" r="1.2" fill="currentColor"/></svg><span class="fp-tool-label">Polígono</span><kbd>P</kbd>
           </button>
+          <button id="btn-fp-tool-fill" type="button" class="fp-tool" title="Preencher (B): clique dentro de uma área fechada por paredes e o cômodo nasce com o formato dela (ótimo para corredores)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4z"/></svg><span class="fp-tool-label">Preencher</span><kbd>B</kbd>
+          </button>
           <button id="btn-fp-tool-wall" type="button" class="fp-tool" title="Desenhar parede (W)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20h18"/><path d="M5 20v-4h4v-4h4V8h4V4"/></svg><span class="fp-tool-label">Parede</span><kbd>W</kbd>
+          </button>
+          <button id="btn-fp-tool-door" type="button" class="fp-tool" title="Inserir porta (D): clique numa parede">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4"/><path d="M4 20h4"/><path d="M4 4h10v16"/><path d="M14 20h6"/><circle cx="11.5" cy="12.5" r="0.6" fill="currentColor"/></svg><span class="fp-tool-label">Porta</span><kbd>D</kbd>
+          </button>
+          <button id="btn-fp-tool-window" type="button" class="fp-tool" title="Inserir janela (J): clique numa parede">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M12 4v16"/><path d="M4 12h16"/></svg><span class="fp-tool-label">Janela</span><kbd>J</kbd>
           </button>
           <button id="btn-fp-tool-erase" type="button" class="fp-tool" title="Apagar parede (E)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21 9.5-9.5a2.1 2.1 0 0 0-3-3L4 18z"/><path d="M13 7.5l3 3"/><path d="M16 21h5"/></svg><span class="fp-tool-label">Apagar</span><kbd>E</kbd>
@@ -456,7 +466,14 @@
             <label>Espessura <input id="fp-wall-th" type="number" step="0.01" min="0.03" max="0.6" inputmode="decimal" /> m</label>
             <button id="fp-wall-del" type="button" class="fp-icon-btn" title="Apagar parede (Delete)">Apagar</button>
           </div>
-          <p class="fp-hint">Arraste uma parede para movê-la · Shift+clique soma · Shift+arraste seleciona uma área · alças esticam · Espaço ou botão direito movem a vista</p>
+          <div id="fp-open-panel" class="fp-wall-panel fp-open-panel hidden">
+            <strong id="fp-open-title">Porta</strong>
+            <label>Largura <input id="fp-open-w" type="number" step="0.05" min="0.3" max="6" inputmode="decimal" /> m</label>
+            <label>Altura <input id="fp-open-h" type="number" step="0.05" min="0.3" max="4" inputmode="decimal" /> m</label>
+            <label id="fp-open-sill-wrap">Peitoril <input id="fp-open-sill" type="number" step="0.05" min="0" max="2.5" inputmode="decimal" /> m</label>
+            <button id="fp-open-del" type="button" class="fp-icon-btn" title="Apagar (Delete)">Apagar</button>
+          </div>
+          <p class="fp-hint">Arraste uma parede para movê-la · Porta (D) e Janela (J): clique numa parede · Shift+clique soma · Shift+arraste seleciona uma área · alças esticam · Espaço ou botão direito movem a vista</p>
           <div id="fp-presets" class="fp-presets hidden"></div>
           <div id="fp-bg-panel" class="fp-presets fp-bg-panel hidden">
             <p class="fp-presets-title">Fundo de referência (planta CAD)</p>
@@ -530,11 +547,11 @@
           <div class="grid grid-cols-2 gap-2">
             <div>
               <label class="form-label" for="fp-in-sx">Largura (m)</label>
-              <input id="fp-in-sx" type="number" class="form-input" step="0.1" min="1" max="12" />
+              <input id="fp-in-sx" type="number" class="form-input" step="0.1" min="0.5" max="12" />
             </div>
             <div>
               <label class="form-label" for="fp-in-sz">Profundidade (m)</label>
-              <input id="fp-in-sz" type="number" class="form-input" step="0.1" min="1" max="12" />
+              <input id="fp-in-sz" type="number" class="form-input" step="0.1" min="0.5" max="12" />
             </div>
           </div>
           <p class="fp-area-line">Área: <strong id="fp-area" class="text-cyan-300">0 m²</strong></p>

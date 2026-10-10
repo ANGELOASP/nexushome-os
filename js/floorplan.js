@@ -41,11 +41,13 @@ import { toast } from './toasts.js';
 import {
   isPoly, polyAbs, setPolyAbs, pointInPoly, polyArea, polyCentroid, distToSegment,
   cleanPoly, isSimplePoly, rectToPoints, roomArea, MIN_POLY_AREA,
+  OPENING_DEFAULTS, MIN_OPENING, layoutOpenings, projectOnWall,
 } from './geometry.js';
 import { initDxfImport } from './dxf-import.js';
+import { roomFromPoint } from './dxf.js';
 
 const CELL_M = 0.5;        // 1 célula da grade = 0,5 m
-const MIN_SIZE = 1.0;      // tamanho mínimo do cômodo (m)
+const MIN_SIZE = 0.5;      // tamanho mínimo do cômodo (m) — corredores têm ~0,9 m
 const MAX_SIZE = 12.0;     // tamanho máximo (m)
 const HANDLE_M = 0.45;     // alça de resize, em metros de tela-mundo
 const SNAP_PX = 6;         // raio de atração das guias de alinhamento (px de tela)
@@ -62,6 +64,12 @@ let bg = { img: null, dataUrl: '', opacity: 0.4, widthM: 14, offX: 0, offZ: 0, v
 // paredes (modelo vetorial CAD): { id, floor, x1,z1,x2,z2, th, sort_order }
 let wallsLive = [];        // paredes salvas (Supabase / demo)
 let wallsDraft = [];       // cópia de trabalho enquanto o editor está aberto
+let openingsLive = [];     // portas/janelas salvas
+let openingsDraft = [];    // cópia de trabalho
+let openingsBaseline = [];
+let openingsTableOk = true; // false se a tabela openings não existe (migração 009 pendente)
+let selOpening = null;     // id da abertura selecionada
+let openHover = null;      // { wallId, offset, kind } — preview das ferramentas Porta/Janela
 let wallsBaseline = [];    // paredes no momento em que o modal abriu
 const selWalls = new Set();   // ids das paredes selecionadas (várias: Shift+clique ou caixa)
 let hoverWallId = null;
@@ -134,6 +142,9 @@ export function initFloorplan({ getClient: gc } = {}) {
   document.getElementById('btn-fp-tool-room')?.addEventListener('click', () => setTool('room'));
   document.getElementById('btn-fp-tool-erase')?.addEventListener('click', () => setTool('erase'));
   document.getElementById('btn-fp-tool-poly')?.addEventListener('click', () => setTool('poly'));
+  document.getElementById('btn-fp-tool-fill')?.addEventListener('click', () => setTool('fill'));
+  document.getElementById('btn-fp-tool-door')?.addEventListener('click', () => setTool('door'));
+  document.getElementById('btn-fp-tool-window')?.addEventListener('click', () => setTool('window'));
   document.getElementById('btn-fp-topoly')?.addEventListener('click', convertToPolygon);
   initDxfImport({
     getContext: () => ({ floor: currentFloor, rooms: draft, walls: wallsDraft }),
@@ -273,33 +284,45 @@ export function initFloorplan({ getClient: gc } = {}) {
   document.getElementById('btn-fp-zoom-fit')?.addEventListener('click', fitAllAnimated);
   document.getElementById('btn-fp-zoom-sel')?.addEventListener('click', fitSelection);
   initWallPanel();
+  initOpeningPanel();
   // gancho de depuração/teste (só no `vite dev`; some do build de produção)
-  if (import.meta.env?.DEV) window.__fp = { w2sx, w2sz, s2wx, s2wz, get view() { return view; }, get walls() { return wallsDraft; }, get rooms() { return draft; }, get sel() { return [...selWalls]; } };
+  if (import.meta.env?.DEV) window.__fp = { w2sx, w2sz, s2wx, s2wz, get view() { return view; }, get walls() { return wallsDraft; }, get rooms() { return draft; }, get openings() { return openingsDraft; }, get sel() { return [...selWalls]; } };
 }
 
-/** Carrega a planta da tabela rooms (live) ou do mock (demo). */
+/** Carrega a planta da tabela rooms (live) ou do mock (demo). Retorna true se leu do banco. */
 export async function loadRooms(client) {
   try {
     const { data, error } = await client.from('rooms').select('*').order('sort_order');
     if (error) throw new Error(error.message);
     setRooms(data?.length ? data : DEFAULT_ROOMS);
+    return true;
   } catch (err) {
     console.error('[planta] falha ao carregar rooms', err);
-    setRooms(DEFAULT_ROOMS);
-    toast('Planta padrão carregada', 'Não foi possível ler a tabela rooms.', 'warning');
+    // erro transitório NÃO pode trocar a planta do usuário pela padrão (o próximo "Salvar" apagaria tudo)
+    if (!state.rooms.length) setRooms(DEFAULT_ROOMS);
+    toast('Não foi possível ler a planta agora', 'Mantive a que está na tela. Tente salvar de novo em instantes.', 'warning');
+    return false;
   }
+}
+
+// Salvar uma planta grande dispara um evento realtime POR LINHA: sem agrupar, cada um recarregava a
+// tabela inteira e reconstruía a cena 3D (centenas de vezes) — travava o app e atrapalhava o 2º salvar.
+const reloadTimers = {};
+function debounced(key, fn, ms = 400) {
+  clearTimeout(reloadTimers[key]);
+  reloadTimers[key] = setTimeout(fn, ms);
 }
 
 /** Assina mudanças da tabela rooms em tempo real. Retorna [canal]. */
 export function subscribeRooms(client) {
   const ch = client
     .channel('rooms-live')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, () => loadRooms(client))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, () => debounced('rooms', () => loadRooms(client)))
     .subscribe();
   return [ch];
 }
 
-/** Carrega as paredes da tabela walls (live). Demo: lista vazia. */
+/** Carrega as paredes da tabela walls. Retorna true se leu do banco (em erro mantém as atuais). */
 export async function loadWalls(client) {
   try {
     const { data, error } = await client.from('walls').select('*').order('sort_order');
@@ -307,19 +330,58 @@ export async function loadWalls(client) {
     wallsLive = (data || []).map(normalizeWall);
   } catch (err) {
     console.error('[planta] falha ao carregar walls', err);
-    wallsLive = [];
+    return false;   // mantém as paredes que já estavam (zerar aqui faria o próximo "Salvar" apagar todas)
   }
   state.walls = wallsLive;
   emit('walls-changed', state.walls);   // a cena 3D reconstrói as paredes
+  return true;
 }
 
 /** Assina mudanças da tabela walls em tempo real. Retorna [canal]. */
 export function subscribeWalls(client) {
   const ch = client
     .channel('walls-live')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'walls' }, () => loadWalls(client))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'walls' }, () => debounced('walls', () => loadWalls(client)))
     .subscribe();
   return [ch];
+}
+
+/** Carrega as portas/janelas da tabela openings. Sem a migração 009 (tabela ausente) segue sem aberturas. */
+export async function loadOpenings(client) {
+  try {
+    const { data, error } = await client.from('openings').select('*').order('sort_order');
+    if (error) throw new Error(error.message);
+    openingsLive = (data || []).map(normalizeOpening);
+    openingsTableOk = true;
+  } catch (err) {
+    console.warn('[planta] aberturas indisponíveis (migração 009 aplicada?)', err?.message || err);
+    openingsTableOk = false;
+    return false;   // mantém as que já estavam
+  }
+  state.openings = openingsLive;
+  emit('openings-changed', state.openings);   // a cena 3D recorta as paredes
+  return true;
+}
+
+export function subscribeOpenings(client) {
+  const ch = client
+    .channel('openings-live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'openings' }, () => debounced('openings', () => loadOpenings(client)))
+    .subscribe();
+  return [ch];
+}
+
+function normalizeOpening(o) {
+  const kind = o.kind === 'window' ? 'window' : 'door';
+  const d = OPENING_DEFAULTS[kind];
+  return {
+    id: o.id, wall_id: o.wall_id, kind,
+    offset_m: Number(o.offset_m) || 0,
+    width: Number(o.width) || d.width,
+    height: Number(o.height) || d.height,
+    sill: o.sill === undefined || o.sill === null ? d.sill : Number(o.sill) || 0,
+    sort_order: o.sort_order ?? 0,
+  };
 }
 
 function normalizeWall(w) {
@@ -341,6 +403,9 @@ function openEditor() {
   draft = baseline.map((r) => ({ ...r }));
   wallsBaseline = wallsLive.map((w) => ({ ...w }));
   wallsDraft = wallsBaseline.map((w) => ({ ...w }));
+  openingsBaseline = openingsLive.map((o) => ({ ...o }));
+  openingsDraft = openingsBaseline.map((o) => ({ ...o }));
+  selOpening = null;
   currentFloor = Math.min(maxFloorUsed(), currentFloor);
   if (!draft.some((r) => r.floor === currentFloor)) currentFloor = 0;
   selectedId = null;
@@ -374,6 +439,9 @@ function closeEditor() {
   stopLoop();
   draft = [];
   wallsDraft = [];
+  openingsDraft = [];
+  selOpening = null;
+  openHover = null;
   selectedId = null;
   selWalls.clear();
   wallDraw = null;
@@ -395,12 +463,14 @@ function setTool(t) {
   wallHover = null;
   roomDraw = null;
   polyDraw = null;
+  openHover = null;
   if (t !== 'select') { select(null); selWalls.clear(); }
-  const map = { select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase', room: 'btn-fp-tool-room', poly: 'btn-fp-tool-poly' };
+  if (t !== 'select' && t !== 'door' && t !== 'window') selOpening = null;
+  const map = { select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase', room: 'btn-fp-tool-room', poly: 'btn-fp-tool-poly', fill: 'btn-fp-tool-fill', door: 'btn-fp-tool-door', window: 'btn-fp-tool-window' };
   Object.entries(map).forEach(([k, id]) => {
     document.getElementById(id)?.classList.toggle('fp-tool-active', k === t);
   });
-  if (canvas) canvas.style.cursor = (t === 'wall' || t === 'room' || t === 'poly') ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
+  if (canvas) canvas.style.cursor = (t === 'wall' || t === 'room' || t === 'poly' || t === 'fill' || t === 'door' || t === 'window') ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
   draw();
 }
 
@@ -459,7 +529,7 @@ function setFloor(f) {
 // ------------------------------------------------------------
 
 function snapshot() {
-  return JSON.stringify({ rooms: draft, walls: wallsDraft, floor: currentFloor });
+  return JSON.stringify({ rooms: draft, walls: wallsDraft, openings: openingsDraft, floor: currentFloor });
 }
 
 /** Empilha o estado ATUAL como passo de undo (chame ANTES de mutar). */
@@ -481,9 +551,11 @@ function pushHistorySnap(snapStr) {
 
 function restore(snapStr) {
   try {
-    const { rooms, walls, floor } = JSON.parse(snapStr);
+    const { rooms, walls, openings, floor } = JSON.parse(snapStr);
     draft = rooms;
     wallsDraft = walls || [];
+    openingsDraft = openings || [];
+    selOpening = null;
     currentFloor = Math.min(floor ?? 0, maxFloorUsed());
     select(null);
     selWalls.clear();
@@ -661,7 +733,9 @@ function render() {
   const flashing = performance.now() < flashUntil;
   const rooms = floorRooms();
   rooms.filter((r) => r.id !== selectedId).forEach((r) => drawRoom(r, false));
+  pruneOpenings();
   drawWalls();
+  drawOpenings();
   // o cômodo selecionado vai para o primeiro plano: por cima das paredes e dos vizinhos
   const selRoom = rooms.find((r) => r.id === selectedId);
   if (selRoom) drawRoom(selRoom, flashing);
@@ -673,6 +747,7 @@ function render() {
   drawScaleBar(w, h);
   syncZoomUi();
   syncWallPanel();
+  syncOpeningPanel();
   if (animating || performance.now() < flashUntil) draw();
 }
 
@@ -1281,6 +1356,43 @@ function commitPoly() {
   toast('Cômodo poligonal criado', `${fmt1(polyArea(abs))} m² · arraste os vértices para ajustar a forma.`, 'success');
 }
 
+/** Cria o cômodo a partir da área fechada por paredes sob o clique (ferramenta Preencher). */
+function createRoomFromClick(wx, wz) {
+  const segs = floorWalls().map((w) => ({ x1: w.x1, z1: w.z1, x2: w.x2, z2: w.z2 }));
+  const hadWalls = segs.length > 0;
+  // as bordas dos cômodos já criados também limitam a área (o novo cômodo não invade os vizinhos)
+  floorRooms().forEach((r) => {
+    const poly = isPoly(r) ? polyAbs(r) : [[r.pos_x - r.size_x / 2, r.pos_z - r.size_z / 2], [r.pos_x + r.size_x / 2, r.pos_z - r.size_z / 2], [r.pos_x + r.size_x / 2, r.pos_z + r.size_z / 2], [r.pos_x - r.size_x / 2, r.pos_z + r.size_z / 2]];
+    poly.forEach((a, i) => { const b = poly[(i + 1) % poly.length]; segs.push({ x1: a[0], z1: a[1], x2: b[0], z2: b[1] }); });
+  });
+  if (!hadWalls) { toast('Sem paredes neste andar', 'Desenhe ou importe as paredes primeiro; a ferramenta Preencher usa as paredes como limite.', 'warning'); return; }
+  const res = roomFromPoint(segs, wx, wz);
+  if (res.error === 'fora') { toast('Clique dentro da planta', 'O clique caiu fora das paredes.', 'info'); return; }
+  if (res.error === 'aberta') { toast('Área não fechada', 'Há uma abertura grande nas paredes (porta/janela sem parede). Feche o vão com uma parede ou use a ferramenta Polígono.', 'warning'); return; }
+  if (res.error || !res.points) { toast('Área pequena demais', 'Não consegui formar um cômodo aqui.', 'warning'); return; }
+  // já existe um cômodo cobrindo esse ponto? então não duplica
+  const hit = roomAt(wx, wz);
+  if (hit) { toast('Já existe um cômodo aqui', `“${hit.name}” cobre este ponto. Selecione-o com a ferramenta Selecionar.`, 'info'); return; }
+  const snapBefore = snapshot();
+  const room = setPolyAbs({
+    id: genUuid(),
+    name: uniqueName('Cômodo'),
+    color: '#818cf8',
+    kind: 'personalizado',
+    floor: currentFloor,
+    sort_order: draft.reduce((m, r) => Math.max(m, r.sort_order ?? 0), 0) + 1,
+  }, res.points);
+  pushHistorySnap(snapBefore);
+  draft.push(room);
+  setTool('select');
+  select(room.id);
+  showForm(room);
+  renderFloorTabs();
+  syncToolbar();
+  draw();
+  toast('Cômodo criado pela área', `${fmt1(res.area)} m² · renomeie e ajuste o tipo no painel.`, 'success');
+}
+
 function deleteVertex(r, idx) {
   const abs = polyAbs(r);
   if (abs.length <= 3) {
@@ -1711,9 +1823,31 @@ function onPointerDown(e) {
     return;
   }
 
+  // ferramentas PORTA / JANELA: clique numa parede insere a abertura (a ferramenta continua ativa)
+  if (tool === 'door' || tool === 'window') {
+    if (e.button !== 0) return;
+    const hitO = openingAt(wx, wz);
+    if (hitO) { selOpening = hitO.id; draw(); e.preventDefault(); return; }
+    const wl = wallAt(wx, wz);
+    if (wl) placeOpening(tool, wl, wx, wz);
+    else toast('Clique sobre uma parede', 'Portas e janelas ficam em paredes. Desenhe a parede antes (W).', 'info');
+    e.preventDefault();
+    return;
+  }
+
+  // ferramenta PREENCHER: clique dentro de uma área fechada por paredes e o cômodo nasce com o formato dela
+  if (tool === 'fill') {
+    if (e.button !== 0) return;
+    createRoomFromClick(wx, wz);
+    e.preventDefault();
+    return;
+  }
+
   // ferramenta APAGAR: remove a parede clicada
   if (tool === 'erase') {
     if (e.button !== 0) return;
+    const oHit = openingAt(wx, wz);
+    if (oHit) { deleteOpening(oHit.id); e.preventDefault(); return; }
     const wl = wallAt(wx, wz);
     if (wl) {
       pushHistory();
@@ -1785,6 +1919,22 @@ function onPointerDown(e) {
     e.preventDefault();
     return;
   }
+
+  // abertura (porta/janela): selecionar e arrastar ao longo das paredes
+  {
+    const oHit = openingAt(wx, wz);
+    if (oHit && e.button === 0) {
+      selOpening = oHit.id;
+      select(null); selWalls.clear();
+      drag = { mode: 'open-move', id: oHit.id, snapBefore: snapshot(), changed: false, startPX: px, startPY: py, live: false };
+      capture(e);
+      canvas.style.cursor = 'grabbing';
+      draw();
+      e.preventDefault();
+      return;
+    }
+  }
+  if (selOpening) { selOpening = null; draw(); }
 
   const r = roomAt(wx, wz);
   const wl = wallAt(wx, wz);
@@ -1897,6 +2047,20 @@ function onPointerMove(e) {
     draw();
     return;
   }
+  if (tool === 'door' || tool === 'window') {
+    const wl = wallAt(wx, wz);
+    const d = OPENING_DEFAULTS[tool];
+    let next = null;
+    if (wl) {
+      const off = openingOffsetFor(wl, wx, wz, d.width);
+      if (off !== null) next = { wallId: wl.id, offset: off, ok: !openingOverlaps(wl.id, off, d.width) };
+    }
+    const changedHover = (next?.wallId !== openHover?.wallId) || (next?.offset !== openHover?.offset) || (next?.ok !== openHover?.ok);
+    openHover = next;
+    canvas.style.cursor = next ? 'copy' : 'crosshair';
+    if (changedHover) draw();
+    return;
+  }
   if (tool === 'erase') {
     const h = wallAt(wx, wz);
     canvas.style.cursor = h ? 'pointer' : 'default';
@@ -1916,11 +2080,32 @@ function onPointerMove(e) {
       if (w0 && (Math.hypot(wx - w0.x1, wz - w0.z1) <= hr * 1.15 || Math.hypot(wx - w0.x2, wz - w0.z2) <= hr * 1.15)) { setHover(null); canvas.style.cursor = 'move'; return; }
     }
     if (sr && isPoly(sr) && polyAbs(sr).some(([x, z]) => Math.hypot(wx - x, wz - z) <= vtxR())) { setHover(null); canvas.style.cursor = 'move'; return; }
+    if (openingAt(wx, wz)) { setHover(null); canvas.style.cursor = 'pointer'; return; }
     const wl = wallAt(wx, wz);
     setHover(wl?.id || null);
     if (wl) { canvas.style.cursor = 'grab'; return; }
     const r = roomAt(wx, wz);
     canvas.style.cursor = r ? 'grab' : 'default';
+    return;
+  }
+
+  // arrasto de uma porta/janela: desliza pela parede e pode mudar de parede
+  if (drag.mode === 'open-move') {
+    const o = openingsDraft.find((x) => x.id === drag.id);
+    if (!o) { drag = null; return; }
+    if (!drag.live) {
+      if (Math.hypot(px - drag.startPX, py - drag.startPY) < 4) return;
+      drag.live = true;
+    }
+    const wl = wallAt(wx, wz) || wallById(o.wall_id);
+    if (!wl) return;
+    const off = openingOffsetFor(wl, wx, wz, o.width);
+    if (off !== null && !openingOverlaps(wl.id, off, o.width, o.id)) {
+      o.wall_id = wl.id; o.offset_m = off;
+      drag.changed = true;
+      syncToolbar();
+      draw();
+    }
     return;
   }
 
@@ -2069,6 +2254,17 @@ function onPointerUp(e) {
     return;
   }
 
+  if (mode === 'open-move') {
+    const { snapBefore, changed } = drag;
+    drag = null;
+    canvas.style.cursor = 'default';
+    try { canvas.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+    if (changed) pushHistorySnap(snapBefore);
+    syncToolbar();
+    draw();
+    return;
+  }
+
   // arrasto de parede(s) concluído
   if (mode === 'wall-move' || mode === 'wall-end') {
     const { snapBefore, changed, id } = drag;
@@ -2210,6 +2406,9 @@ function onKeyDown(e) {
     if (k === 'r') { setTool('room'); return; }
     if (k === 'e') { setTool('erase'); return; }
     if (k === 'p') { setTool('poly'); return; }
+    if (k === 'b') { setTool('fill'); return; }
+    if (k === 'd') { setTool('door'); return; }
+    if (k === 'j') { setTool('window'); return; }
     // zoom e vista: + − 0 (tudo) F (seleção) Espaço (mover a vista)
     if (k === '+' || k === '=') { e.preventDefault(); zoomCenter(1.25); return; }
     if (k === '-' || k === '_') { e.preventDefault(); zoomCenter(1 / 1.25); return; }
@@ -2254,6 +2453,7 @@ function onKeyDown(e) {
     if (wallDraw) { wallDraw = null; draw(); return; } // encerra o encadeamento de paredes
     if (!presetsEl?.classList.contains('hidden')) { hidePresets(); return; }
     if (marquee) { marquee = null; drag = null; draw(); return; }
+    if (selOpening) { selOpening = null; draw(); return; }
     if (selWalls.size) { selWalls.clear(); draw(); return; }
     if (!formEl?.classList.contains('hidden')) hideForm();
     else closeEditor();
@@ -2261,6 +2461,7 @@ function onKeyDown(e) {
   }
 
   if ((e.key === 'Delete' || e.key === 'Backspace') && !typing) {
+    if (selOpening) { e.preventDefault(); deleteOpening(selOpening); return; }
     if (selWalls.size) {
       e.preventDefault();
       pushHistory();
@@ -2280,6 +2481,26 @@ function onKeyDown(e) {
   // setas: nudge de 0,5 m (Shift = 0,1 m) no cômodo selecionado
   const NUDGE = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
   // setas nas paredes selecionadas: 0,1 m (Shift = 0,5 m); vizinhas coladas acompanham (Alt solta)
+  if (NUDGE[e.key] && selOpening && !typing) {
+    const o = selectedOpening();
+    const wl = o && wallById(o.wall_id);
+    if (o && wl) {
+      e.preventDefault();
+      // setas ←/↑ recuam, →/↓ avançam ao longo da parede (0,05 m; Shift = 0,25 m)
+      const dir = (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 1;
+      const step = e.shiftKey ? 0.25 : OPEN_SNAP;
+      const len = wallLen(wl);
+      const nx = r4(clamp(o.offset_m + dir * step, o.width / 2 + 0.05, len - o.width / 2 - 0.05));
+      if (!openingOverlaps(wl.id, nx, o.width, o.id) && nx !== o.offset_m) {
+        if (!nudgeSnap) nudgeSnap = snapshot();
+        clearTimeout(nudgeTimer);
+        nudgeTimer = setTimeout(commitNudge, 700);
+        o.offset_m = nx;
+        draw();
+      }
+    }
+    return;
+  }
   if (NUDGE[e.key] && selWalls.size && !selectedId && !typing) {
     e.preventDefault();
     if (!nudgeSnap) nudgeSnap = snapshot();
@@ -2318,6 +2539,205 @@ function onKeyDown(e) {
 function commitNudge() {
   clearTimeout(nudgeTimer);
   if (nudgeSnap) { pushHistorySnap(nudgeSnap); nudgeSnap = null; }
+}
+
+// ------------------------------------------------------------
+// Portas e janelas (openings): vivem numa parede, posição = distância do centro ao início dela
+// ------------------------------------------------------------
+
+const OPEN_SNAP = 0.05;
+
+function wallById(id) { return wallsDraft.find((w) => w.id === id) || null; }
+
+/** Aberturas do andar já ajustadas ao vão da parede: [{ o, wl, a, b, ux, uz, len }] (a/b em m desde o início). */
+function laidOutOpenings(f = currentFloor) {
+  const out = [];
+  const byWall = new Map();
+  openingsDraft.forEach((o) => {
+    if (!byWall.has(o.wall_id)) byWall.set(o.wall_id, []);
+    byWall.get(o.wall_id).push(o);
+  });
+  byWall.forEach((list, wid) => {
+    const wl = wallById(wid);
+    if (!wl || (Number(wl.floor) || 0) !== f) return;
+    const len = wallLen(wl);
+    if (len < 1e-6) return;
+    const ux = (wl.x2 - wl.x1) / len, uz = (wl.z2 - wl.z1) / len;
+    layoutOpenings(len, list).forEach((l) => {
+      out.push({ o: openingsDraft.find((x) => x.id === l.id) || l, wl, a: l.a, b: l.b, ux, uz, len });
+    });
+  });
+  return out;
+}
+
+/** Remove aberturas cujas paredes não existem mais. */
+function pruneOpenings() {
+  if (!openingsDraft.length) return;
+  const ids = new Set(wallsDraft.map((w) => w.id));
+  if (openingsDraft.some((o) => !ids.has(o.wall_id))) {
+    openingsDraft = openingsDraft.filter((o) => ids.has(o.wall_id));
+    if (selOpening && !openingsDraft.some((o) => o.id === selOpening)) selOpening = null;
+  }
+}
+
+function selectedOpening() { return openingsDraft.find((o) => o.id === selOpening) || null; }
+
+/** Abertura sob o cursor (corpo do vão, com folga de ~HIT_PX). */
+function openingAt(wx, wz) {
+  const hr = hitR();
+  let best = null, bestD = Infinity;
+  for (const L of laidOutOpenings()) {
+    const { t, d } = projectOnWall(L.wl, wx, wz);
+    if (t < L.a - hr || t > L.b + hr || d > Math.max(L.wl.th / 2 + 0.04, hr)) continue;
+    const dc = Math.abs(t - (L.a + L.b) / 2);
+    if (dc < bestD) { best = L.o; bestD = dc; }
+  }
+  return best;
+}
+
+/** Posição de uma abertura de largura `w` sob o cursor em `wl`, no vão útil e encaixada em 0,05 m. */
+function openingOffsetFor(wl, wx, wz, w) {
+  const { t, len } = projectOnWall(wl, wx, wz);
+  const half = w / 2 + 0.05;
+  if (len < w + 0.1) return null;
+  return r4(clamp(Math.round(t / OPEN_SNAP) * OPEN_SNAP, half, len - half));
+}
+
+/** O vão [off-w/2, off+w/2] colide com outra abertura da mesma parede? (ignora `exceptId`) */
+function openingOverlaps(wallId, off, w, exceptId = null) {
+  return openingsDraft.some((o) => o.wall_id === wallId && o.id !== exceptId
+    && Math.abs(o.offset_m - off) < (o.width + w) / 2 - 1e-6);
+}
+
+function placeOpening(kind, wl, wx, wz) {
+  const d = OPENING_DEFAULTS[kind];
+  const off = openingOffsetFor(wl, wx, wz, d.width);
+  if (off === null) { toast('Parede curta demais', `Esta parede não comporta ${kind === 'door' ? 'uma porta' : 'uma janela'} de ${fmt1(d.width)} m.`, 'warning'); return; }
+  if (openingOverlaps(wl.id, off, d.width)) { toast('Já existe uma abertura aqui', 'Escolha outro ponto da parede.', 'warning'); return; }
+  pushHistory();
+  const maxSort = openingsDraft.reduce((m, o) => Math.max(m, o.sort_order ?? 0), 0);
+  const o = { id: genUuid(), wall_id: wl.id, kind, offset_m: off, width: d.width, height: d.height, sill: d.sill, sort_order: maxSort + 1 };
+  openingsDraft.push(o);
+  selOpening = o.id;
+  syncToolbar();
+  draw();
+}
+
+function deleteOpening(id) {
+  if (!openingsDraft.some((o) => o.id === id)) return;
+  pushHistory();
+  openingsDraft = openingsDraft.filter((o) => o.id !== id);
+  if (selOpening === id) selOpening = null;
+  syncToolbar();
+  draw();
+}
+
+/** Ponto (tela) a t metros ao longo da parede e n metros para o lado. */
+function openingPt(L, t, n = 0) {
+  return [w2sx(L.wl.x1 + L.ux * t - L.uz * n), w2sz(L.wl.z1 + L.uz * t + L.ux * n)];
+}
+
+function drawOneOpening(L, mode = '') {
+  const { o, wl } = L;
+  const hot = mode === 'sel';
+  const col = hot ? '#f2b24a' : (mode === 'hover' ? '#a5f3fc' : (o.kind === 'door' ? '#fbbf77' : '#7dd3fc'));
+  const thick = Math.max(3, wl.th * view.scale);
+  const [ax, ay] = openingPt(L, L.a), [bx, by] = openingPt(L, L.b);
+  ctx.save();
+  ctx.lineCap = 'butt';
+  // vão: corta a parede
+  ctx.strokeStyle = '#0c1017';
+  ctx.lineWidth = thick + 5;
+  line(ax, ay, bx, by);
+  if (o.kind === 'window') {
+    // janela: 3 traços finos (caixilho)
+    ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+    for (const n of [-wl.th / 2, 0, wl.th / 2]) { const [x1, y1] = openingPt(L, L.a, n), [x2, y2] = openingPt(L, L.b, n); line(x1, y1, x2, y2); }
+    line(...openingPt(L, L.a, -wl.th / 2), ...openingPt(L, L.a, wl.th / 2));
+    line(...openingPt(L, L.b, -wl.th / 2), ...openingPt(L, L.b, wl.th / 2));
+  } else {
+    // porta: folha aberta 90° + arco de giro (dobradiça no início do vão)
+    const wd = L.b - L.a;
+    ctx.strokeStyle = col; ctx.lineWidth = 2;
+    const [hx, hy] = openingPt(L, L.a), [tx, ty] = openingPt(L, L.a, wd);
+    line(hx, hy, tx, ty);
+    ctx.lineWidth = 1.2; ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    const a0 = Math.atan2(by - ay, bx - ax), a1 = Math.atan2(ty - hy, tx - hx);
+    const ccw = ((a1 - a0 + Math.PI * 3) % (Math.PI * 2)) - Math.PI < 0;
+    ctx.arc(hx, hy, wd * view.scale, a0, a1, ccw);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // batentes
+    ctx.lineWidth = 2;
+    line(...openingPt(L, L.a, -wl.th / 2), ...openingPt(L, L.a, wl.th / 2));
+    line(...openingPt(L, L.b, -wl.th / 2), ...openingPt(L, L.b, wl.th / 2));
+  }
+  if (hot) {
+    ctx.strokeStyle = 'rgba(242,178,74,0.55)'; ctx.lineWidth = thick + 8;
+    ctx.globalCompositeOperation = 'lighter';
+    line(ax, ay, bx, by);
+  }
+  ctx.restore();
+}
+
+function drawOpenings() {
+  const list = laidOutOpenings();
+  list.forEach((L) => { if (L.o.id !== selOpening) drawOneOpening(L); });
+  const s = list.find((L) => L.o.id === selOpening);
+  if (s) drawOneOpening(s, 'sel');
+  // preview das ferramentas Porta/Janela
+  if ((tool === 'door' || tool === 'window') && openHover) {
+    const wl = wallById(openHover.wallId);
+    if (wl) {
+      const d = OPENING_DEFAULTS[tool];
+      const len = wallLen(wl);
+      const L = { o: { kind: tool }, wl, a: openHover.offset - d.width / 2, b: openHover.offset + d.width / 2, ux: (wl.x2 - wl.x1) / len, uz: (wl.z2 - wl.z1) / len, len };
+      ctx.save(); ctx.globalAlpha = openHover.ok ? 0.95 : 0.4;
+      drawOneOpening(L, 'hover');
+      ctx.restore();
+    }
+  }
+}
+
+function initOpeningPanel() {
+  const panel = document.getElementById('fp-open-panel');
+  if (!panel) return;
+  const fields = { width: 'fp-open-w', height: 'fp-open-h', sill: 'fp-open-sill' };
+  let snap = null;
+  panel.addEventListener('focusin', () => { if (!snap) snap = snapshot(); });
+  Object.entries(fields).forEach(([key, id]) => {
+    const el = document.getElementById(id);
+    el?.addEventListener('input', () => {
+      const o = selectedOpening();
+      const v = parseFloat(String(el.value).replace(',', '.'));
+      if (!o || !Number.isFinite(v)) return;
+      const lim = { width: [MIN_OPENING, 6], height: [0.3, 4], sill: [0, 2.5] }[key];
+      if (v < lim[0] || v > lim[1]) return;
+      if (key === 'width' && openingOverlaps(o.wall_id, o.offset_m, v, o.id)) return;
+      o[key] = r4(v);
+      draw();
+    });
+    el?.addEventListener('change', () => { if (snap) { pushHistorySnap(snap); snap = null; } syncToolbar(); openPanelKey = ''; draw(); });
+    el?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } });
+  });
+  document.getElementById('fp-open-del')?.addEventListener('click', () => { if (selOpening) deleteOpening(selOpening); });
+}
+
+let openPanelKey = '';
+function syncOpeningPanel() {
+  const panel = document.getElementById('fp-open-panel');
+  if (!panel) return;
+  const o = selectedOpening();
+  const key = o ? `${o.id}:${o.kind}:${o.width},${o.height},${o.sill}` : '';
+  if (key === openPanelKey) return;
+  openPanelKey = key;
+  panel.classList.toggle('hidden', !o);
+  if (!o) return;
+  document.getElementById('fp-open-title').textContent = o.kind === 'door' ? 'Porta' : 'Janela';
+  document.getElementById('fp-open-sill-wrap')?.classList.toggle('hidden', o.kind === 'door');
+  const set = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = String(v); };
+  set('fp-open-w', o.width); set('fp-open-h', o.height); set('fp-open-sill', o.sill);
 }
 
 // ------------------------------------------------------------
@@ -2539,64 +2959,87 @@ async function savePlan() {
   try {
     const { data: existing, error } = await client.from('rooms').select('id, name');
     if (error) throw new Error(error.message);
-    const existingIds = new Set((existing || []).map((r) => r.id));
 
-    // remove cômodos excluídos
+    // remove cômodos excluídos (um pedido só)
     const removed = (existing || []).filter((r) => !draft.some((d) => d.id === r.id));
-    for (const r of removed) {
-      const { error: e2 } = await client.from('rooms').delete().eq('id', r.id);
+    for (const ids of chunk(removed.map((r) => r.id), 50)) {
+      const { error: e2 } = await client.from('rooms').delete().in('id', ids);
       if (e2) throw new Error(e2.message);
     }
 
+    // cômodos novos e alterados num único upsert
+    const roomRows = draft.map((r) => ({
+      id: r.id, name: r.name.trim(),
+      pos_x: r.pos_x, pos_z: r.pos_z,
+      size_x: r.size_x, size_z: r.size_z,
+      color: r.color, sort_order: r.sort_order ?? 0,
+      floor: r.floor ?? 0,
+      kind: r.kind || 'personalizado',
+      points: isPoly(r) ? r.points : null,
+    }));
     let pointsDropped = false;
-    // insert dos novos / update dos existentes (com floor + kind, v1.6.0)
-    for (const r of draft) {
-      const row = {
-        id: r.id, name: r.name.trim(),
-        pos_x: r.pos_x, pos_z: r.pos_z,
-        size_x: r.size_x, size_z: r.size_z,
-        color: r.color, sort_order: r.sort_order ?? 0,
-        floor: r.floor ?? 0,
-        kind: r.kind || 'personalizado',
-        points: isPoly(r) ? r.points : null,
-      };
-      const send = (rw) => (existingIds.has(r.id)
-        ? client.from('rooms').update(rw).eq('id', r.id)
-        : client.from('rooms').insert(rw));
-      let { error: e3 } = await send(row);
-      if (e3 && /points/i.test(e3.message || '')) {
-        // migração 008 ainda não aplicada: salva como retângulo (caixa) e avisa
-        const { points: _p, ...rowNoPoints } = row;
-        ({ error: e3 } = await send(rowNoPoints));
-        if (!e3) pointsDropped = true;
-      }
-      if (e3) throw new Error(e3.message);
+    let { error: e3 } = await client.from('rooms').upsert(roomRows);
+    if (e3 && /points/i.test(e3.message || '')) {
+      // migração 008 ainda não aplicada: salva como retângulo (caixa) e avisa
+      ({ error: e3 } = await client.from('rooms').upsert(roomRows.map(({ points: _p, ...rest }) => rest)));
+      if (!e3) pointsDropped = true;
     }
+    if (e3) throw new Error(e3.message);
 
-    // paredes (v1.9.0): remove apagadas, insere novas, atualiza existentes
+    // paredes: remove apagadas, grava novas e alteradas em lotes (antes era uma chamada por parede)
     const { data: existingWalls, error: ew } = await client.from('walls').select('id');
     if (ew) throw new Error(ew.message);
-    const existingWallIds = new Set((existingWalls || []).map((w) => w.id));
     const removedWalls = (existingWalls || []).filter((w) => !wallsDraft.some((d) => d.id === w.id));
-    for (const w of removedWalls) {
-      const { error: e4 } = await client.from('walls').delete().eq('id', w.id);
+    for (const ids of chunk(removedWalls.map((w) => w.id), 50)) {
+      const { error: e4 } = await client.from('walls').delete().in('id', ids);
       if (e4) throw new Error(e4.message);
     }
-    for (const wl of wallsDraft) {
-      const row = {
-        id: wl.id, floor: wl.floor ?? 0,
-        x1: wl.x1, z1: wl.z1, x2: wl.x2, z2: wl.z2,
-        th: wl.th || WALL_TH, sort_order: wl.sort_order ?? 0,
-      };
-      const q = existingWallIds.has(wl.id)
-        ? client.from('walls').update(row).eq('id', wl.id)
-        : client.from('walls').insert(row);
-      const { error: e5 } = await q;
+    const wallRows = wallsDraft.map((wl) => ({
+      id: wl.id, floor: wl.floor ?? 0,
+      x1: wl.x1, z1: wl.z1, x2: wl.x2, z2: wl.z2,
+      th: wl.th || WALL_TH, sort_order: wl.sort_order ?? 0,
+    }));
+    for (const rows of chunk(wallRows, 200)) {
+      const { error: e5 } = await client.from('walls').upsert(rows);
       if (e5) throw new Error(e5.message);
     }
-    await loadWalls(client);
-    wallsBaseline = wallsLive.map((w) => ({ ...w }));
-    wallsDraft = wallsBaseline.map((w) => ({ ...w }));
+
+    // portas e janelas (migração 009): remove as apagadas e grava as demais; sem a tabela, avisa e segue
+    pruneOpenings();
+    let openingsSkipped = false;
+    {
+      const { data: existingOps, error: eo } = await client.from('openings').select('id');
+      if (eo) {
+        openingsSkipped = openingsDraft.length > 0 || openingsLive.length > 0;
+      } else {
+        const removedOps = (existingOps || []).filter((o) => !openingsDraft.some((d) => d.id === o.id));
+        for (const ids of chunk(removedOps.map((o) => o.id), 50)) {
+          const { error: e6 } = await client.from('openings').delete().in('id', ids);
+          if (e6) throw new Error(e6.message);
+        }
+        const opRows = openingsDraft.map((o) => ({
+          id: o.id, wall_id: o.wall_id, kind: o.kind,
+          offset_m: o.offset_m, width: o.width, height: o.height, sill: o.sill, sort_order: o.sort_order ?? 0,
+        }));
+        for (const rows of chunk(opRows, 200)) {
+          const { error: e7 } = await client.from('openings').upsert(rows);
+          if (e7) throw new Error(e7.message);
+        }
+      }
+    }
+
+    // recarrega do banco; só troca o rascunho se a leitura funcionou (senão mantém o que está na tela)
+    if (!openingsSkipped && await loadOpenings(client)) {
+      openingsBaseline = openingsLive.map((o) => ({ ...o }));
+    }
+    if (await loadWalls(client)) {
+      wallsBaseline = wallsLive.map((w) => ({ ...w }));
+      wallsDraft = wallsBaseline.map((w) => ({ ...w }));
+      if (!openingsSkipped) openingsDraft = openingsBaseline.map((o) => ({ ...o }));
+    }
+    if (openingsSkipped) {
+      toast('Portas e janelas não foram gravadas', 'Execute a migração 009_openings.sql no Supabase e salve de novo. O resto da planta foi salvo.', 'warning');
+    }
 
     // avisa sobre dispositivos órfãos de cômodo (rename/exclusão)
     const baseById = new Map(baseline.map((r) => [r.id, r.name]));
@@ -2615,16 +3058,22 @@ async function savePlan() {
       );
     }
 
-    await loadRooms(client);
-    baseline = state.rooms.map((r) => ({ ...r }));
-    draft = baseline.map((r) => ({ ...r }));
+    if (await loadRooms(client)) {
+      const keepSel = selectedId;
+      baseline = state.rooms.map((r) => ({ ...r }));
+      draft = baseline.map((r) => ({ ...r }));
+      if (keepSel && !draft.some((r) => r.id === keepSel)) { selectedId = null; hideForm(); }
+    }
     history.past = [];
     history.future = [];
+    selWalls.clear();
     if (pointsDropped) {
       toast('Cômodos poligonais salvos como retângulos', 'Execute a migração 008_room_polygons.sql no Supabase para guardar a forma exata.', 'warning');
     }
-    toast('Planta salva com sucesso!', 'A cena 3D e os painéis já refletem a nova planta.', 'success');
-    closeEditor();
+    toast('Planta salva com sucesso!', 'A cena 3D e os painéis já refletem a nova planta. Você pode continuar editando e salvar de novo.', 'success');
+    renderFloorTabs();
+    syncToolbar();
+    draw();
   } catch (err) {
     console.error('[planta] falha ao salvar', err);
     toast('Falha ao salvar a planta', err.message, 'critical');
@@ -2632,6 +3081,12 @@ async function savePlan() {
     saving = false;
     setBusy(false);
   }
+}
+
+function chunk(arr, n) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
 }
 
 function setBusy(b) {

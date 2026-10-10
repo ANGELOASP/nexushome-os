@@ -564,3 +564,110 @@ function distToSeg(p, a, b) {
   const t = L ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / L)) : 0;
   return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dz));
 }
+
+
+/**
+ * Cômodo "por clique": o polígono da área cercada por paredes que contém (x, z).
+ * Fecha vãos pequenos (closeGap, padrão 0,2 m). Retorna { points, area } em metros ou
+ * { error: 'fora' | 'aberta' | 'minuscula' } quando o clique não está numa área fechada.
+ */
+export function roomFromPoint(segs, x, z, { closeGap = 0.2, cell = 0.05, minArea = 0.5, maxArea = 600 } = {}) {
+  if (!segs.length) return { error: 'aberta' };
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  segs.forEach((s) => {
+    minX = Math.min(minX, s.x1, s.x2); maxX = Math.max(maxX, s.x1, s.x2);
+    minZ = Math.min(minZ, s.z1, s.z2); maxZ = Math.max(maxZ, s.z1, s.z2);
+  });
+  const margin = closeGap + 0.5;
+  if (x < minX - margin || x > maxX + margin || z < minZ - margin || z > maxZ + margin) return { error: 'fora' };
+  while (((maxX - minX + 2 * margin) / cell) * ((maxZ - minZ + 2 * margin) / cell) > 6e6) cell *= 1.5;
+  const ox = minX - margin, oz = minZ - margin;
+  const W = Math.ceil((maxX - minX + 2 * margin) / cell) + 1;
+  const H = Math.ceil((maxZ - minZ + 2 * margin) / cell) + 1;
+  const idx = (cx, cz) => cz * W + cx;
+
+  const blocked = new Uint8Array(W * H);
+  segs.forEach((sg) => {
+    const len = Math.hypot(sg.x2 - sg.x1, sg.z2 - sg.z1);
+    const n = Math.max(1, Math.ceil(len / (cell * 0.5)));
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const cx = Math.round((sg.x1 + (sg.x2 - sg.x1) * t - ox) / cell);
+      const cz = Math.round((sg.z1 + (sg.z2 - sg.z1) * t - oz) / cell);
+      if (cx >= 0 && cz >= 0 && cx < W && cz < H) blocked[idx(cx, cz)] = 1;
+    }
+  });
+  const r = Math.max(1, Math.round(closeGap / cell));
+  const disk = [];
+  for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) if (dx * dx + dz * dz <= r * r) disk.push([dx, dz]);
+  const thick = new Uint8Array(W * H);
+  for (let cz = 0; cz < H; cz++) for (let cx = 0; cx < W; cx++) {
+    if (!blocked[idx(cx, cz)]) continue;
+    for (const [dx, dz] of disk) {
+      const nx = cx + dx, nz = cz + dz;
+      if (nx >= 0 && nz >= 0 && nx < W && nz < H) thick[idx(nx, nz)] = 1;
+    }
+  }
+
+  const sx = Math.round((x - ox) / cell), sz = Math.round((z - oz) / cell);
+  if (sx < 0 || sz < 0 || sx >= W || sz >= H) return { error: 'fora' };
+  // clique em cima de uma parede (ou a menos de closeGap dela): procura o vizinho livre mais próximo
+  let start = idx(sx, sz);
+  if (thick[start]) {
+    let found = -1;
+    for (let rad = 1; rad <= r + 2 && found < 0; rad++) {
+      for (let dz = -rad; dz <= rad && found < 0; dz++) for (let dx = -rad; dx <= rad; dx++) {
+        const nx = sx + dx, nz = sz + dz;
+        if (nx >= 0 && nz >= 0 && nx < W && nz < H && !thick[idx(nx, nz)]) { found = idx(nx, nz); break; }
+      }
+    }
+    if (found < 0) return { error: 'minuscula' };
+    start = found;
+  }
+
+  // inunda a partir do clique; se encostar na borda da grade, a área está aberta
+  const lab = new Int32Array(W * H);
+  const stack = [start];
+  lab[start] = 1;
+  let leaked = false, count = 0;
+  while (stack.length) {
+    const c = stack.pop(); count++;
+    const cx = c % W, cz = (c - cx) / W;
+    if (cx === 0 || cz === 0 || cx === W - 1 || cz === H - 1) leaked = true;
+    if (cx > 0 && !thick[c - 1] && !lab[c - 1]) { lab[c - 1] = 1; stack.push(c - 1); }
+    if (cx < W - 1 && !thick[c + 1] && !lab[c + 1]) { lab[c + 1] = 1; stack.push(c + 1); }
+    if (cz > 0 && !thick[c - W] && !lab[c - W]) { lab[c - W] = 1; stack.push(c - W); }
+    if (cz < H - 1 && !thick[c + W] && !lab[c + W]) { lab[c + W] = 1; stack.push(c + W); }
+  }
+  if (leaked) return { error: 'aberta' };
+
+  // cresce r células de volta até as paredes (quadrado: cantos retos)
+  let frontier = [];
+  for (let c = 0; c < W * H; c++) if (lab[c]) frontier.push(c);
+  for (let step = 0; step < r + 1 && frontier.length; step++) {
+    const next = [];
+    for (const c of frontier) {
+      const cx = c % W, cz = (c - cx) / W;
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = cx + dx, nz = cz + dz;
+        if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue;
+        const n = nz * W + nx;
+        if (!lab[n] && !blocked[n]) { lab[n] = 1; next.push(n); }
+      }
+    }
+    frontier = next;
+  }
+  const poly = traceRegion(lab, 1, W, H);
+  if (!poly || poly.length < 3) return { error: 'minuscula' };
+  const abs = poly.map(([px, pz]) => [px * cell + ox, pz * cell + oz]);
+  let clean = [];
+  for (const eps of [cell * 1.6, cell * 3, cell * 5, cell * 8]) {
+    clean = cleanPoly(simplifyPoly(abs, eps).map(([px, pz]) => [round(px), round(pz)]));
+    if (clean.length >= 3 && isSimplePoly(clean)) break;
+  }
+  if (clean.length < 3) return { error: 'minuscula' };
+  const area = polyArea(clean);
+  if (area < minArea) return { error: 'minuscula' };
+  if (area > maxArea) return { error: 'aberta' };
+  return { points: clean, area };
+}

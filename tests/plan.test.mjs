@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parseDxf, dxfToPlan, detectRoomsFromWalls, guessUnitScale, looksLikeWallLayer, DxfError } from '../js/dxf.js';
+import { parseDxf, dxfToPlan, detectRoomsFromWalls, roomFromPoint, guessUnitScale, looksLikeWallLayer, DxfError } from '../js/dxf.js';
 import { polyArea, polyCentroid, pointInPoly, cleanPoly, isSimplePoly, setPolyAbs, polyAbs, innerRect, rectToPoints, roomArea, isPoly } from '../js/geometry.js';
 
 const dxf = readFileSync(new URL('./fixtures/casa.dxf', import.meta.url), 'utf8');
@@ -122,4 +122,16 @@ test('dxf: detecta cômodos por paredes em linhas (vão de porta e entrada larga
 
 test('dxf: sem paredes fechando nada, não inventa cômodos', () => {
   assert.deepEqual(detectRoomsFromWalls([{ x1: 0, z1: 0, x2: 5, z2: 0 }], {}), []);
+});
+
+test('roomFromPoint: cria o cômodo da área cercada, inclusive corredor estreito', () => {
+  const L = (x1, z1, x2, z2) => ({ x1, z1, x2, z2 });
+  // corredor de 0,9 m x 5 m cercado por paredes
+  const segs = [L(0, 0, 0.9, 0), L(0.9, 0, 0.9, 5), L(0.9, 5, 0, 5), L(0, 5, 0, 0)];
+  const r = roomFromPoint(segs, 0.45, 2.5);
+  assert.ok(r.points, JSON.stringify(r));
+  assert.ok(r.area > 4 && r.area < 4.6, `área ${r.area}`);
+  assert.equal(roomFromPoint(segs, 20, 20).error, 'fora');
+  // aberto (sem a parede de baixo): vaza
+  assert.equal(roomFromPoint([L(0, 0, 0.9, 0), L(0.9, 0, 0.9, 5), L(0, 5, 0, 0)], 0.45, 2.5).error, 'aberta');
 });

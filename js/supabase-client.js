@@ -39,6 +39,14 @@ function loadDemoRooms() {
 //      nh_floorplan_walls), assim como os cômodos. Sem seed — a planta
 //      desenhada pelo usuário começa vazia até ele traçar as paredes.
 const WALLS_KEY = 'nh_floorplan_walls';
+const OPENINGS_KEY = 'nh_floorplan_openings';   // portas e janelas (demo)
+
+function loadDemoOpenings() {
+  try {
+    const rows = JSON.parse(localStorage.getItem(OPENINGS_KEY) || '[]');
+    return Array.isArray(rows) ? rows : [];
+  } catch { return []; }
+}
 
 function loadDemoWalls() {
   try {
@@ -127,14 +135,16 @@ class MockQueryBuilder {
   insert(rows) { this._op = 'insert'; this._payload = Array.isArray(rows) ? rows : [rows]; return this; }
   update(patch) { this._op = 'update'; this._payload = patch; return this; }
   delete() { this._op = 'delete'; return this; }
+  upsert(rows) { this._op = 'upsert'; this._payload = Array.isArray(rows) ? rows : [rows]; return this; }
   eq(col, val) { this._filters.push({ col, val }); return this; }
+  in(col, vals) { this._filters.push({ col, vals }); return this; }
   order(col, opts = {}) { this._order = { col, ascending: opts.ascending !== false }; return this; }
   limit(n) { this._limit = n; return this; }
 
   then(resolve, reject) { return Promise.resolve(this._execute()).then(resolve, reject); }
 
   _rows() { return this._client._db[this._table] || (this._client._db[this._table] = []); }
-  _match(row) { return this._filters.every((f) => row[f.col] === f.val); }
+  _match(row) { return this._filters.every((f) => (f.vals ? f.vals.includes(row[f.col]) : row[f.col] === f.val)); }
 
   _execute() {
     const rows = this._rows();
@@ -148,6 +158,22 @@ class MockQueryBuilder {
       });
       this._client._afterWrite(this._table);
       return { data: inserted, error: null };
+    }
+    if (this._op === 'upsert') {
+      const out = this._payload.map((p) => {
+        const cur = p.id ? rows.find((r) => r.id === p.id) : null;
+        if (cur) {
+          Object.assign(cur, clone(p));
+          this._client._emitRealtime(this._table, 'UPDATE', cur);
+          return clone(cur);
+        }
+        const row = { id: p.id || uuid(), created_at: new Date().toISOString(), ...clone(p) };
+        rows.push(row);
+        this._client._emitRealtime(this._table, 'INSERT', row);
+        return clone(row);
+      });
+      this._client._afterWrite(this._table);
+      return { data: out, error: null };
     }
     if (this._op === 'update') {
       const updated = [];
@@ -307,6 +333,7 @@ export class MockSupabaseClient {
       alerts: [],
       rooms: loadDemoRooms(),
       walls: loadDemoWalls(),
+      openings: loadDemoOpenings(),
     };
     this._simTimer = null;
     this._waterTicksLeft = 0;
@@ -322,6 +349,8 @@ export class MockSupabaseClient {
         localStorage.setItem(FLOORPLAN_KEY, JSON.stringify(this._db.rooms));
       } else if (table === 'walls') {
         localStorage.setItem(WALLS_KEY, JSON.stringify(this._db.walls || []));
+      } else if (table === 'openings') {
+        localStorage.setItem(OPENINGS_KEY, JSON.stringify(this._db.openings || []));
       }
     } catch { /* modo restrito */ }
   }
