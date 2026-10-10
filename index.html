@@ -471,6 +471,10 @@
             <label>Largura <input id="fp-open-w" type="number" step="0.05" min="0.3" max="6" inputmode="decimal" /> m</label>
             <label>Altura <input id="fp-open-h" type="number" step="0.05" min="0.3" max="4" inputmode="decimal" /> m</label>
             <label id="fp-open-sill-wrap">Peitoril <input id="fp-open-sill" type="number" step="0.05" min="0" max="2.5" inputmode="decimal" /> m</label>
+            <span id="fp-open-door-wrap" class="fp-open-door">
+              <label>Abre para <select id="fp-open-swing"><option value="in">Dentro</option><option value="out">Fora</option></select></label>
+              <label>Dobradiça <select id="fp-open-hinge" title="Vista por quem empurra a porta para abrir"><option value="left">Esquerda</option><option value="right">Direita</option></select></label>
+            </span>
             <button id="fp-open-del" type="button" class="fp-icon-btn" title="Apagar (Delete)">Apagar</button>
           </div>
           <p class="fp-hint">Arraste uma parede para movê-la · Porta (D) e Janela (J): clique numa parede · Shift+clique soma · Shift+arraste seleciona uma área · alças esticam · Espaço ou botão direito movem a vista</p>

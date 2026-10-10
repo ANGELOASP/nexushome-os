@@ -214,7 +214,8 @@ export function layoutOpenings(len, openings, wallH = 2.5) {
  * Peças de uma parede com aberturas (tudo ao longo do eixo da parede, a partir do início):
  *   solids: blocos de parede [{a, b, y0, y1}] (as pontas se estendem th/2, como a caixa da parede inteira)
  *   glass:  vidros das janelas [{a, b, y0, y1}]
- *   doors:  folhas de porta [{a, b, h}] (a = lado da dobradiça)
+ *   doors:  folhas de porta [{a, b, h, hinge, side}] — hinge 'start'|'end' (ponta da parede onde fica a dobradiça)
+ *           e side +1/-1 (lado da parede para onde a folha abre; +1 = normal (-uz, ux))
  */
 export function wallPieces(len, th, openings, wallH = 2.5) {
   const ops = layoutOpenings(len, openings, wallH);
@@ -225,7 +226,7 @@ export function wallPieces(len, th, openings, wallH = 2.5) {
     if (o.sill > 0) solids.push({ a: o.a, b: o.b, y0: 0, y1: o.sill });
     if (o.top < wallH - 1e-6) solids.push({ a: o.a, b: o.b, y0: o.top, y1: wallH });
     if (o.kind === 'window') glass.push({ a: o.a, b: o.b, y0: o.sill, y1: o.top });
-    else doors.push({ a: o.a, b: o.b, h: o.top - o.sill });
+    else doors.push({ a: o.a, b: o.b, h: o.top - o.sill, hinge: o.hinge === 'end' ? 'end' : 'start', side: o.side === -1 ? -1 : 1 });
     cur = o.b;
   });
   if (len > cur + 1e-6) solids.push({ a: cur, b: len, y0: 0, y1: wallH });

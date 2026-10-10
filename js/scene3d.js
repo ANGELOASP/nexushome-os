@@ -463,11 +463,14 @@ function buildRealWalls(THREE, walls, openings = []) {
       pieces.solids.forEach((s) => solids.push(place(s.a, s.b, s.y0, s.y1, th)));
       pieces.glass.forEach((g) => glass.push(place(g.a, g.b, g.y0, g.y1, Math.max(0.03, th * 0.18))));
       pieces.doors.forEach((d) => {
-        // folha entreaberta (~65°) presa na borda "a"
+        // folha entreaberta (~65°) presa na dobradiça (início ou fim do vão), abrindo para o lado d.side
         const wd = d.b - d.a, ang = 1.15, lt = Math.max(0.04, th * 0.3);
-        const ql = q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(up, -ang));
-        const cu = d.a + (wd / 2) * Math.cos(ang), cn = (wd / 2) * Math.sin(ang);
-        // eixo normal da parede no mundo: perpendicular a u
+        const hs = d.hinge === 'end' ? -1 : 1;                 // sentido da folha ao longo da parede
+        const hu = d.hinge === 'end' ? d.b : d.a;
+        const psi = Math.atan2(-d.side * Math.sin(ang), hs * Math.cos(ang));
+        const ql = q.clone().multiply(new THREE.Quaternion().setFromAxisAngle(up, psi));
+        const cu = hu + hs * (wd / 2) * Math.cos(ang), cn = d.side * (wd / 2) * Math.sin(ang);
+        // normal da parede no mundo: (-uz, ux)
         leaves.push(new THREE.Matrix4().compose(
           new THREE.Vector3(x1 + ux * cu - uz * cn, y0 + d.h / 2, z1 + uz * cu + ux * cn),
           ql, new THREE.Vector3(wd, d.h, lt)));
