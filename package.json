@@ -1,7 +1,7 @@
 {
   "name": "nexushome-os",
   "private": true,
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "NexusHome OS — sistema operacional de casa inteligente em tempo real (projeto sem fins lucrativos)",
   "type": "module",
   "scripts": {
