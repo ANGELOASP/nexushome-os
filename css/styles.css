@@ -915,3 +915,16 @@ button.from-indigo-500.to-cyan-500.text-white { color: var(--accent-ink); }
   background: transparent; color: var(--muted); font-size: 1.05rem; line-height: 1; cursor: pointer;
 }
 .device-menu-btn:hover, .device-menu-btn[aria-expanded="true"] { background: var(--raised); color: var(--text); border-color: var(--line); }
+
+/* cadastro de dispositivo (painel Dispositivos) */
+.device-add-btn {
+  height: 1.7rem; padding: 0 0.6rem; border-radius: 8px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); font-size: 0.72rem; font-weight: 600; cursor: pointer; margin-right: 0.4rem;
+}
+.device-add-btn:hover, .device-add-btn[aria-expanded="true"] { background: var(--raised); color: var(--text); }
+.device-add-form { display: grid; gap: 0.45rem; margin: 0 1rem 0.75rem; padding: 0.75rem; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); }
+.device-add-form.hidden { display: none; }
+.device-add-title { margin: 0; font-size: 0.8rem; font-weight: 700; color: var(--text); }
+.device-add-result { margin-top: 0.25rem; padding: 0.55rem; border-radius: 9px; background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.35); font-size: 0.7rem; color: var(--muted); }
+.device-add-result.hidden { display: none; }
+.device-add-result code { flex: 1; min-width: 0; overflow-wrap: anywhere; font: 600 0.72rem 'IBM Plex Mono', ui-monospace, monospace; color: #a7f3d0; }

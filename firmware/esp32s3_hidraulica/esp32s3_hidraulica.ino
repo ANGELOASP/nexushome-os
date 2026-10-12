@@ -39,6 +39,13 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <math.h>
+#include "ui.h"
+
+// ---------------- Tela touch (SpotPear/Waveshare ESP32-S3-Touch-LCD-4.3B) ----------------
+// 1 = mostra a interface da caixa d'água (ui.cpp). 0 = sem tela (outra placa ESP32-S3).
+// Bibliotecas (Library Manager): ESP32_Display_Panel 1.0.4 e lvgl 8.4.0 — o script
+// scripts/instalar-arduino.ps1 instala as duas.
+#define USE_DISPLAY 1
 
 // ---------------- Wi-Fi e NexusHome ----------------
 #define WIFI_SSID        "SUA_REDE_WIFI"          // só 2.4 GHz
@@ -69,8 +76,8 @@ const char* DEVICE_VALVE_GERAL  = "a3333333-3333-4333-8333-333333333333";  // V�
 // A wiki rotula RS485_TXD/RXD pelo lado do transceptor, então qual dos dois é o RX da UART
 // muda conforme a página. O firmware testa uma ordem e, se ninguém responder, troca sozinho
 // (RS485_AUTO_SWAP). A direção TX/RX do transceptor é automática nessas placas → DE = -1.
-#define RS485_PIN_A    15
-#define RS485_PIN_B    16
+#define RS485_PIN_A    43     // ESP32-S3-Touch-LCD-4.3B (a placa comprada). LCD-7 / 4.3 sem "B": 15
+#define RS485_PIN_B    44     //                                                               16
 #define RS485_AUTO_SWAP true
 #define RS485_DE_PIN   -1     // pino DE/RE só se usar um transceptor externo com controle manual
 #define RS485_BAUD     9600
@@ -123,7 +130,8 @@ const char* VALVE_NAME[8] = { "Ramal 1 (Cozinha)", "Ramal 2 (Banheiro 1)", "Rama
 #define LEAK_METERED_RATIO     0.30f      // e o medido pelos 7 ramais < 30% da queda → rompimento
 #define EXT_FLOW_MIN_LPH       6.0f       // abaixo disso considera "sem fluxo" no ramal externo
 #define EXT_CONTINUOUS_MS      3600000UL  // 60 min de fluxo ininterrupto
-#define PANIC_BUTTON_PIN       0          // botão BOOT: segurar 2 s = pânico (a tela pode chamar panicCloseAll())
+#define PANIC_BUTTON_PIN       0          // botão BOOT: segurar 2 s = pânico (só sem tela: na 4.3B o GPIO0 é do LCD)
+#define COMMAND_POLL_MS        5000       // busca comandos do app (GET /iot-gateway/commands)
 
 #define POLL_INTERVAL_MS       1000
 #define TANK_SAMPLE_MS         10000      // amostra para a janela de 180 s
@@ -162,6 +170,8 @@ int mbReceive(uint8_t* resp, size_t expect, uint8_t slave, uint8_t func) {
     if (RS485.available()) {
       resp[n++] = RS485.read();
       if (n == 5 && resp[1] == (func | 0x80)) break;   // exceção Modbus
+    } else {
+      delay(1);   // cede a CPU (tela/LVGL) enquanto o escravo responde
     }
   }
   if (n < 5 || resp[0] != slave) return -1;
@@ -337,6 +347,39 @@ void resetAll() {
   Serial.println("[reset] alarmes liberados, válvulas abertas");
 }
 
+// Válvula travada: fechada por alarme/pânico — só "Rearmar" (tela ou serial) libera.
+bool valveBlocked(int i) {
+  return panicActive || (i == VALVE_GERAL && alarmBurst) || (i == VALVE_EXTERNA && alarmExternal);
+}
+
+// Pedidos da tela e do app chegam por esta fila e são executados no loop (o barramento
+// Modbus só é usado por uma tarefa — nunca pela tela nem pela tarefa de rede).
+QueueHandle_t requestQueue;
+
+void submitRequest(const UiRequest &r) {
+  if (requestQueue) xQueueSend(requestQueue, &r, 0);
+}
+
+void processRequests() {
+  UiRequest r;
+  while (requestQueue && xQueueReceive(requestQueue, &r, 0) == pdTRUE) {
+    const char *origem = r.remote ? "app" : "tela";
+    if (r.type == UI_REQ_PANIC) {
+      Serial.printf("[pânico] acionado pela %s\n", origem);
+      panicCloseAll();
+    } else if (r.type == UI_REQ_RESET) {
+      if (r.remote) Serial.println("[reset] recusado: rearmar só no painel (tela/serial)");
+      else resetAll();
+    } else if (r.type == UI_REQ_SET_VALVE && r.valve >= 0 && r.valve < 8) {
+      if (r.open && valveBlocked(r.valve)) {
+        Serial.printf("[válvula] %s travada por alarme — abertura pelo %s recusada\n", VALVE_NAME[r.valve], origem);
+      } else if (valveOpen[r.valve] != r.open) {
+        setValve(r.valve, r.open, r.remote ? "comando do app" : "toque na tela");
+      }
+    }
+  }
+}
+
 // ============================================================
 // Leituras
 // ============================================================
@@ -429,10 +472,53 @@ bool postTelemetry(const char* deviceId, const char* metric, float value, const 
   return code == 200;
 }
 
+// Índice da válvula a partir do UUID do dispositivo (-1 = não é deste painel)
+int valveForDevice(const char *id) {
+  for (int i = 0; i < 6; i++) if (DEVICE_RAMAL[i][0] && !strcmp(id, DEVICE_RAMAL[i])) return i;
+  if (DEVICE_RAMAL[6][0] && !strcmp(id, DEVICE_RAMAL[6])) return VALVE_EXTERNA;
+  if (DEVICE_VALVE_GERAL[0] && !strcmp(id, DEVICE_VALVE_GERAL)) return VALVE_GERAL;
+  return -1;
+}
+
+// GET /iot-gateway/commands → {"commands":[{"id":"…","device_id":"…","command":{"open":false}}]}
+// Parser mínimo (sem biblioteca JSON): para cada device_id, lê o "open" que vem depois.
+void pollCommands() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  HTTPClient http;
+  http.begin(String(GATEWAY_URL) + "/commands");
+  http.addHeader("x-device-key", DEVICE_SECRET);
+  http.setTimeout(5000);
+  int code = http.GET();
+  if (code != 200) {
+    if (code > 0) Serial.printf("[cmd] HTTP %d %s\n", code, http.getString().c_str());
+    http.end();
+    return;
+  }
+  String body = http.getString();
+  http.end();
+  int pos = 0;
+  while ((pos = body.indexOf("\"device_id\":\"", pos)) >= 0) {
+    pos += 13;
+    String id = body.substring(pos, pos + 36);
+    int o = body.indexOf("\"open\":", pos);
+    int next = body.indexOf("\"device_id\":\"", pos);
+    if (o < 0 || (next >= 0 && o > next)) continue;          // comando sem "open": ignora
+    bool open = body.startsWith("true", o + 7);
+    int v = valveForDevice(id.c_str());
+    if (v < 0) continue;
+    Serial.printf("[cmd] app pediu %s → %s\n", VALVE_NAME[v], open ? "abrir" : "fechar");
+    submitRequest(UiRequest{ UI_REQ_SET_VALVE, (int8_t)v, open, true });
+  }
+}
+
 void telemetryTask(void*) {
+  unsigned long lastPublish = 0;
   for (;;) {
-    vTaskDelay(pdMS_TO_TICKS(PUBLISH_INTERVAL_MS));
+    vTaskDelay(pdMS_TO_TICKS(COMMAND_POLL_MS));
     if (WiFi.status() != WL_CONNECTED) continue;
+    pollCommands();
+    if (millis() - lastPublish < PUBLISH_INTERVAL_MS) continue;
+    lastPublish = millis();
     Snapshot s;
     portENTER_CRITICAL(&snapMux); s = snap; portEXIT_CRITICAL(&snapMux);
     char st[200];
@@ -467,8 +553,8 @@ void handleSerial() {
     line.trim(); line.toLowerCase();
     if (line.startsWith("abrir ")) setValve(line.substring(6).toInt() - 1, true, "comando serial");
     else if (line.startsWith("fechar ")) setValve(line.substring(7).toInt() - 1, false, "comando serial");
-    else if (line == "panico") panicCloseAll();
-    else if (line == "reset") resetAll();
+    else if (line == "panico") submitRequest(UiRequest{ UI_REQ_PANIC, -1, false, false });
+    else if (line == "reset") submitRequest(UiRequest{ UI_REQ_RESET, -1, true, false });
     else if (line.startsWith("dump ")) mbDump((uint8_t)line.substring(5).toInt());
     else if (line == "status") {
       Serial.printf("nível %.0f mm · %.0f L · relés %s · RS485 %s · alarmes: rompimento=%d externo=%d pânico=%d\n",
@@ -481,6 +567,9 @@ void handleSerial() {
 }
 
 void checkPanicButton() {
+#if USE_DISPLAY
+  return;   // na 4.3B o GPIO0 (BOOT) é linha de dados do LCD: o pânico fica na tela
+#endif
   static unsigned long pressedAt = 0;
   if (digitalRead(PANIC_BUTTON_PIN) == LOW) {
     if (!pressedAt) pressedAt = millis();
@@ -493,7 +582,12 @@ void checkPanicButton() {
 // ============================================================
 void setup() {
   Serial.begin(115200);
+  requestQueue = xQueueCreate(16, sizeof(UiRequest));
+#if USE_DISPLAY
+  if (!ui_begin(submitRequest)) Serial.println("[tela] falha ao iniciar o display — o controle continua sem tela");
+#else
   pinMode(PANIC_BUTTON_PIN, INPUT_PULLUP);
+#endif
   if (RS485_DE_PIN >= 0) { pinMode(RS485_DE_PIN, OUTPUT); digitalWrite(RS485_DE_PIN, LOW); }
   rs485Begin();
 
@@ -509,9 +603,28 @@ void setup() {
   Serial.println("[boot] automação hidráulica iniciada — comandos: abrir N | fechar N | panico | reset | status");
 }
 
+#if USE_DISPLAY
+void refreshScreen(bool countersOk, bool sondaOk) {
+  static unsigned long last = 0;
+  if (millis() - last < 300) return;
+  last = millis();
+  UiState u;
+  for (int i = 0; i < 7; i++) u.flowLpm[i] = flowLph[i] / 60.0f;
+  u.totalL = meteredTotal();
+  u.levelPct = sondaOk ? volumeL / TANK_CAPACITY_L * 100.0f : 0;
+  u.volumeL = sondaOk ? volumeL : 0;
+  u.sondaOk = sondaOk; u.countersOk = countersOk; u.relaysOk = relaysOk;
+  u.wifiOk = WiFi.status() == WL_CONNECTED;
+  for (int i = 0; i < 8; i++) { u.valveOpen[i] = valveOpen[i]; u.blocked[i] = valveBlocked(i); }
+  u.alarmBurst = alarmBurst; u.alarmExternal = alarmExternal; u.panic = panicActive;
+  ui_update(u);
+}
+#endif
+
 void loop() {
   handleSerial();
   checkPanicButton();
+  processRequests();          // toques na tela e comandos do app (antes da leitura: resposta rápida)
 
   unsigned long now = millis();
   if (now - lastPoll < POLL_INTERVAL_MS) return;
@@ -575,4 +688,7 @@ void loop() {
   s.percent = sondaOk ? volumeL / TANK_CAPACITY_L * 100.0f : 0;
   s.alarmBurst = alarmBurst; s.alarmExternal = alarmExternal; s.panic = panicActive;
   portENTER_CRITICAL(&snapMux); snap = s; portEXIT_CRITICAL(&snapMux);
+#if USE_DISPLAY
+  refreshScreen(countersOk, sondaOk);
+#endif
 }

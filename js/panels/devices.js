@@ -47,6 +47,68 @@ export function initDevicesPanel(nexusClient) {
   on('devices-changed', render);
   on('rooms-changed', render); // planta editada → reagrupa os dispositivos
   on('room-selected', (room) => highlightRoom(room));
+  initAddForm();
+}
+
+// ------------------------------------------------------------
+// Cadastro de dispositivo pelo app (antes só por SQL)
+// ------------------------------------------------------------
+function initAddForm() {
+  const btn = document.getElementById('btn-device-add');
+  const form = document.getElementById('device-add-form');
+  if (!btn || !form) return;
+  const nameEl = document.getElementById('dev-add-name');
+  const typeEl = document.getElementById('dev-add-type');
+  const roomEl = document.getElementById('dev-add-room');
+  const result = document.getElementById('dev-add-result');
+  const uuidEl = document.getElementById('dev-add-uuid');
+  const fillRooms = () => {
+    const keep = roomEl.value;
+    roomEl.innerHTML = getRoomNames().map((r) => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('');
+    if (keep) roomEl.value = keep;
+  };
+  const toggle = (open) => {
+    form.classList.toggle('hidden', !open);
+    btn.setAttribute('aria-expanded', String(open));
+    if (open) { fillRooms(); result.classList.add('hidden'); nameEl.focus(); }
+  };
+  btn.addEventListener('click', () => toggle(form.classList.contains('hidden')));
+  document.getElementById('dev-add-cancel')?.addEventListener('click', () => toggle(false));
+  on('rooms-changed', () => { if (!form.classList.contains('hidden')) fillRooms(); });
+  document.getElementById('dev-add-copy')?.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(uuidEl.textContent); toast('Código copiado', '', 'success'); }
+    catch { toast('Não foi possível copiar', 'Selecione o código e copie manualmente.', 'warning'); }
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = nameEl.value.trim();
+    const room = roomEl.value;
+    const type = typeEl.value;
+    if (!name) { toast('Nome obrigatório', 'Dê um nome ao dispositivo.', 'warning'); return; }
+    if (!room) { toast('Cômodo obrigatório', 'Desenhe a planta com ao menos um cômodo antes.', 'warning'); return; }
+    if (state.devices.some((d) => !d.virtual && d.name.trim().toLowerCase() === name.toLowerCase() && d.room === room)) {
+      toast('Já existe um dispositivo com esse nome neste cômodo', name, 'warning'); return;
+    }
+    const status = type === 'valve' ? { open: true } : {};
+    const submit = form.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      const { data, error } = await client.from('devices')
+        .insert({ name, type, room, status, is_online: false }).select();
+      if (error) throw new Error(error.message);
+      const row = Array.isArray(data) ? data[0] : data;
+      if (row) upsertDevice(row);
+      uuidEl.textContent = row?.id || '';
+      result.classList.toggle('hidden', !row?.id);
+      nameEl.value = '';
+      toast('Dispositivo cadastrado', `${name} · ${room}`, 'success');
+    } catch (err) {
+      console.error('[devices] falha ao cadastrar', err);
+      toast('Não foi possível cadastrar', err.message, 'critical');
+    } finally {
+      submit.disabled = false;
+    }
+  });
 }
 
 function render() {
@@ -192,7 +254,8 @@ function wireControls(card, d) {
     } else if (ctl === 'valve') {
       el.addEventListener('click', () => {
         const open = !(d.status?.open !== false); // inverte
-        updateStatus(d, { open }, open ? 'Válvula geral aberta' : 'Válvula geral fechada', open ? 'info' : 'warning');
+        // o banco transforma a mudança num comando para o ESP32 (migração 013); a tela do painel mostra o resultado
+        updateStatus(d, { open }, open ? 'Válvula aberta' : 'Válvula fechada', open ? 'info' : 'warning');
       });
     }
   });

@@ -1,16 +1,23 @@
-# ============================================================
+﻿# ============================================================
 # NexusHome OS — instala o ambiente do firmware ESP32-S3 (Windows)
 # ------------------------------------------------------------
 # O que faz (pode rodar de novo quantas vezes quiser):
 #   1. instala a Arduino IDE 2 e o Arduino CLI (winget)
-#   2. instala o suporte ao ESP32 (Espressif, core 3.x)
+#   2. instala o suporte ao ESP32 (Espressif, core 3.x) e as bibliotecas da tela
+#      (ESP32_Display_Panel 1.0.4 + lvgl 8.4.0)
 #   3. copia o firmware para Documentos\Arduino\esp32s3_hidraulica
-#      (fora do repositório — é lá que você põe a senha do Wi-Fi e a chave)
-#   4. compila o firmware para a placa ESP32-S3 (8 MB, PSRAM OPI)
+#      (fora do repositório — é lá que ficam a senha do Wi-Fi e a chave). Se já existir
+#      uma cópia, ela é ATUALIZADA e as linhas WIFI_SSID / WIFI_PASSWORD / DEVICE_SECRET
+#      que você preencheu são mantidas (backup em esp32s3_hidraulica.ino.bak)
+#   4. compila para a ESP32-S3-Touch-LCD-4.3B (16 MB, PSRAM OPI, USB CDC)
+#   5. (opcional) grava na placa: informe a porta com -Porta COM5
 #
 # Como rodar (PowerShell, dentro de C:\nexushome-os):
 #   powershell -ExecutionPolicy Bypass -File scripts\instalar-arduino.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\instalar-arduino.ps1 -Porta COM5   # compila e grava
 # ============================================================
+
+param([string]$Porta = '')
 
 # 'Continue': no Windows PowerShell 5.1, 'Stop' transforma qualquer aviso de um .exe em erro fatal.
 # Os erros reais são checados por $LASTEXITCODE.
@@ -19,9 +26,9 @@ $repo      = Split-Path -Parent $PSScriptRoot
 $origem    = Join-Path $repo 'firmware\esp32s3_hidraulica'
 $sketchDir = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Arduino\esp32s3_hidraulica'
 $espUrl    = 'https://espressif.github.io/arduino-esp32/package_esp32_index.json'
-$fqbn      = 'esp32:esp32:esp32s3:FlashSize=8M,PSRAM=opi'
+$fqbn      = 'esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CDCOnBoot=cdc'
 
-function Passo($n, $txt) { Write-Host "`n[$n/4] $txt" -ForegroundColor Cyan }
+function Passo($n, $txt) { Write-Host "`n[$n/5] $txt" -ForegroundColor Cyan }
 function Atualiza-Path {
   $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
               [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -54,22 +61,46 @@ arduino-cli core update-index
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao atualizar o índice de placas' }
 arduino-cli core install esp32:esp32
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao instalar o core esp32:esp32' }
+arduino-cli lib update-index | Out-Null
+arduino-cli lib install 'ESP32_Display_Panel@1.0.4' 'lvgl@8.4.0'
+if ($LASTEXITCODE -ne 0) { throw 'Falha ao instalar as bibliotecas da tela (ESP32_Display_Panel / lvgl)' }
 
 # ---- 3. Cópia do firmware (sem sobrescrever a sua versão com senha) ----
 Passo 3 "Copiando o firmware para $sketchDir ..."
-if (Test-Path (Join-Path $sketchDir 'esp32s3_hidraulica.ino')) {
-  Write-Host '  já existe uma cópia — mantida (ela pode ter sua senha do Wi-Fi). Para atualizar, apague a pasta e rode de novo.' -ForegroundColor Yellow
+$ino = Join-Path $sketchDir 'esp32s3_hidraulica.ino'
+$segredos = @{}
+if (Test-Path $ino) {
+  # guarda as linhas que você preencheu antes de atualizar os arquivos
+  foreach ($linha in Get-Content $ino -Encoding UTF8) {
+    if ($linha -match '^\s*#define\s+(WIFI_SSID|WIFI_PASSWORD|DEVICE_SECRET)\s+".*"') { $segredos[$Matches[1]] = $linha }
+  }
+  Copy-Item $ino "$ino.bak" -Force
+}
+New-Item -ItemType Directory -Force -Path $sketchDir | Out-Null
+Copy-Item -Path (Join-Path $origem '*') -Destination $sketchDir -Recurse -Force
+if ($segredos.Count) {
+  $novo = foreach ($linha in Get-Content $ino -Encoding UTF8) {
+    if ($linha -match '^\s*#define\s+(WIFI_SSID|WIFI_PASSWORD|DEVICE_SECRET)\s' -and $segredos.ContainsKey($Matches[1])) { $segredos[$Matches[1]] } else { $linha }
+  }
+  [IO.File]::WriteAllLines($ino, $novo, (New-Object Text.UTF8Encoding $false))
+  Write-Host "  atualizado; Wi-Fi e chave mantidos ($($segredos.Count) de 3 linhas). Cópia anterior: esp32s3_hidraulica.ino.bak"
 } else {
-  New-Item -ItemType Directory -Force -Path $sketchDir | Out-Null
-  Copy-Item -Path (Join-Path $origem '*') -Destination $sketchDir -Recurse -Force
-  Write-Host '  copiado.'
+  Write-Host '  copiado. Preencha WIFI_SSID, WIFI_PASSWORD e DEVICE_SECRET antes de gravar na placa.' -ForegroundColor Yellow
 }
 
 # ---- 4. Compilação ----
-Passo 4 'Compilando para ESP32-S3 (8 MB / PSRAM OPI)...'
+Passo 4 'Compilando para ESP32-S3-Touch-LCD-4.3B (16 MB / PSRAM OPI)...'
 arduino-cli compile --fqbn $fqbn $sketchDir
 if ($LASTEXITCODE -ne 0) { throw 'A compilação falhou — mande o texto acima para análise.' }
 
+Passo 5 'Gravação na placa'
+if ($Porta) {
+  arduino-cli upload -p $Porta --fqbn $fqbn $sketchDir
+  if ($LASTEXITCODE -ne 0) { throw "Falha ao gravar em $Porta (cabo USB-C na porta USB da placa? porta certa?)" }
+  Write-Host "  gravado em $Porta. Monitor serial: arduino-cli monitor -p $Porta -c baudrate=115200"
+} else {
+  Write-Host '  pulado (sem -Porta). Com a placa no USB, veja a porta com: arduino-cli board list'
+}
+
 Write-Host "`nTudo pronto!" -ForegroundColor Green
-Write-Host "Próximo passo: abra $sketchDir\esp32s3_hidraulica.ino na Arduino IDE e preencha"
-Write-Host "WIFI_SSID, WIFI_PASSWORD e DEVICE_SECRET (a chave da Etapa 2)."
+Write-Host "Firmware em $sketchDir"

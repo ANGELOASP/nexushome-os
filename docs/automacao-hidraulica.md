@@ -38,8 +38,8 @@ elemento. Configure os endereços de cada equipamento antes de ligar todos junto
 
 | Item | O que o manual diz | No firmware |
 |---|---|---|
-| RS-485 da SpotPear / Waveshare **ESP32-S3-Touch-LCD-7** (e 4.3 sem "B") | GPIO15 e GPIO16; direção TX/RX automática | `RS485_PIN_A 15`, `RS485_PIN_B 16`, `RS485_DE_PIN -1` |
-| RS-485 da **ESP32-S3-Touch-LCD-4.3B** / LCD-4 | GPIO43 (RX) e GPIO44 (TX) | troque `RS485_PIN_A/B` para 43/44 |
+| RS-485 da SpotPear / Waveshare **ESP32-S3-Touch-LCD-7** (e 4.3 sem "B") | GPIO15 e GPIO16; direção TX/RX automática | troque `RS485_PIN_A/B` para 15/16 |
+| RS-485 da **ESP32-S3-Touch-LCD-4.3B** / LCD-4 (**placa comprada**) | GPIO43 (RX) e GPIO44 (TX) | **padrão do firmware**: `RS485_PIN_A 43`, `RS485_PIN_B 44` |
 | Ordem RX/TX | a wiki rotula pelo lado do transceptor, e as páginas divergem | o firmware testa uma ordem e **troca sozinho** se ninguém responder (`RS485_AUTO_SWAP`) |
 | Placa de relés Waveshare 8-CH | bobinas 0x0000–0x0007, funções 01/05/0F, 0xFF00 = liga; endereço de fábrica 1 | comando em lote 0x0F, com reserva de oito 0x05 se a placa recusar |
 | Sonda QDY30A | mapa da família: 0x0003 = casas decimais, 0x0004 = valor (int16); unidade costuma ser cm ou mm | `SONDA_DECIMALS_REG 0x0003`, `SONDA_VALUE_REG 0x0004`, `SONDA_UNIT_TO_MM` (conferir com `dump 3`) |
@@ -95,17 +95,44 @@ powershell -ExecutionPolicy Bypass -File scripts\instalar-arduino.ps1
 
 Instala a Arduino IDE 2 + Arduino CLI (winget), o core ESP32 da Espressif, copia o firmware para
 `Documentos\Arduino\esp32s3_hidraulica` (onde você coloca Wi-Fi e `DEVICE_SECRET`, fora do Git) e compila para
-ESP32-S3 (8 MB, PSRAM OPI). Compilado com o core `esp32:esp32` 3.3.12: 996 KB (75% da partição de app).
+ESP32-S3-Touch-LCD-4.3B (16 MB, PSRAM OPI, USB CDC). Com `-Porta COM5` também grava na placa. Uma cópia já
+existente é atualizada mantendo Wi-Fi e chave. Compilado com o core `esp32:esp32` 3.3.12 + ESP32_Display_Panel 1.0.4
++ lvgl 8.4.0: 1,59 MB (50% da partição de app de 3 MB), 15% da RAM.
 
 ## Bancada (serial 115200)
 
 `status` · `abrir N` · `fechar N` (N = 1..8) · `panico` · `reset` · `dump S` (lista os registradores do escravo S)
 
+## Tela touch (ESP32-S3-Touch-LCD-4.3B, 800×480)
+
+Arquivos: `ui.cpp` / `ui.h` (interface), `lvgl_v8_port.*`, `lv_conf.h`, `esp_panel_*_conf.h` (placa 4.3B já
+selecionada) e as fontes `nh_font_*.c` (Montserrat com acentos do português). `USE_DISPLAY 1` no `.ino`.
+
+| Situação normal | Confirmação ao tocar numa válvula | Alarme |
+|---|---|---|
+| ![](img/tela-agua-normal.png) | ![](img/tela-agua-confirmar.png) | ![](img/tela-agua-alarme.png) |
+
+- **Cada quadro é uma válvula**: verde = aberta, cinza = fechada, vermelho = **travada** por alarme/pânico.
+  Tocar pede confirmação ("Fechar a água: Cozinha?") — nada muda por um toque acidental.
+- **Reservatórios**: barra azul (amarela < 40%, vermelha < 20%), % e litros.
+- **Alarme**: o topo fica vermelho com o motivo em português e aparece **Rearmar** (pede confirmação e reabre tudo).
+- **FECHAR TUDO**: segurar **2 segundos** (contagem regressiva no botão). Na 4.3B o botão BOOT (GPIO0) é do LCD,
+  então o pânico físico fica na tela.
+- A tela só envia pedidos para uma fila; quem fala com o barramento é o loop principal (sem disputa no RS-485).
+- Imagens geradas renderizando o `ui.cpp` real com LVGL 8.4 num simulador (sem a placa).
+- Créditos: `lvgl_v8_port.*` e os `esp_panel_*_conf.h` vêm dos exemplos do ESP32_Display_Panel (Espressif,
+  Apache-2.0); as fontes `nh_font_*.c` foram geradas com lv_font_conv a partir da Montserrat (SIL OFL 1.1).
+
+## Comandos pelo app
+
+Botão de válvula no app → o banco grava um pedido em `device_commands` (migração 013, também vale para automações
+do servidor) → o ESP32 busca a cada 5 s em `GET /iot-gateway/commands` e aplica. Regras:
+- o app pode **fechar** qualquer válvula; **abrir** uma válvula travada por alarme é recusado — rearmar só no
+  painel (tela ou serial), de propósito;
+- o estado que o ESP32 reporta não gera comando de volta (função `device_report_status`).
+
 ## Ainda não implementado
 
-- **Tela touch da SpotPear**: a interface gráfica depende do driver de display da placa (LVGL). O firmware expõe
-  `panicCloseAll()` e `resetAll()` para o botão virtual chamar.
-- **Comandar válvulas pelo app**: hoje o app só recebe telemetria do ESP32; falta um canal de comandos
-  (app → Supabase → ESP32).
+- **Consumo por dia**: o total na tela é desde que o painel ligou (sem relógio/NTP ainda).
 - **Gateway Waveshare RS485→Wi-Fi/ETH**: não é necessário com o ESP32-S3 conectando direto ao Wi-Fi; se for usado
   como segundo mestre no mesmo barramento, haverá colisão — use-o só para diagnóstico.
