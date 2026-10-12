@@ -46,18 +46,18 @@
 #define GATEWAY_URL      "https://gfjxcsvxhaojbtuixpjh.supabase.co/functions/v1/iot-gateway"
 #define DEVICE_SECRET    "SUA_IOT_DEVICE_SECRET"   // = IOT_DEVICE_SECRET do Supabase
 
-// UUIDs na tabela `devices` (crie no app: tipo "valve" para cada ramal e "sensor"
-// para o reservatório). String vazia = não publica aquele item.
+// UUIDs na tabela `devices` — criados por supabase/seeds/hidraulica.sql (rode no SQL Editor).
+// String vazia = não publica aquele item.
 const char* DEVICE_RAMAL[7] = {
-  "",   // Ramal 1 — Cozinha
-  "",   // Ramal 2 — Banheiro 1
-  "",   // Ramal 3 — Banheiro 2
-  "",   // Ramal 4 — Área de Serviço
-  "",   // Ramal 5
-  "",   // Ramal 6
-  "",   // Ramal 7 — Área Externa
+  "b1000000-0000-4000-8000-000000000001",   // Ramal 1 — Cozinha
+  "b1000000-0000-4000-8000-000000000002",   // Ramal 2 — Banheiro 1
+  "b1000000-0000-4000-8000-000000000003",   // Ramal 3 — Banheiro 2
+  "b1000000-0000-4000-8000-000000000004",   // Ramal 4 — Área de Serviço
+  "b1000000-0000-4000-8000-000000000005",   // Ramal 5
+  "b1000000-0000-4000-8000-000000000006",   // Ramal 6
+  "b1000000-0000-4000-8000-000000000007",   // Ramal 7 — Área Externa
 };
-const char* DEVICE_TANK         = "";   // Reservatórios (nível %)
+const char* DEVICE_TANK         = "b1000000-0000-4000-8000-000000000008";   // Reservatórios (nível %)
 const char* DEVICE_VALVE_GERAL  = "a3333333-3333-4333-8333-333333333333";  // Válvula de Água Geral (seed)
 
 #define PUBLISH_INTERVAL_MS  15000      // telemetria (tarefa separada: não atrasa a segurança)
@@ -439,7 +439,7 @@ void telemetryTask(void*) {
     if (s.countersOk) {
       for (int i = 0; i < 7; i++) {
         int v = i < 6 ? i : VALVE_EXTERNA;      // ramal 7 é comandado pela válvula da Área Externa
-        snprintf(st, sizeof(st), "{\"flow_lph\":%.1f,\"total_l\":%.1f,\"is_open\":%s}",
+        snprintf(st, sizeof(st), "{\"flow_lph\":%.1f,\"total_l\":%.1f,\"open\":%s}",
                  s.flowLph[i], s.totalL[i], s.valveOpen[v] ? "true" : "false");
         postTelemetry(DEVICE_RAMAL[i], "water_flow_lph", s.flowLph[i], st);
       }
@@ -449,7 +449,7 @@ void telemetryTask(void*) {
       postTelemetry(DEVICE_TANK, "water_level_pct", s.percent, st);
     }
     float sumFlow = 0; for (int i = 0; i < 7; i++) sumFlow += s.flowLph[i];
-    snprintf(st, sizeof(st), "{\"is_open\":%s,\"alarm_burst\":%s,\"alarm_external\":%s,\"panic\":%s}",
+    snprintf(st, sizeof(st), "{\"open\":%s,\"alarm_burst\":%s,\"alarm_external\":%s,\"panic\":%s}",
              s.valveOpen[VALVE_GERAL] ? "true" : "false", s.alarmBurst ? "true" : "false",
              s.alarmExternal ? "true" : "false", s.panic ? "true" : "false");
     postTelemetry(DEVICE_VALVE_GERAL, "water_flow_lph", sumFlow, st);

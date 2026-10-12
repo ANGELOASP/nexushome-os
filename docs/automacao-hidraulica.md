@@ -78,10 +78,10 @@ Fontes: [wiki ESP32-S3-Touch-LCD-7](https://www.waveshare.com/wiki/ESP32-S3-Touc
 ## Telemetria no NexusHome
 
 A cada 15 s o firmware envia para a Edge Function `iot-gateway`:
-- cada ramal: `water_flow_lph` + status `{flow_lph, total_l, is_open}` (preencha `DEVICE_RAMAL[]` com os UUIDs
-  dos dispositivos criados no app);
+- cada ramal: `water_flow_lph` + status `{flow_lph, total_l, open}` — os dispositivos são criados por
+  `supabase/seeds/hidraulica.sql` com UUIDs fixos que já estão no firmware;
 - reservatório: `water_level_pct` + status `{level_mm, volume_l, level_pct}` (`DEVICE_TANK`);
-- válvula geral: vazão total + status `{is_open, alarm_burst, alarm_external, panic}`.
+- válvula geral: vazão total + status `{open, alarm_burst, alarm_external, panic}`.
 
 O `iot-gateway` passou a aceitar `water_level_pct` (a coluna já existia desde a migração 005) — **faça o deploy
 da função** (`supabase functions deploy iot-gateway`).
