@@ -62,11 +62,17 @@ const char* DEVICE_VALVE_GERAL  = "a3333333-3333-4333-8333-333333333333";  // V�
 
 #define PUBLISH_INTERVAL_MS  15000      // telemetria (tarefa separada: não atrasa a segurança)
 
-// ---------------- RS-485 (SpotPear ESP32-S3) ----------------
-// CONFIRMAR no esquema da sua placa: pinos do transceptor RS-485 nativo.
-#define RS485_RX_PIN   18
-#define RS485_TX_PIN   17
-#define RS485_DE_PIN   21     // -1 se o transceptor tem direção automática
+// ---------------- RS-485 (SpotPear / Waveshare ESP32-S3-Touch-LCD) ----------------
+// Pinos do RS-485 nativo segundo a wiki Waveshare (a SpotPear revende o mesmo hardware):
+//   · ESP32-S3-Touch-LCD-7 e LCD-4.3 (sem "B"): GPIO15 e GPIO16
+//   · ESP32-S3-Touch-LCD-4.3B / LCD-4:          GPIO43 e GPIO44
+// A wiki rotula RS485_TXD/RXD pelo lado do transceptor, então qual dos dois é o RX da UART
+// muda conforme a página. O firmware testa uma ordem e, se ninguém responder, troca sozinho
+// (RS485_AUTO_SWAP). A direção TX/RX do transceptor é automática nessas placas → DE = -1.
+#define RS485_PIN_A    15
+#define RS485_PIN_B    16
+#define RS485_AUTO_SWAP true
+#define RS485_DE_PIN   -1     // pino DE/RE só se usar um transceptor externo com controle manual
 #define RS485_BAUD     9600
 #define MB_TIMEOUT_MS  150    // espera por resposta de cada escravo
 #define MB_RETRIES     2
@@ -77,17 +83,23 @@ const char* DEVICE_VALVE_GERAL  = "a3333333-3333-4333-8333-333333333333";  // V�
 #define SLAVE_RELAYS    4
 
 // ---------------- Mapas de registradores (CONFIRMAR no manual) ----------------
-// FT-PFC-04 "NPN Cumulative 32bit": contagem acumulada de cada canal em 2
-// registradores (32 bits) a partir de COUNTER_REG_BASE.
+// FT-PFC-04 "NPN Cumulative 32bit": o fabricante (Hongzhi Feiteng) não publica o mapa de
+// registradores online — ele vem no manual/PDF que acompanha a placa. Valor provisório:
+// contagem acumulada de 32 bits por canal em 2 registradores a partir de COUNTER_REG_BASE.
+// Para confirmar na bancada: "dump 1", gire a turbina do ramal 1, "dump 1" de novo.
 #define COUNTER_FUNC        3        // 03 = holding registers (alguns lotes usam 04)
 #define COUNTER_REG_BASE    0x0000   // canal 1 = base, canal 2 = base+2, ...
 #define COUNTER_HIGH_FIRST  true     // palavra alta primeiro (big-endian)
-// QDY30A: 0x0003 = casas decimais, 0x0004 = valor medido (int16, em mm).
+// QDY30A (mapa comum dos transmissores de nível RS-485 desta família): 0x0002 = unidade,
+// 0x0003 = casas decimais (0–3), 0x0004 = valor medido (int16 com sinal). Valor real =
+// registrador 4 ÷ 10^(registrador 3). A unidade de fábrica costuma ser cm ou mm: confira com
+// "dump 3" e ajuste SONDA_UNIT_TO_MM (cm → 10, m → 1000).
 #define SONDA_FUNC          3
 #define SONDA_DECIMALS_REG  0x0003
 #define SONDA_VALUE_REG     0x0004
 #define SONDA_UNIT_TO_MM    1.0f     // multiplicador se a sonda estiver configurada em cm (10) ou m (1000)
-// Waveshare Relay 8-CH: bobinas 0x0000..0x0007 (função 05/0F).
+// Waveshare Modbus RTU Relay 8-CH (wiki Waveshare): bobinas 0x0000..0x0007, funções 01/05/0F,
+// 0xFF00 = liga, 0x0000 = desliga. Endereço de fábrica 0x01 — mude para 4 antes de ligar ao barramento.
 #define RELAY_COIL_BASE     0x0000
 
 // ---------------- Calibragem (item 3.1) ----------------
@@ -177,7 +189,21 @@ bool mbReadRegs(uint8_t slave, uint8_t func, uint16_t addr, uint16_t count, uint
   return false;
 }
 
+// Função 05: liga/desliga uma bobina (0xFF00 = ligado, 0x0000 = desligado).
+bool mbWriteCoil(uint8_t slave, uint16_t addr, bool on) {
+  uint8_t req[8] = { slave, 0x05, (uint8_t)(addr >> 8), (uint8_t)addr, (uint8_t)(on ? 0xFF : 0x00), 0x00 };
+  uint8_t resp[8];
+  for (int attempt = 0; attempt <= MB_RETRIES; attempt++) {
+    mbSend(req, 6);
+    if (mbReceive(resp, 8, slave, 0x05) > 0) return true;
+    delay(20);
+  }
+  return false;
+}
+
 // Função 0F: escreve as 8 bobinas da placa de relés de uma vez (bit0 = relé 1).
+// A wiki Waveshare lista 0x0F para as bobinas 0x0000–0x0007; se a placa recusar, cai para
+// oito comandos 0x05 (um por relé) — mais lento, mas ainda < 3 s para o pânico.
 bool mbWriteCoils8(uint8_t slave, uint16_t addr, uint8_t bits) {
   uint8_t req[12] = { slave, 0x0F, (uint8_t)(addr >> 8), (uint8_t)addr, 0x00, 0x08, 0x01, bits };
   uint8_t resp[8];
@@ -186,7 +212,54 @@ bool mbWriteCoils8(uint8_t slave, uint16_t addr, uint8_t bits) {
     if (mbReceive(resp, 8, slave, 0x0F) > 0) return true;
     delay(20);
   }
+  bool ok = true;
+  for (int i = 0; i < 8; i++) ok &= mbWriteCoil(slave, addr + i, bits & (1 << i));
+  return ok;
+}
+
+// ---- seleção automática da ordem RX/TX do RS-485 ----
+bool rs485Swapped = false;
+void rs485Begin() {
+  int rx = rs485Swapped ? RS485_PIN_B : RS485_PIN_A;
+  int tx = rs485Swapped ? RS485_PIN_A : RS485_PIN_B;
+  RS485.end();
+  RS485.begin(RS485_BAUD, SERIAL_8N1, rx, tx);
+  Serial.printf("[rs485] UART RX=GPIO%d TX=GPIO%d\n", rx, tx);
+}
+// Qualquer resposta válida — inclusive uma exceção Modbus ("função não suportada") — prova
+// que a fiação e a ordem RX/TX estão certas.
+bool mbPing(uint8_t slave) {
+  uint8_t req[8] = { slave, 0x03, 0x00, 0x00, 0x00, 0x01 };
+  uint8_t resp[8];
+  mbSend(req, 6);
+  int r = mbReceive(resp, 7, slave, 0x03);
+  return r > 0 || r == -2;
+}
+bool anySlaveAnswers() {
+  const uint8_t ids[4] = { SLAVE_RELAYS, SLAVE_SONDA, SLAVE_COUNTER1, SLAVE_COUNTER2 };
+  for (int i = 0; i < 4; i++) if (mbPing(ids[i])) return true;
   return false;
+}
+// Chamada no boot e quando o barramento fica mudo: tenta a outra ordem dos pinos.
+void rs485AutoDetect() {
+  if (!RS485_AUTO_SWAP) return;
+  if (anySlaveAnswers()) return;
+  rs485Swapped = !rs485Swapped;
+  rs485Begin();
+  if (!anySlaveAnswers()) { rs485Swapped = !rs485Swapped; rs485Begin(); }   // ninguém responde: mantém a original
+}
+
+// Diagnóstico de bancada: "dump S" lista os registradores 0..31 do escravo S (funções 03 e 04).
+// Gire a turbina e repita: o par de registradores que muda é a contagem daquele canal.
+void mbDump(uint8_t slave) {
+  for (uint8_t func = 3; func <= 4; func++) {
+    Serial.printf("slave %u · função %02X:\n", slave, func);
+    for (uint16_t base = 0; base < 32; base += 8) {
+      uint16_t r[8];
+      if (!mbReadRegs(slave, func, base, 8, r)) { Serial.printf("  0x%04X..: sem resposta\n", base); continue; }
+      Serial.printf("  0x%04X: %5u %5u %5u %5u %5u %5u %5u %5u\n", base, r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]);
+    }
+  }
 }
 
 // ============================================================
@@ -384,7 +457,7 @@ void telemetryTask(void*) {
 }
 
 // ============================================================
-// Comandos pela serial (teste de bancada): abrir N · fechar N · panico · reset · status
+// Comandos pela serial (teste de bancada): abrir N · fechar N · panico · reset · status · dump S
 // ============================================================
 void handleSerial() {
   static String line;
@@ -396,9 +469,11 @@ void handleSerial() {
     else if (line.startsWith("fechar ")) setValve(line.substring(7).toInt() - 1, false, "comando serial");
     else if (line == "panico") panicCloseAll();
     else if (line == "reset") resetAll();
+    else if (line.startsWith("dump ")) mbDump((uint8_t)line.substring(5).toInt());
     else if (line == "status") {
-      Serial.printf("nível %.0f mm · %.0f L · relés %s · alarmes: rompimento=%d externo=%d pânico=%d\n",
-                    levelMm, volumeL, relaysOk ? "ok" : "FALHA", alarmBurst, alarmExternal, panicActive);
+      Serial.printf("nível %.0f mm · %.0f L · relés %s · RS485 %s · alarmes: rompimento=%d externo=%d pânico=%d\n",
+                    levelMm, volumeL, relaysOk ? "ok" : "FALHA", rs485Swapped ? "invertido" : "normal",
+                    alarmBurst, alarmExternal, panicActive);
       for (int i = 0; i < 7; i++) Serial.printf("  ramal %d: %.1f L/h · total %.1f L\n", i + 1, flowLph[i], totalL[i]);
     }
     line = "";
@@ -420,11 +495,12 @@ void setup() {
   Serial.begin(115200);
   pinMode(PANIC_BUTTON_PIN, INPUT_PULLUP);
   if (RS485_DE_PIN >= 0) { pinMode(RS485_DE_PIN, OUTPUT); digitalWrite(RS485_DE_PIN, LOW); }
-  RS485.begin(RS485_BAUD, SERIAL_8N1, RS485_RX_PIN, RS485_TX_PIN);
+  rs485Begin();
 
   for (int i = 0; i < 8; i++) valveOpen[i] = true;   // estado seguro: abastecimento normal
   for (int i = 0; i < TANK_SAMPLES; i++) tankValid[i] = false;
   delay(500);                                         // escravos terminam o boot
+  rs485AutoDetect();
   applyValves();
 
   WiFi.mode(WIFI_STA);
@@ -462,6 +538,9 @@ void loop() {
     for (int i = 0; i < 7; i++) flowLph[i] = 0;
     Serial.println("[contadores] sem resposta (slave 1/2)");
   }
+  static int silentPolls = 0;   // barramento mudo por 30 s: tenta a outra ordem RX/TX
+  silentPolls = countersOk ? 0 : silentPolls + 1;
+  if (silentPolls >= 30) { silentPolls = 0; rs485AutoDetect(); }
 
   // 2) nível do reservatório
   float mm;
