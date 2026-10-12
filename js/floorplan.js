@@ -44,6 +44,7 @@ import {
   OPENING_DEFAULTS, MIN_OPENING, layoutOpenings, projectOnWall,
 } from './geometry.js';
 import { initDxfImport } from './dxf-import.js';
+import { FURNITURE, FURNITURE_BY_KIND, furnitureCorners, furnitureHit, normalizeFurniture } from './furniture.js';
 import { roomFromPoint } from './dxf.js';
 
 const CELL_M = 0.5;        // 1 célula da grade = 0,5 m
@@ -64,6 +65,13 @@ let bg = { img: null, dataUrl: '', opacity: 0.4, widthM: 14, offX: 0, offZ: 0, v
 // paredes (modelo vetorial CAD): { id, floor, x1,z1,x2,z2, th, sort_order }
 let wallsLive = [];        // paredes salvas (Supabase / demo)
 let wallsDraft = [];       // cópia de trabalho enquanto o editor está aberto
+let furnLive = [];         // móveis salvos (tabela furniture)
+let furnDraft = [];        // cópia de trabalho
+let furnBaseline = [];
+let furnTableOk = true;    // false se a tabela furniture não existe (migração 014 pendente)
+let selFurn = null;        // id do móvel selecionado
+let furnPlace = null;      // tipo do catálogo sendo inserido (ferramenta Móveis)
+let furnHover = null;      // { x, z } — prévia do móvel sob o cursor
 let openingsLive = [];     // portas/janelas salvas
 let openingsDraft = [];    // cópia de trabalho
 let openingsBaseline = [];
@@ -146,6 +154,7 @@ export function initFloorplan({ getClient: gc } = {}) {
   document.getElementById('btn-fp-tool-fill')?.addEventListener('click', () => setTool('fill'));
   document.getElementById('btn-fp-tool-door')?.addEventListener('click', () => setTool('door'));
   document.getElementById('btn-fp-tool-window')?.addEventListener('click', () => setTool('window'));
+  document.getElementById('btn-fp-tool-furn')?.addEventListener('click', () => { setTool('furniture'); toggleFurnPanel(true); });
   document.getElementById('btn-fp-topoly')?.addEventListener('click', convertToPolygon);
   initDxfImport({
     getContext: () => ({ floor: currentFloor, rooms: draft, walls: wallsDraft }),
@@ -286,8 +295,9 @@ export function initFloorplan({ getClient: gc } = {}) {
   document.getElementById('btn-fp-zoom-sel')?.addEventListener('click', fitSelection);
   initWallPanel();
   initOpeningPanel();
+  initFurniturePanel();
   // gancho de depuração/teste (só no `vite dev`; some do build de produção)
-  if (import.meta.env?.DEV) window.__fp = { w2sx, w2sz, s2wx, s2wz, get view() { return view; }, get walls() { return wallsDraft; }, get rooms() { return draft; }, get openings() { return openingsDraft; }, get sel() { return [...selWalls]; } };
+  if (import.meta.env?.DEV) window.__fp = { w2sx, w2sz, s2wx, s2wz, get view() { return view; }, get walls() { return wallsDraft; }, get rooms() { return draft; }, get openings() { return openingsDraft; }, get furniture() { return furnDraft; }, get sel() { return [...selWalls]; } };
 }
 
 /** Planta padrão (4 cômodos) apenas se não existe nenhuma parede: evita ressuscitar cômodos que o usuário apagou. */
@@ -349,6 +359,31 @@ export function subscribeWalls(client) {
   const ch = client
     .channel('walls-live')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'walls' }, () => debounced('walls', () => loadWalls(client)))
+    .subscribe();
+  return [ch];
+}
+
+/** Carrega os móveis do layout (tabela furniture). Sem a migração 014 segue sem móveis. */
+export async function loadFurniture(client) {
+  try {
+    const { data, error } = await client.from('furniture').select('*').order('sort_order');
+    if (error) throw new Error(error.message);
+    furnLive = (data || []).map(normalizeFurniture).filter((f) => FURNITURE_BY_KIND[f.kind]);
+    furnTableOk = true;
+  } catch (err) {
+    console.warn('[planta] móveis indisponíveis (migração 014 aplicada?)', err?.message || err);
+    furnTableOk = false;
+    return false;
+  }
+  state.furniture = furnLive;
+  emit('furniture-changed', state.furniture);   // a cena 3D monta os móveis
+  return true;
+}
+
+export function subscribeFurniture(client) {
+  const ch = client
+    .channel('furniture-live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'furniture' }, () => debounced('furniture', () => loadFurniture(client)))
     .subscribe();
   return [ch];
 }
@@ -416,6 +451,9 @@ function openEditor() {
   openingsBaseline = openingsLive.map((o) => ({ ...o }));
   openingsDraft = openingsBaseline.map((o) => ({ ...o }));
   selOpening = null;
+  furnBaseline = furnLive.map((f) => ({ ...f }));
+  furnDraft = furnBaseline.map((f) => ({ ...f }));
+  selFurn = null;
   currentFloor = Math.min(maxFloorUsed(), currentFloor);
   if (!draft.some((r) => r.floor === currentFloor)) currentFloor = 0;
   selectedId = null;
@@ -452,6 +490,10 @@ function closeEditor() {
   openingsDraft = [];
   selOpening = null;
   openHover = null;
+  furnDraft = [];
+  selFurn = null;
+  furnPlace = null;
+  toggleFurnPanel(false);
   selectedId = null;
   selWalls.clear();
   wallDraw = null;
@@ -476,11 +518,13 @@ function setTool(t) {
   openHover = null;
   if (t !== 'select') { select(null); selWalls.clear(); }
   if (t !== 'select' && t !== 'door' && t !== 'window') selOpening = null;
-  const map = { select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase', room: 'btn-fp-tool-room', poly: 'btn-fp-tool-poly', fill: 'btn-fp-tool-fill', door: 'btn-fp-tool-door', window: 'btn-fp-tool-window' };
+  if (t !== 'select' && t !== 'furniture') selFurn = null;
+  if (t !== 'furniture') { furnPlace = null; furnHover = null; toggleFurnPanel(false); }
+  const map = { select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase', room: 'btn-fp-tool-room', poly: 'btn-fp-tool-poly', fill: 'btn-fp-tool-fill', door: 'btn-fp-tool-door', window: 'btn-fp-tool-window', furniture: 'btn-fp-tool-furn' };
   Object.entries(map).forEach(([k, id]) => {
     document.getElementById(id)?.classList.toggle('fp-tool-active', k === t);
   });
-  if (canvas) canvas.style.cursor = (t === 'wall' || t === 'room' || t === 'poly' || t === 'fill' || t === 'door' || t === 'window') ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
+  if (canvas) canvas.style.cursor = (t === 'wall' || t === 'room' || t === 'poly' || t === 'fill' || t === 'door' || t === 'window' || t === 'furniture') ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
   draw();
 }
 
@@ -539,7 +583,7 @@ function setFloor(f) {
 // ------------------------------------------------------------
 
 function snapshot() {
-  return JSON.stringify({ rooms: draft, walls: wallsDraft, openings: openingsDraft, floor: currentFloor });
+  return JSON.stringify({ rooms: draft, walls: wallsDraft, openings: openingsDraft, furniture: furnDraft, floor: currentFloor });
 }
 
 /** Empilha o estado ATUAL como passo de undo (chame ANTES de mutar). */
@@ -561,11 +605,13 @@ function pushHistorySnap(snapStr) {
 
 function restore(snapStr) {
   try {
-    const { rooms, walls, openings, floor } = JSON.parse(snapStr);
+    const { rooms, walls, openings, furniture, floor } = JSON.parse(snapStr);
     draft = rooms;
     wallsDraft = walls || [];
     openingsDraft = openings || [];
+    furnDraft = furniture || [];
     selOpening = null;
+    selFurn = null;
     currentFloor = Math.min(floor ?? 0, maxFloorUsed());
     select(null);
     selWalls.clear();
@@ -744,6 +790,7 @@ function render() {
   const rooms = floorRooms();
   rooms.filter((r) => r.id !== selectedId).forEach((r) => drawRoom(r, false));
   pruneOpenings();
+  drawFurniture();
   drawWalls();
   drawOpenings();
   // o cômodo selecionado vai para o primeiro plano: por cima das paredes e dos vizinhos
@@ -758,6 +805,7 @@ function render() {
   syncZoomUi();
   syncWallPanel();
   syncOpeningPanel();
+  syncFurnitureSel();
   if (animating || performance.now() < flashUntil) draw();
 }
 
@@ -1844,6 +1892,25 @@ function onPointerDown(e) {
     return;
   }
 
+  // ferramenta MÓVEIS: clique insere o móvel escolhido na paleta; clicar num móvel existente o seleciona
+  if (tool === 'furniture') {
+    if (e.button !== 0) return;
+    const hitF = furnitureAt(wx, wz);
+    if (hitF && !furnPlace) {
+      selFurn = hitF.id;
+      drag = { mode: 'furn-move', id: hitF.id, snapBefore: snapshot(), changed: false, startPX: px, startPY: py, live: false, offX: wx - hitF.x, offZ: wz - hitF.z };
+      capture(e);
+      draw();
+    } else if (furnPlace) {
+      placeFurniture(furnPlace, wx, wz);
+    } else {
+      toggleFurnPanel(true);
+      toast('Escolha um móvel', 'Selecione na lista e depois clique na planta para colocá-lo.', 'info');
+    }
+    e.preventDefault();
+    return;
+  }
+
   // ferramentas PORTA / JANELA: clique numa parede insere a abertura (a ferramenta continua ativa)
   if (tool === 'door' || tool === 'window') {
     if (e.button !== 0) return;
@@ -1869,6 +1936,8 @@ function onPointerDown(e) {
     if (e.button !== 0) return;
     const oHit = openingAt(wx, wz);
     if (oHit) { deleteOpening(oHit.id); e.preventDefault(); return; }
+    const fHit = furnitureAt(wx, wz);
+    if (fHit) { deleteFurniture(fHit.id); e.preventDefault(); return; }
     const wl = wallAt(wx, wz);
     if (wl) {
       pushHistory();
@@ -1956,6 +2025,22 @@ function onPointerDown(e) {
     }
   }
   if (selOpening) { selOpening = null; draw(); }
+
+  // móvel: selecionar e arrastar (fica por cima de cômodos e paredes no clique)
+  {
+    const fHit = furnitureAt(wx, wz);
+    if (fHit && e.button === 0) {
+      selFurn = fHit.id;
+      select(null); selWalls.clear();
+      drag = { mode: 'furn-move', id: fHit.id, snapBefore: snapshot(), changed: false, startPX: px, startPY: py, live: false, offX: wx - fHit.x, offZ: wz - fHit.z };
+      capture(e);
+      canvas.style.cursor = 'grabbing';
+      draw();
+      e.preventDefault();
+      return;
+    }
+  }
+  if (selFurn) { selFurn = null; draw(); }
 
   const r = roomAt(wx, wz);
   const wl = wallAt(wx, wz);
@@ -2068,6 +2153,12 @@ function onPointerMove(e) {
     draw();
     return;
   }
+  if (tool === 'furniture' && !drag) {
+    furnHover = furnPlace ? { x: snapFurn(wx), z: snapFurn(wz) } : null;
+    canvas.style.cursor = furnPlace ? 'copy' : (furnitureAt(wx, wz) ? 'grab' : 'default');
+    draw();
+    return;
+  }
   if (tool === 'door' || tool === 'window') {
     const wl = wallAt(wx, wz);
     const d = OPENING_DEFAULTS[tool];
@@ -2102,11 +2193,27 @@ function onPointerMove(e) {
     }
     if (sr && isPoly(sr) && polyAbs(sr).some(([x, z]) => Math.hypot(wx - x, wz - z) <= vtxR())) { setHover(null); canvas.style.cursor = 'move'; return; }
     if (openingAt(wx, wz)) { setHover(null); canvas.style.cursor = 'pointer'; return; }
+    if (furnitureAt(wx, wz)) { setHover(null); canvas.style.cursor = 'grab'; return; }
     const wl = wallAt(wx, wz);
     setHover(wl?.id || null);
     if (wl) { canvas.style.cursor = 'grab'; return; }
     const r = roomAt(wx, wz);
     canvas.style.cursor = r ? 'grab' : 'default';
+    return;
+  }
+
+  // arrasto de um móvel
+  if (drag.mode === 'furn-move') {
+    const f = furnDraft.find((x) => x.id === drag.id);
+    if (!f) { drag = null; return; }
+    if (!drag.live) {
+      if (Math.hypot(px - drag.startPX, py - drag.startPY) < 4) return;
+      drag.live = true;
+    }
+    f.x = snapFurn(wx - drag.offX); f.z = snapFurn(wz - drag.offZ);
+    drag.changed = true;
+    syncToolbar();
+    draw();
     return;
   }
 
@@ -2275,6 +2382,17 @@ function onPointerUp(e) {
     return;
   }
 
+  if (mode === 'furn-move') {
+    const { snapBefore, changed } = drag;
+    drag = null;
+    canvas.style.cursor = 'default';
+    try { canvas.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+    if (changed) pushHistorySnap(snapBefore);
+    syncToolbar();
+    draw();
+    return;
+  }
+
   if (mode === 'open-move') {
     const { snapBefore, changed } = drag;
     drag = null;
@@ -2424,12 +2542,14 @@ function onKeyDown(e) {
     const k = e.key.toLowerCase();
     if (k === 'v') { setTool('select'); return; }
     if (k === 'w') { setTool('wall'); return; }
-    if (k === 'r') { setTool('room'); return; }
+    if (k === 'r' && !selFurn) { setTool('room'); return; }
     if (k === 'e') { setTool('erase'); return; }
     if (k === 'p') { setTool('poly'); return; }
     if (k === 'b') { setTool('fill'); return; }
     if (k === 'd') { setTool('door'); return; }
     if (k === 'j') { setTool('window'); return; }
+    if (k === 'm') { setTool('furniture'); toggleFurnPanel(true); return; }
+    if (k === 'r' && selFurn) { e.preventDefault(); rotateFurniture(e.shiftKey ? -90 : 90); return; }
     // zoom e vista: + − 0 (tudo) F (seleção) Espaço (mover a vista)
     if (k === '+' || k === '=') { e.preventDefault(); zoomCenter(1.25); return; }
     if (k === '-' || k === '_') { e.preventDefault(); zoomCenter(1 / 1.25); return; }
@@ -2453,7 +2573,7 @@ function onKeyDown(e) {
     return;
   }
   if (mod && e.key.toLowerCase() === 'd' && !typing) {
-    e.preventDefault(); duplicateSelected(); return;
+    e.preventDefault(); if (selFurn) duplicateFurniture(); else duplicateSelected(); return;
   }
 
   if (tool === 'poly' && polyDraw && !typing) {
@@ -2474,6 +2594,8 @@ function onKeyDown(e) {
     if (wallDraw) { wallDraw = null; draw(); return; } // encerra o encadeamento de paredes
     if (!presetsEl?.classList.contains('hidden')) { hidePresets(); return; }
     if (marquee) { marquee = null; drag = null; draw(); return; }
+    if (furnPlace) { furnPlace = null; furnHover = null; setTool('select'); return; }   // sai da inserção de móveis
+    if (selFurn) { selFurn = null; draw(); return; }
     if (selOpening) { selOpening = null; draw(); return; }
     if (selWalls.size) { selWalls.clear(); draw(); return; }
     if (!formEl?.classList.contains('hidden')) hideForm();
@@ -2482,6 +2604,7 @@ function onKeyDown(e) {
   }
 
   if ((e.key === 'Delete' || e.key === 'Backspace') && !typing) {
+    if (selFurn) { e.preventDefault(); deleteFurniture(selFurn); return; }
     if (selOpening) { e.preventDefault(); deleteOpening(selOpening); return; }
     if (selWalls.size) {
       e.preventDefault();
@@ -2502,6 +2625,20 @@ function onKeyDown(e) {
   // setas: nudge de 0,5 m (Shift = 0,1 m) no cômodo selecionado
   const NUDGE = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
   // setas nas paredes selecionadas: 0,1 m (Shift = 0,5 m); vizinhas coladas acompanham (Alt solta)
+  if (NUDGE[e.key] && selFurn && !typing) {
+    const f = selectedFurniture();
+    if (f) {
+      e.preventDefault();
+      if (!nudgeSnap) nudgeSnap = snapshot();
+      clearTimeout(nudgeTimer);
+      nudgeTimer = setTimeout(commitNudge, 700);
+      const step = e.shiftKey ? 0.25 : 0.05;
+      const [dx, dz] = NUDGE[e.key];
+      f.x = r4(f.x + dx * step); f.z = r4(f.z + dz * step);
+      draw();
+    }
+    return;
+  }
   if (NUDGE[e.key] && selOpening && !typing) {
     const o = selectedOpening();
     const wl = o && wallById(o.wall_id);
@@ -2805,6 +2942,161 @@ function syncOpeningPanel() {
 }
 
 // ------------------------------------------------------------
+// Móveis (layout do usuário): catálogo em js/furniture.js, tabela furniture
+// ------------------------------------------------------------
+
+const FURN_SNAP = 0.05;
+function snapFurn(v) { return Math.round(v / FURN_SNAP) * FURN_SNAP; }
+
+function floorFurniture(f = currentFloor) { return furnDraft.filter((x) => (Number(x.floor) || 0) === f); }
+function selectedFurniture() { return furnDraft.find((x) => x.id === selFurn) || null; }
+
+/** Móvel sob o cursor (o último desenhado ganha). */
+function furnitureAt(wx, wz) {
+  const list = floorFurniture();
+  const pad = hitR() * 0.4;
+  for (let i = list.length - 1; i >= 0; i--) if (furnitureHit(list[i], wx, wz, pad)) return list[i];
+  return null;
+}
+
+function placeFurniture(kind, wx, wz) {
+  if (!FURNITURE_BY_KIND[kind]) return;
+  pushHistory();
+  const maxSort = furnDraft.reduce((m, x) => Math.max(m, x.sort_order ?? 0), 0);
+  const f = { id: genUuid(), floor: currentFloor, kind, x: snapFurn(wx), z: snapFurn(wz), rot: 0, sort_order: maxSort + 1 };
+  furnDraft.push(f);
+  selFurn = f.id;
+  syncToolbar();
+  draw();
+}
+
+function rotateFurniture(deg) {
+  const f = selectedFurniture();
+  if (!f) return;
+  pushHistory();
+  f.rot = ((((f.rot || 0) + deg) % 360) + 360) % 360;
+  draw();
+}
+
+function duplicateFurniture() {
+  const f = selectedFurniture();
+  if (!f) return;
+  pushHistory();
+  const def = FURNITURE_BY_KIND[f.kind];
+  const copy = { ...f, id: genUuid(), x: r4(f.x + Math.min(1, def.w * 0.6)), z: r4(f.z + 0.3), sort_order: (f.sort_order ?? 0) + 1 };
+  furnDraft.push(copy);
+  selFurn = copy.id;
+  draw();
+}
+
+function deleteFurniture(id) {
+  if (!furnDraft.some((x) => x.id === id)) return;
+  pushHistory();
+  furnDraft = furnDraft.filter((x) => x.id !== id);
+  if (selFurn === id) selFurn = null;
+  syncToolbar();
+  draw();
+}
+
+function drawOneFurniture(f, mode = '') {
+  const def = FURNITURE_BY_KIND[f.kind];
+  if (!def) return;
+  const pts = furnitureCorners(f).map(([x, z]) => [w2sx(x), w2sz(z)]);
+  ctx.save();
+  ctx.beginPath();
+  pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  ctx.closePath();
+  ctx.fillStyle = mode === 'sel' ? 'rgba(167,139,250,0.42)' : (mode === 'ghost' ? 'rgba(167,139,250,0.18)' : 'rgba(148,163,184,0.26)');
+  ctx.fill();
+  ctx.lineWidth = mode === 'sel' ? 2 : 1.2;
+  ctx.strokeStyle = mode === 'sel' ? '#c4b5fd' : 'rgba(203,213,225,0.75)';
+  if (mode === 'ghost') ctx.setLineDash([5, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // "frente" do móvel (lado +z local): traço mais grosso — ajuda a girar sem dúvida
+  const [, , c3, c4] = pts;
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = mode === 'sel' ? '#ede9fe' : 'rgba(226,232,240,0.55)';
+  line(c3[0], c3[1], c4[0], c4[1]);
+  // rótulo (só quando cabe)
+  const cx = w2sx(f.x), cy = w2sz(f.z);
+  const minPx = Math.min(def.w, def.d) * view.scale;
+  if (minPx > 26 || mode === 'sel') {
+    ctx.font = `600 ${minPx > 60 ? 12 : 10}px 'IBM Plex Sans', sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = mode === 'sel' ? '#f5f3ff' : 'rgba(226,232,240,0.9)';
+    ctx.fillText(def.label, cx, cy);
+  }
+  ctx.restore();
+}
+
+function drawFurniture() {
+  const list = floorFurniture();
+  list.forEach((f) => { if (f.id !== selFurn) drawOneFurniture(f); });
+  const s = list.find((f) => f.id === selFurn);
+  if (s) drawOneFurniture(s, 'sel');
+  if (tool === 'furniture' && furnPlace && furnHover) drawOneFurniture({ kind: furnPlace, x: furnHover.x, z: furnHover.z, rot: 0 }, 'ghost');
+}
+
+function buildFurnPanel() {
+  const el = document.getElementById('fp-furn-panel');
+  if (!el) return;
+  el.innerHTML = '<p class="fp-presets-title">Escolha um móvel e clique na planta</p>';
+  const groups = [...new Set(FURNITURE.map((f) => f.group))];
+  groups.forEach((g) => {
+    const h = document.createElement('p');
+    h.className = 'fp-furn-group';
+    h.textContent = g;
+    el.appendChild(h);
+    const grid = document.createElement('div');
+    grid.className = 'fp-presets-grid';
+    FURNITURE.filter((f) => f.group === g).forEach((f) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'fp-preset-btn fp-furn-btn';
+      btn.dataset.kind = f.kind;
+      btn.innerHTML = `<span>${f.label}</span><small>${fmt1(f.w)} × ${fmt1(f.d)} m</small>`;
+      btn.addEventListener('click', () => {
+        furnPlace = f.kind;
+        selFurn = null;
+        el.querySelectorAll('.fp-furn-btn').forEach((b) => b.classList.toggle('fp-furn-active', b === btn));
+        toggleFurnPanel(false);
+        toast(`${f.label}: clique na planta`, 'Clique quantas vezes quiser para inserir. Esc termina · R gira o selecionado.', 'info');
+        draw();
+      });
+      grid.appendChild(btn);
+    });
+    el.appendChild(grid);
+  });
+}
+
+function toggleFurnPanel(open) {
+  const el = document.getElementById('fp-furn-panel');
+  if (!el) return;
+  if (open && !el.childElementCount) buildFurnPanel();
+  el.classList.toggle('hidden', !open);
+  if (open) { hidePresets(); hideBgPanel(); }
+}
+
+function initFurniturePanel() {
+  document.getElementById('fp-furn-rot')?.addEventListener('click', () => rotateFurniture(90));
+  document.getElementById('fp-furn-dup')?.addEventListener('click', duplicateFurniture);
+  document.getElementById('fp-furn-del')?.addEventListener('click', () => { if (selFurn) deleteFurniture(selFurn); });
+}
+
+let furnSelKey = '';
+function syncFurnitureSel() {
+  const panel = document.getElementById('fp-furn-sel');
+  if (!panel) return;
+  const f = selectedFurniture();
+  const key = f ? `${f.id}:${f.kind}` : '';
+  if (key === furnSelKey) return;
+  furnSelKey = key;
+  panel.classList.toggle('hidden', !f);
+  if (f) document.getElementById('fp-furn-title').textContent = FURNITURE_BY_KIND[f.kind]?.label || 'Móvel';
+}
+
+// ------------------------------------------------------------
 // Seleção + formulário lateral
 // ------------------------------------------------------------
 
@@ -2991,7 +3283,7 @@ async function savePlan() {
   if (saving) return;
 
   // validações
-  if (!draft.length && !wallsDraft.length) {
+  if (!draft.length && !wallsDraft.length && !furnDraft.length) {
     toast('Planta vazia', 'Adicione ao menos um cômodo ou uma parede antes de salvar.', 'warning');
     return;
   }
@@ -3104,6 +3396,34 @@ async function savePlan() {
           if (e7) throw new Error(e7.message);
         }
       }
+    }
+
+    // móveis do layout (migração 014): remove os apagados e grava os demais; sem a tabela, avisa e segue
+    let furnSkipped = false, furnError = '';
+    {
+      const { data: existingF, error: ef } = await client.from('furniture').select('id');
+      if (ef) {
+        furnSkipped = furnDraft.length > 0 || furnLive.length > 0;
+        furnError = ef.message || 'erro desconhecido';
+      } else {
+        const removedF = (existingF || []).filter((x) => !furnDraft.some((d) => d.id === x.id));
+        for (const ids of chunk(removedF.map((x) => x.id), 50)) {
+          const { error: e8 } = await client.from('furniture').delete().in('id', ids);
+          if (e8) throw new Error(e8.message);
+        }
+        const fRows = furnDraft.map((f) => ({ id: f.id, floor: f.floor ?? 0, kind: f.kind, x: f.x, z: f.z, rot: f.rot ?? 0, sort_order: f.sort_order ?? 0 }));
+        for (const rows of chunk(fRows, 200)) {
+          const { error: e9 } = await client.from('furniture').upsert(rows);
+          if (e9) throw new Error(e9.message);
+        }
+      }
+    }
+    if (!furnSkipped && await loadFurniture(client)) {
+      furnBaseline = furnLive.map((f) => ({ ...f }));
+      furnDraft = furnBaseline.map((f) => ({ ...f }));
+    }
+    if (furnSkipped) {
+      toast('Móveis não foram gravados', `${furnError} — execute a migração 014_furniture.sql no Supabase e salve de novo. O resto da planta foi salvo.`, 'critical');
     }
 
     // recarrega do banco; só troca o rascunho se a leitura funcionou (senão mantém o que está na tela)

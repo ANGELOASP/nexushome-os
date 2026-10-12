@@ -13,7 +13,9 @@
 // ============================================================
 
 import { state, on, emit, floorLabel, inferRoomKind } from './state.js';
-import { isPoly, polyCentroid, innerRect, wallPieces } from './geometry.js';
+import { isPoly, polyCentroid, innerRect, wallPieces, pointInPoly } from './geometry.js';
+import { FURNITURE_BY_KIND } from './furniture.js';
+import { buildFurnitureModel } from './scene-furniture.js';
 
 const METER = 1.9;          // unidades de cena por metro (3.0 m → 5.7 un., paridade com o layout original)
 const WALL_H = 2.5;
@@ -40,6 +42,9 @@ let spin = false;            // giro automático (desligado por padrão)
 let userMoved = false;       // o usuário mexeu na câmera desde o último enquadramento
 let planBox = null;          // caixa da planta visível (THREE.Box3)
 let downPos = null;
+let sun = null;              // luz principal (sombra ajustada ao tamanho da planta)
+let insideRoom = null;       // nome do cômodo em que a câmera "entrou"
+const texCache = {};         // texturas procedurais de piso por tipo
 const clock = { t: 0, last: performance.now() };
 
 export function initScene3D(containerEl, labelsEl, onRoomSelect) {
@@ -60,6 +65,9 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputEncoding = THREE.sRGBEncoding;
+  // tons de cinema (ACES): luz e cor mais naturais, sem estourar brancos
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.12;
   container.appendChild(renderer.domElement);
 
   controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -109,6 +117,7 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   on('rooms-changed', () => rebuildPlan());
   on('walls-changed', () => rebuildPlan());
   on('openings-changed', () => rebuildPlan());
+  on('furniture-changed', () => rebuildPlan());
 
   buildFloorFilter();
   animate();
@@ -120,18 +129,20 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
 // ------------------------------------------------------------
 
 function buildLights(THREE) {
-  const hemi = new THREE.HemisphereLight(0x93c5fd, 0x0b1120, 0.55);
+  const hemi = new THREE.HemisphereLight(0xbcd7ff, 0x1a1f2e, 0.7);
   scene.add(hemi);
 
-  const sun = new THREE.DirectionalLight(0xfff2df, 0.95);
+  sun = new THREE.DirectionalLight(0xfff0dc, 1.15);
   sun.position.set(12, 20, 9);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.left = -14; sun.shadow.camera.right = 14;
   sun.shadow.camera.top = 14; sun.shadow.camera.bottom = -14;
-  sun.shadow.camera.far = 60;
+  sun.shadow.camera.far = 80;
   sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.02;
   scene.add(sun);
+  scene.add(sun.target);
 
   const rim = new THREE.DirectionalLight(0x6366f1, 0.25);
   rim.position.set(-10, 8, -12);
@@ -213,12 +224,72 @@ function buildPlan(THREE) {
 
   // andares com paredes vetoriais (desenhadas/importadas) não ganham as paredes "de cenário" dos cômodos
   const realWallFloors = new Set(wallsAll.map((w) => fl(w.floor)));
-  state.rooms.forEach((row) => buildRoom(THREE, roomDefFromRow(row), realWallFloors.has(fl(row.floor))));
+  // móveis do usuário: cada um pertence ao cômodo (mesmo andar) que contém o seu centro
+  const furnByRoom = new Map();
+  const looseFurniture = [];
+  (state.furniture || []).forEach((f) => {
+    if (!FURNITURE_BY_KIND[f.kind]) return;
+    const row = state.rooms.find((r) => fl(r.floor) === fl(f.floor) && roomContains(r, f.x, f.z));
+    if (row) {
+      if (!furnByRoom.has(row.name)) furnByRoom.set(row.name, []);
+      furnByRoom.get(row.name).push(f);
+    } else looseFurniture.push(f);
+  });
+  state.rooms.forEach((row) => buildRoom(THREE, roomDefFromRow(row), realWallFloors.has(fl(row.floor)), furnByRoom.get(row.name) || []));
   buildRealWalls(THREE, wallsAll, state.openings || []);
+  buildLooseFurniture(THREE, looseFurniture);
   applyFloorFilter();
+  fitShadow(THREE);
+}
+
+/** A sombra do sol cobre a planta inteira (antes era fixa em ±14 un. e plantas grandes ficavam sem sombra). */
+function fitShadow(THREE) {
+  if (!sun) return;
+  const box = new THREE.Box3();
+  floorSlabs.forEach((f) => box.expandByObject(f.mesh));
+  wallMeshes.forEach((w) => box.expandByObject(w.mesh));
+  if (box.isEmpty()) return;
+  const c = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const r = Math.max(8, Math.hypot(size.x, size.z) / 2 + 2);
+  sun.target.position.copy(c);
+  sun.position.set(c.x + r * 0.6, c.y + r * 1.4 + 8, c.z + r * 0.45);
+  Object.assign(sun.shadow.camera, { left: -r, right: r, top: r, bottom: -r, near: 0.5, far: r * 4 + 30 });
+  sun.shadow.camera.updateProjectionMatrix();
 }
 
 // Reconstrói a planta inteira (dispose correto de geometrias/materiais)
+function roomContains(row, x, z) {
+  const px = Number(row.pos_x) || 0, pz = Number(row.pos_z) || 0;
+  if (isPoly(row)) return pointInPoly(x - px, z - pz, row.points);
+  return Math.abs(x - px) <= (Number(row.size_x) || 0) / 2 && Math.abs(z - pz) <= (Number(row.size_z) || 0) / 2;
+}
+
+/** Monta um móvel do usuário (metros → cena) dentro de `parent`, com origem em (ox, oz) metros. */
+function addFurniture(THREE, parent, f, ox, oz, y0 = 0) {
+  const { group, fx } = buildFurnitureModel(THREE, f.kind);
+  group.scale.set(METER, VSCALE, METER);
+  group.position.set((f.x - ox) * METER, y0, (f.z - oz) * METER);
+  group.rotation.y = -((Number(f.rot) || 0) * Math.PI) / 180;   // mesma convenção do editor 2D
+  parent.add(group);
+  return fx;
+}
+
+/** Móveis fora de qualquer cômodo (planta só com paredes): ficam soltos no andar. */
+function buildLooseFurniture(THREE, list) {
+  list.forEach((f) => {
+    const fl = Math.max(0, Math.trunc(Number(f.floor) || 0));
+    const holder = new THREE.Group();
+    holder.position.set(0, 0.16 + fl * FLOOR_H, 0);
+    holder.userData.roomFloor = fl;
+    planGroup.add(holder);
+    addFurniture(THREE, holder, f, 0, 0);
+    holder.traverse((o) => { if (o.isMesh) o.userData.roomFloor = fl; });
+    looseByFloor.push({ floor: fl, group: holder });
+  });
+}
+let looseByFloor = [];
+
 function rebuildPlan() {
   const THREE = window.THREE;
   if (!THREE || !scene) return;
@@ -237,6 +308,7 @@ function rebuildPlan() {
   rooms = {};
   pickMeshes = [];
   wallMeshes = [];
+  looseByFloor = [];
 
   buildPlan(THREE);
   buildFloorFilter();
@@ -262,7 +334,101 @@ function box(THREE, w, h, d, material, x = 0, y = 0, z = 0, castShadow = true) {
   return m;
 }
 
-function buildRoom(THREE, def, skipWalls = false) {
+// ---- texturas procedurais de piso (canvas, sem arquivos): madeira, cerâmica, grama, cimento
+const FLOOR_STYLE = {
+  sala_estar: 'wood', quarto: 'wood', suite: 'wood', escritorio: 'wood', closet: 'wood', sala_jantar: 'wood', corredor: 'wood',
+  cozinha: 'tile', banheiro: 'tile', lavanderia: 'tile', despensa: 'tile',
+  area_externa: 'grass', varanda: 'deck', garagem: 'concrete',
+};
+function floorTexture(THREE, style) {
+  if (texCache[style]) return texCache[style];
+  const S = 256;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const g = cv.getContext('2d');
+  const rnd = (() => { let x = 12345; return () => ((x = (x * 16807) % 2147483647) / 2147483647); })();
+  if (style === 'wood' || style === 'deck') {
+    const base = style === 'deck' ? [120, 92, 66] : [168, 128, 92];
+    for (let i = 0; i < 8; i++) {                         // 8 réguas de 32 px
+      const k = 0.82 + rnd() * 0.3;
+      g.fillStyle = `rgb(${base.map((c) => Math.round(c * k)).join(',')})`;
+      g.fillRect(0, i * 32, S, 32);
+      for (let j = 0; j < 40; j++) {                       // veios
+        g.strokeStyle = `rgba(60,40,25,${0.05 + rnd() * 0.08})`;
+        g.beginPath(); const y = i * 32 + rnd() * 32; g.moveTo(0, y); g.bezierCurveTo(S / 3, y + 3, S / 1.5, y - 3, S, y + 1); g.stroke();
+      }
+      g.fillStyle = 'rgba(40,26,16,0.55)'; g.fillRect(0, i * 32, S, 1.5);
+      g.fillRect(((i * 97) % S), i * 32, 1.5, 32);         // emenda de topo
+    }
+  } else if (style === 'tile') {
+    g.fillStyle = '#d9dde3'; g.fillRect(0, 0, S, S);
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+      const k = 0.94 + rnd() * 0.08;
+      g.fillStyle = `rgb(${[222, 226, 232].map((c) => Math.round(c * k)).join(',')})`;
+      g.fillRect(x * 64 + 1.5, y * 64 + 1.5, 61, 61);
+    }
+    g.fillStyle = '#a8aeb8';
+    for (let i = 0; i <= 4; i++) { g.fillRect(i * 64 - 1, 0, 2, S); g.fillRect(0, i * 64 - 1, S, 2); }
+  } else if (style === 'grass') {
+    g.fillStyle = '#3f7a3a'; g.fillRect(0, 0, S, S);
+    for (let i = 0; i < 2600; i++) { g.fillStyle = `rgba(${30 + rnd() * 60},${100 + rnd() * 70},${30 + rnd() * 40},0.55)`; g.fillRect(rnd() * S, rnd() * S, 1.5, 3); }
+  } else {
+    g.fillStyle = '#8b9099'; g.fillRect(0, 0, S, S);
+    for (let i = 0; i < 3500; i++) { const v = 110 + rnd() * 60; g.fillStyle = `rgba(${v},${v},${v + 4},0.25)`; g.fillRect(rnd() * S, rnd() * S, 2, 2); }
+    g.fillStyle = 'rgba(60,64,70,0.5)'; g.fillRect(0, S / 2, S, 1.5); g.fillRect(S / 2, 0, 1.5, S);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.encoding = THREE.sRGBEncoding;
+  tex.anisotropy = Math.min(8, renderer?.capabilities?.getMaxAnisotropy?.() || 1);
+  texCache[style] = tex;
+  return tex;
+}
+const TILE_M = { wood: 1.6, deck: 1.6, tile: 1.2, grass: 2.5, concrete: 2.0 };   // metros por repetição da textura
+
+/** Mobília mínima quando o usuário montou o próprio layout: brilho de teto, lâmpada e ar-condicionado (se houver). */
+function furnishFx(THREE, g, room, userFx) {
+  const SX = room.def.sizeX, SZ = room.def.sizeZ;
+  const glowMat = mat(THREE, 0x1a2440, { emissive: 0xffc887, emissiveIntensity: 0 });
+  g.add(box(THREE, SX - 0.3, 0.04, SZ - 0.3, glowMat, 0, WALL_H - 0.05, 0, false));
+  room.fx.ceilingGlow = glowMat;
+  const lamp = userFx.find((f) => f.lampShade);
+  if (lamp) {
+    room.fx.lampShade = lamp.lampShade;
+    room.lights.lamp = lamp.lamp;
+  } else {
+    // plafon no teto: é ele que acende com a luz do cômodo
+    const shadeMat = mat(THREE, 0xfff1d6, { emissive: 0xffd9a0, emissiveIntensity: 0 });
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.05, 28), shadeMat);
+    disc.position.set(0, WALL_H - 0.12, 0);
+    g.add(disc);
+    room.fx.lampShade = shadeMat;
+    const pt = new THREE.PointLight(0xffd9a0, 0, Math.max(SX, SZ) * 1.6, 2);
+    pt.position.set(0, WALL_H - 0.3, 0);
+    pt.castShadow = true;
+    g.add(pt);
+    room.lights.lamp = pt;
+  }
+  if (state.devices.some((d) => d.room === room.def.name && d.type === 'ac')) {
+    const acMat = mat(THREE, 0xe8edf5, { roughness: 0.4, emissive: 0x38bdf8, emissiveIntensity: 0 });
+    g.add(box(THREE, 1.5, 0.5, 0.3, acMat, 0, 1.95, -SZ / 2 + 0.25));
+    const ventMat = mat(THREE, 0x94a3b8, { emissive: 0x38bdf8, emissiveIntensity: 0 });
+    g.add(box(THREE, 1.3, 0.08, 0.05, ventMat, 0, 1.78, -SZ / 2 + 0.42));
+    room.fx.acBody = acMat; room.fx.acVent = ventMat;
+    const flowMat = new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0, depthWrite: false });
+    room.fx.airFlows = [0, 1, 2].map((i) => {
+      const f = new THREE.Mesh(new THREE.PlaneGeometry(1.1 - i * 0.2, 0.16), flowMat.clone());
+      f.position.set(0, 1.55 - i * 0.28, -SZ / 2 + 0.6 + i * 0.15);
+      f.rotation.x = 0.5;
+      g.add(f);
+      return f;
+    });
+  }
+  const tv = userFx.find((f) => f.tvScreen);
+  if (tv) room.fx.tvScreen = tv.tvScreen;
+}
+
+function buildRoom(THREE, def, skipWalls = false, userFurn = []) {
   const poly = Array.isArray(def.points) && def.points.length >= 3;
   const g = new THREE.Group();
   g.position.set(def.pos[0], 0.16 + def.floorNo * FLOOR_H, def.pos[2]);
@@ -271,10 +437,15 @@ function buildRoom(THREE, def, skipWalls = false) {
   const room = { group: g, def, walls: [], lights: {}, fx: {}, floorMat: null, wallMats: [] };
   const SX = def.sizeX, SZ = def.sizeZ;
 
-  // piso: cor do cômodo misturada ao escuro do tema
-  const baseHex = def.outdoor ? 0x14301f : 0x111a30;
-  const floorColor = new THREE.Color(def.color).lerp(new THREE.Color(baseHex), 0.78);
-  const floorMat = mat(THREE, floorColor, { roughness: def.outdoor ? 1 : 0.7 });
+  // piso com textura pelo tipo do cômodo (madeira, cerâmica, grama...) e leve tom da cor do cômodo
+  const style = FLOOR_STYLE[def.kind] || (def.outdoor ? 'grass' : 'wood');
+  const tex = floorTexture(THREE, style).clone();
+  tex.needsUpdate = true;
+  const tileU = TILE_M[style] * METER;
+  if (poly) tex.repeat.set(1 / tileU, 1 / tileU);          // UV do ExtrudeGeometry = coordenadas da forma
+  else tex.repeat.set(SX / tileU, SZ / tileU);
+  const floorColor = new THREE.Color(0xffffff).lerp(new THREE.Color(def.color), 0.16);
+  const floorMat = mat(THREE, floorColor, { map: tex, roughness: style === 'tile' ? 0.35 : (style === 'grass' ? 1 : 0.62) });
   const floor = poly ? polyFloor(THREE, def.points, floorMat) : box(THREE, SX, 0.12, SZ, floorMat, 0, 0, 0);
   floor.userData.roomName = def.name;
   g.add(floor);
@@ -285,7 +456,7 @@ function buildRoom(THREE, def, skipWalls = false) {
     // o andar tem paredes vetoriais próprias (desenhadas ou importadas do CAD): sem paredes de cenário
   } else if (poly) {
     // polígono: todas as arestas viram paredes baixas (vista de "casa de boneca")
-    const wallMat = mat(THREE, def.outdoor ? 0x2d3a55 : 0x25304f, { roughness: 0.95 });
+    const wallMat = mat(THREE, def.outdoor ? 0x8a94a6 : 0xdfe3ea, { roughness: 0.92 });
     const h = def.outdoor ? 0.7 : WALL_H * 0.6;
     const pts = def.points;
     pts.forEach(([ax, az], i) => {
@@ -300,7 +471,7 @@ function buildRoom(THREE, def, skipWalls = false) {
     });
   } else if (!def.outdoor) {
     // paredes (duas externas + meias-paredes internas para visibilidade)
-    const wallMat = mat(THREE, 0x25304f, { roughness: 0.95 });
+    const wallMat = mat(THREE, 0xdfe3ea, { roughness: 0.92 });
     const mkWall = (w, h, d, x, y, z) => {
       const wm = wallMat.clone();
       const m = box(THREE, w, h, d, wm, x, y, z);
@@ -339,9 +510,12 @@ function buildRoom(THREE, def, skipWalls = false) {
   g.add(hl);
   room.highlight = hl;
 
-  // mobiliário segue o `kind` do cômodo (presets da v1.6.0), com
-  // fallback genérico para tipos desconhecidos
-  const furnish = FURNISH_BY_KIND[def.kind] || furnishGeneric;
+  // mobiliário: o layout do usuário (móveis colocados no editor) tem prioridade; sem ele,
+  // a mobília automática segue o `kind` do cômodo (presets da v1.6.0)
+  const userFx = userFurn.map((f) => addFurniture(THREE, g, f, Number(def.pos[0]) / METER, Number(def.pos[2]) / METER));
+  const furnish = userFurn.length
+    ? (T, grp, rm) => furnishFx(T, grp, rm, userFx)
+    : (FURNISH_BY_KIND[def.kind] || furnishGeneric);
   let fg = g;
   let FSX = SX, FSZ = SZ;
   if (poly) {
@@ -479,7 +653,7 @@ function buildRealWalls(THREE, walls, openings = []) {
           ql, new THREE.Vector3(wd, d.h, lt)));
       });
     });
-    addInstanced(f, solids, new THREE.MeshStandardMaterial({ color: 0x3b4868, roughness: 0.92, metalness: 0.02 }));
+    addInstanced(f, solids, new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.9, metalness: 0.02 }));
     addInstanced(f, glass, new THREE.MeshStandardMaterial({ color: 0x9ad8ff, roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.35, depthWrite: false }), false);
     addInstanced(f, leaves, new THREE.MeshStandardMaterial({ color: 0x8b6b4a, roughness: 0.7, metalness: 0.05 }));
   });
@@ -552,23 +726,26 @@ function applyFloorFilter() {
     mesh.visible = floorFilter === 'all' || floor === floorFilter;
     ghostMesh(mesh, floorFilter === 'all' && floor > 0);
   });
+  looseByFloor.forEach(({ floor, group }) => { group.visible = floorFilter === 'all' || floor === floorFilter; });
 }
 
-function ghostMesh(mesh, ghost) {
+function ghostMesh(mesh, ghost, k = 0.55) {
   const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
   mats.forEach((m) => {
     if (m.userData.baseOpacity === undefined) {
       m.userData.baseOpacity = m.opacity;
       m.userData.baseTransparent = m.transparent;
+      m.userData.baseDepthWrite = m.depthWrite;
     }
-    m.opacity = m.userData.baseOpacity * (ghost ? 0.55 : 1);
+    m.opacity = m.userData.baseOpacity * (ghost ? k : 1);
     m.transparent = ghost || m.userData.baseTransparent;
+    m.depthWrite = ghost ? k > 0.5 : m.userData.baseDepthWrite ?? m.depthWrite;
   });
 }
 
-function setRoomGhost(room, ghost) {
-  room.ghost = ghost ? 0.55 : 1;
-  room.group.traverse((o) => { if (o.isMesh) ghostMesh(o, ghost); });
+function setRoomGhost(room, ghost, k = 0.55) {
+  room.ghost = ghost ? k : 1;
+  room.group.traverse((o) => { if (o.isMesh) ghostMesh(o, ghost, k); });
 }
 
 // ---- Sala de Estar: sofá, mesa, luminária (dispositivo "light")
@@ -958,9 +1135,14 @@ export function selectRoom(name) {
     r.label.classList.toggle('room-label-active', n === name);
   });
   if (name && rooms[name]) {
+    // clicar no cômodo = "entrar" nele: câmera fixada, vista em corte (paredes
+    // translúcidas) e os demais cômodos esmaecidos
+    lockedRoom = true;
+    enterRoom(name);
     if (changed) focusRoom(name);
   } else {
     lockedRoom = false;
+    leaveRoom();
     if (changed) fitCamera(true);
   }
   syncCameraUI();
@@ -1056,6 +1238,35 @@ export function fitCamera(animated = true) {
   userMoved = false;
 }
 
+/** Vista "dentro do cômodo": paredes do andar em corte e os outros cômodos esmaecidos. */
+function enterRoom(name) {
+  const r = rooms[name];
+  if (!r) return;
+  insideRoom = name;
+  const f = r.def.floorNo;
+  Object.values(rooms).forEach((o) => {
+    if (o === r) {
+      setRoomGhost(o, false);
+      o.walls.forEach((m) => ghostMesh(m, true, 0.28));
+    } else setRoomGhost(o, true, o.def.floorNo === f ? 0.3 : 0.08);
+  });
+  wallMeshes.forEach(({ floor, mesh }) => ghostMesh(mesh, true, floor === f ? 0.3 : 0.08));
+  floorSlabs.forEach(({ floor, mesh }) => ghostMesh(mesh, floor !== f, 0.25));
+  looseByFloor.forEach(({ floor, group }) => { group.visible = floor === f; });
+  controls.minDistance = 1.2;
+  applyViewOffset();
+  Object.values(rooms).forEach((o) => o.label.classList.toggle('room-label-dim', o !== r));
+}
+
+function leaveRoom() {
+  if (!insideRoom) return;
+  insideRoom = null;
+  controls.minDistance = 2.5;
+  applyViewOffset();
+  Object.values(rooms).forEach((o) => o.label.classList.remove('room-label-dim'));
+  applyFloorFilter();
+}
+
 function focusRoom(name) {
   const THREE = window.THREE;
   const r = rooms[name];
@@ -1064,8 +1275,11 @@ function focusRoom(name) {
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
   const rad = Math.max(1.6, Math.hypot(size.x, size.z) / 2 + 0.4);
-  center.y = Math.min(1.1, size.y / 2);
-  flyTo({ target: center, radius: Math.max(controls.minDistance + 0.5, distanceToFit(rad) * 0.9), phi: viewMode === 'top' ? 0.02 : 0.92 });
+  center.y = r.def.floorNo * FLOOR_H + 0.9;
+  // dentro do cômodo: mais perto e um pouco mais baixo (vista de "casa de bonecas")
+  const inside = insideRoom === name;
+  const radius = Math.max(controls.minDistance + 0.4, distanceToFit(rad) * (inside ? 1.05 : 0.9));
+  flyTo({ target: center, radius, phi: viewMode === 'top' ? 0.02 : (inside ? 0.82 : 0.92) }, inside ? 800 : 650);
   userMoved = false;
 }
 
@@ -1074,8 +1288,10 @@ function applyViewOffset() {
   const w = container.clientWidth || window.innerWidth;
   const h = container.clientHeight || window.innerHeight;
   const { shift } = freeBand();
-  if (Math.abs(shift) < 1) { camera.clearViewOffset(); }
-  else camera.setViewOffset(w, h, -shift, 0, w, h);
+  // dentro de um cômodo o painel do ambiente ocupa o topo: desce um pouco a cena
+  const vy = insideRoom && window.innerWidth >= 900 ? Math.min(130, h * 0.14) : 0;
+  if (Math.abs(shift) < 1 && !vy) { camera.clearViewOffset(); }
+  else camera.setViewOffset(w, h, -shift, -vy, w, h);
   camera.updateProjectionMatrix();
 }
 
@@ -1144,7 +1360,8 @@ function wireCameraUI() {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-    if (document.getElementById('fp-canvas')?.offsetParent) return;   // editor de planta aberto
+    if (scenePaused) return;   // editor de planta aberto (o canvas dele segue no layout mesmo fechado)
+    if (document.querySelector('.modal.modal-open')) return;
     if (!document.body.classList.contains('authenticated')) return;
     const k = e.key.toLowerCase();
     if (k === 'f') { lockedRoom = false; if (selectedRoom) selectRoom(null); else fitCamera(true); syncCameraUI(); }

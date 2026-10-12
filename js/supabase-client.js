@@ -41,6 +41,14 @@ function loadDemoRooms() {
 //      desenhada pelo usuário começa vazia até ele traçar as paredes.
 const WALLS_KEY = 'nh_floorplan_walls';
 const OPENINGS_KEY = 'nh_floorplan_openings';   // portas e janelas (demo)
+const FURNITURE_KEY = 'nh_floorplan_furniture'; // móveis do layout (demo)
+
+function loadDemoFurniture() {
+  try {
+    const rows = JSON.parse(localStorage.getItem(FURNITURE_KEY) || '[]');
+    return Array.isArray(rows) ? rows : [];
+  } catch { return []; }
+}
 
 function loadDemoOpenings() {
   try {
@@ -335,6 +343,7 @@ export class MockSupabaseClient {
       rooms: loadDemoRooms(),
       walls: loadDemoWalls(),
       openings: loadDemoOpenings(),
+      furniture: loadDemoFurniture(),
     };
     this._simTimer = null;
     this._waterTicksLeft = 0;
@@ -352,6 +361,8 @@ export class MockSupabaseClient {
         localStorage.setItem(WALLS_KEY, JSON.stringify(this._db.walls || []));
       } else if (table === 'openings') {
         localStorage.setItem(OPENINGS_KEY, JSON.stringify(this._db.openings || []));
+      } else if (table === 'furniture') {
+        localStorage.setItem(FURNITURE_KEY, JSON.stringify(this._db.furniture || []));
       }
     } catch { /* modo restrito */ }
   }
