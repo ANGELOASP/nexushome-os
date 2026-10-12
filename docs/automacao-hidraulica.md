@@ -86,6 +86,17 @@ A cada 15 s o firmware envia para a Edge Function `iot-gateway`:
 O `iot-gateway` passou a aceitar `water_level_pct` (a coluna já existia desde a migração 005) — **faça o deploy
 da função** (`supabase functions deploy iot-gateway`).
 
+## Instalar o ambiente e compilar (Windows)
+
+```powershell
+cd C:\nexushome-os
+powershell -ExecutionPolicy Bypass -File scripts\instalar-arduino.ps1
+```
+
+Instala a Arduino IDE 2 + Arduino CLI (winget), o core ESP32 da Espressif, copia o firmware para
+`Documentos\Arduino\esp32s3_hidraulica` (onde você coloca Wi-Fi e `DEVICE_SECRET`, fora do Git) e compila para
+ESP32-S3 (8 MB, PSRAM OPI). Compilado com o core `esp32:esp32` 3.3.12: 996 KB (75% da partição de app).
+
 ## Bancada (serial 115200)
 
 `status` · `abrir N` · `fechar N` (N = 1..8) · `panico` · `reset` · `dump S` (lista os registradores do escravo S)
