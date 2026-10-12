@@ -6,7 +6,7 @@
 // POST /iot-gateway
 //   Headers:  x-device-key: <IOT_DEVICE_SECRET>
 //   Body:     { "device_id": "<uuid>",
-//               "metric_type": "energy_watts|water_flow_lph|temperature|humidity",
+//               "metric_type": "energy_watts|water_flow_lph|temperature|humidity|water_level_pct",
 //               "value": 1234.5,
 //               "status": { "watts": 1234 }        // opcional: atualiza devices.status
 //             }
@@ -32,7 +32,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const ALLOWED_METRICS = new Set(["energy_watts", "water_flow_lph", "temperature", "humidity"]);
+const ALLOWED_METRICS = new Set(["energy_watts", "water_flow_lph", "temperature", "humidity", "water_level_pct"]);  // water_level_pct: migração 005
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
