@@ -30,13 +30,36 @@ elemento. Configure os endereços de cada equipamento antes de ligar todos junto
 2. **Fator da sonda (item 3.1).** Duas caixas de 500 L somam 1000 L em ~70 cm de lâmina: **~14 L por cm**
    (1,4 L/mm), não 1,3–1,4 L por cm. Calibre `TANK_LITERS_PER_MM` = litros úteis ÷ altura útil em mm, e
    `TANK_EMPTY_MM` = leitura da sonda no nível mínimo.
-3. **Registradores a confirmar no manual do fabricante** (variam entre lotes):
-   - FT-PFC-04: função (03/04), endereço base da contagem acumulada de 32 bits e ordem das palavras
-     (`COUNTER_FUNC`, `COUNTER_REG_BASE`, `COUNTER_HIGH_FIRST`).
-   - QDY30A: registrador de casas decimais (0x0003) e de valor (0x0004), e a unidade configurada
-     (`SONDA_UNIT_TO_MM`).
-   - Pinos RS-485 da placa SpotPear (`RS485_RX_PIN`, `RS485_TX_PIN`, `RS485_DE_PIN`; use -1 se a direção for
-     automática).
+3. **Terminação do barramento.** O RS-485 precisa de 120 Ω nas **duas** pontas, não só no último elemento. O
+   ESP32-S3 fica numa ponta: ligue o resistor de 120 Ω da própria placa (jumper/chave "120R" ao lado do
+   conector RS-485) e coloque outro no último equipamento da cascata.
+
+## Pinos e registradores (pesquisa nos manuais dos fabricantes)
+
+| Item | O que o manual diz | No firmware |
+|---|---|---|
+| RS-485 da SpotPear / Waveshare **ESP32-S3-Touch-LCD-7** (e 4.3 sem "B") | GPIO15 e GPIO16; direção TX/RX automática | `RS485_PIN_A 15`, `RS485_PIN_B 16`, `RS485_DE_PIN -1` |
+| RS-485 da **ESP32-S3-Touch-LCD-4.3B** / LCD-4 | GPIO43 (RX) e GPIO44 (TX) | troque `RS485_PIN_A/B` para 43/44 |
+| Ordem RX/TX | a wiki rotula pelo lado do transceptor, e as páginas divergem | o firmware testa uma ordem e **troca sozinho** se ninguém responder (`RS485_AUTO_SWAP`) |
+| Placa de relés Waveshare 8-CH | bobinas 0x0000–0x0007, funções 01/05/0F, 0xFF00 = liga; endereço de fábrica 1 | comando em lote 0x0F, com reserva de oito 0x05 se a placa recusar |
+| Sonda QDY30A | mapa da família: 0x0003 = casas decimais, 0x0004 = valor (int16); unidade costuma ser cm ou mm | `SONDA_DECIMALS_REG 0x0003`, `SONDA_VALUE_REG 0x0004`, `SONDA_UNIT_TO_MM` (conferir com `dump 3`) |
+| Contadora FT-PFC-04 | **mapa não publicado online** — vem no PDF/manual que acompanha a placa | provisório: 32 bits por canal a partir de 0x0000, função 03; confirme com `dump 1` |
+
+### Como confirmar na bancada (quando as placas chegarem)
+
+1. Ligue **uma placa por vez** ao barramento e grave o endereço dela (1, 2, 3 ou 4) com o software do fabricante.
+2. No monitor serial (115200): `dump 1` → gire a turbina do ramal 1 → `dump 1` de novo. O par de registradores
+   que aumentou é a contagem do DI1; os seguintes são DI2–DI4. Ajuste `COUNTER_FUNC`, `COUNTER_REG_BASE` e
+   `COUNTER_HIGH_FIRST` (se a palavra que muda devagar vier depois, use `false`).
+3. `dump 3` com a sonda numa altura conhecida (ex.: 20 cm de água): confira o registrador 4 e as casas decimais
+   do registrador 3 e ajuste `SONDA_UNIT_TO_MM`.
+4. `fechar 1` / `abrir 1`: o relé 1 deve estalar e a válvula do ramal 1 fechar/abrir.
+
+Fontes: [wiki ESP32-S3-Touch-LCD-7](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-7) ·
+[docs ESP32-S3-Touch-LCD-4.3](https://docs.waveshare.com/ESP32-S3-Touch-LCD-4.3) ·
+[wiki ESP32-S3-Touch-LCD-4.3B](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-4.3B) ·
+[wiki Modbus RTU Relay](https://waveshare.com/wiki/Modbus_RTU_Relay) ·
+[manual de transmissor de nível da mesma família (registradores 3/4)](https://store.hipco.com/images/additional/Icon_100-Series_RS-485-Operating-Manual.pdf)
 
 ## Regras de segurança (item 3.2)
 
@@ -65,7 +88,7 @@ da função** (`supabase functions deploy iot-gateway`).
 
 ## Bancada (serial 115200)
 
-`status` · `abrir N` · `fechar N` (N = 1..8) · `panico` · `reset`
+`status` · `abrir N` · `fechar N` (N = 1..8) · `panico` · `reset` · `dump S` (lista os registradores do escravo S)
 
 ## Ainda não implementado
 
