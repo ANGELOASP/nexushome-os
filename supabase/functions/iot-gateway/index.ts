@@ -11,7 +11,10 @@
 //               "status": { "watts": 1234 }        // opcional: atualiza devices.status
 //             }
 //
-// GET  /iot-gateway/health  → status simples
+// GET  /iot-gateway/health    → status simples
+// GET  /iot-gateway/commands  → comandos pendentes para o ESP32 (x-device-key; migração 013)
+//        resposta: { commands: [{ id, device_id, command: { open: true|false } }] }
+//        cada comando é entregue uma única vez (vira "delivered")
 //
 // Variáveis de ambiente (configuradas via `supabase secrets set`):
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY  (provisionadas automaticamente)
@@ -60,10 +63,11 @@ serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const url = new URL(req.url);
-  if (req.method === "GET") {
+  const wantsCommands = req.method === "GET" && url.pathname.endsWith("/commands");
+  if (req.method === "GET" && !wantsCommands) {
     return json({ ok: true, service: "nexushome-iot-gateway", path: url.pathname });
   }
-  if (req.method !== "POST") return json({ error: "Método não suportado" }, 405);
+  if (req.method !== "POST" && !wantsCommands) return json({ error: "Método não suportado" }, 405);
 
   // --- autenticação simples por segredo compartilhado ---------
   // Fail-closed: sem IOT_DEVICE_SECRET configurado a função recusa tudo,
@@ -75,6 +79,31 @@ serve(async (req: Request) => {
   }
   if (!safeEqual(req.headers.get("x-device-key") ?? "", expected)) {
     return json({ error: "Chave de dispositivo inválida" }, 401);
+  }
+
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+  );
+
+  // --- comandos pendentes para o ESP32 (app → válvulas) ---------
+  if (wantsCommands) {
+    const { data: cmds, error: cmdErr } = await supabase
+      .from("device_commands")
+      .select("id, device_id, command")
+      .eq("status", "pending")
+      .order("created_at")
+      .limit(20);
+    if (cmdErr) return json({ error: `Falha ao ler comandos (migração 013 aplicada?): ${cmdErr.message}` }, 500);
+    const ids = (cmds ?? []).map((c) => c.id);
+    if (ids.length) {
+      const { error: updErr } = await supabase
+        .from("device_commands")
+        .update({ status: "delivered", delivered_at: new Date().toISOString() })
+        .in("id", ids);
+      if (updErr) return json({ error: `Falha ao marcar comandos: ${updErr.message}` }, 500);
+    }
+    return json({ commands: cmds ?? [] });
   }
 
   // --- validação do payload -----------------------------------
@@ -96,11 +125,6 @@ serve(async (req: Request) => {
   if (!Number.isFinite(value)) return json({ error: "value deve ser numérico" }, 400);
 
   // --- escrita no Supabase (service role: ignora RLS) ---------
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-  );
-
   const { error: telErr } = await supabase
     .from("telemetry_logs")
     .insert({ device_id: deviceId, metric_type: metricType, value });
@@ -110,6 +134,13 @@ serve(async (req: Request) => {
   // opcional: o firmware pode atualizar o status do dispositivo
   // (ex.: medidor publica {"watts": X} para o painel 3D reagir)
   if (body.status && typeof body.status === "object") {
+    // migração 013: device_report_status grava o estado reportado sem gerar comando de volta (eco)
+    const { error: rpcErr } = await supabase.rpc("device_report_status", { p_device: deviceId, p_patch: body.status });
+    if (!rpcErr) return json({ ok: true, device_id: deviceId, metric_type: metricType, value });
+    if (!/device_report_status|function/i.test(rpcErr.message)) {
+      return json({ error: `Telemetria gravada, mas status falhou: ${rpcErr.message}` }, 207);
+    }
+    // sem a migração 013: merge manual (comportamento anterior)
     const { data: dev } = await supabase
       .from("devices")
       .select("status")

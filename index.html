@@ -104,10 +104,41 @@
           <svg class="w-4 h-4 text-indigo-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg>
           <h2 class="panel-title">Dispositivos</h2>
         </div>
+        <button id="btn-device-add" type="button" class="device-add-btn ml-auto" title="Cadastrar dispositivo" aria-expanded="false">+ Dispositivo</button>
         <button class="collapse-btn" data-collapse-target="panel-devices" aria-label="Recolher painel">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
       </div>
+      <form id="device-add-form" class="device-add-form hidden" autocomplete="off">
+        <p class="device-add-title">Cadastrar dispositivo</p>
+        <label class="form-label" for="dev-add-name">Nome</label>
+        <input id="dev-add-name" class="form-input" maxlength="60" required placeholder="Ex.: Água — Ramal 1 (Cozinha)" />
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="form-label" for="dev-add-type">Tipo</label>
+            <select id="dev-add-type" class="form-input">
+              <option value="valve">Válvula</option>
+              <option value="sensor">Sensor</option>
+              <option value="meter">Medidor</option>
+              <option value="light">Luz</option>
+              <option value="ac">Ar-condicionado</option>
+              <option value="solar">Solar</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label" for="dev-add-room">Cômodo</label>
+            <select id="dev-add-room" class="form-input"></select>
+          </div>
+        </div>
+        <div class="flex gap-2 pt-1">
+          <button type="submit" class="fp-btn fp-btn-primary flex-1">Cadastrar</button>
+          <button type="button" id="dev-add-cancel" class="fp-btn fp-btn-ghost">Cancelar</button>
+        </div>
+        <div id="dev-add-result" class="device-add-result hidden">
+          <p>Código do dispositivo (cole no firmware do ESP32):</p>
+          <div class="flex gap-2 items-center"><code id="dev-add-uuid"></code><button type="button" id="dev-add-copy" class="fp-btn fp-btn-ghost">Copiar</button></div>
+        </div>
+      </form>
       <div id="devices-list" class="panel-body space-y-4"></div>
     </div>
   </aside>
