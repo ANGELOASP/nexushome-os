@@ -50,7 +50,7 @@ export function initRoomPanel(nexusClient) {
 }
 
 function roomDevices(room) {
-  return state.devices.filter((d) => !d.virtual && d.room === room);
+  return state.devices.filter((d) => d.room === room);   // nativos + integrados (Samsung, Tuya...)
 }
 
 function isOn(d) {
@@ -66,12 +66,12 @@ function render() {
 
   const devHtml = devices.length
     ? devices.map((d) => {
-      const sw = SWITCHABLE.has(d.type);
+      const sw = SWITCHABLE.has(d.type) && !d.virtual;   // integrados: comando pelo painel da integração
       const onNow = isOn(d);
       const label = d.type === 'valve' ? (onNow ? 'Aberta' : 'Fechada') : (onNow ? 'Ligado' : 'Desligado');
       return `<li class="rp-dev" data-row="${escapeHtml(d.id)}">
         <span class="rp-dev-dot ${onNow ? 'rp-on' : ''}"></span>
-        <span class="rp-dev-name">${escapeHtml(d.name)}<small>${escapeHtml(TYPE_LABEL[d.type] || d.type)}${sw ? ` · ${label}` : ''}</small></span>
+        <span class="rp-dev-name">${escapeHtml(d.name)}<small>${d.vendor ? `${d.vendor === 'smartthings' ? 'Samsung' : d.vendor === 'tuya' ? 'Tuya' : 'Integrado'} · ` : ''}${escapeHtml(TYPE_LABEL[d.type] || d.type)}${sw ? ` · ${label}` : ''}</small></span>
         ${sw ? `<button type="button" class="rp-dev-btn ${onNow ? 'rp-dev-btn-on' : ''}" data-dev="${escapeHtml(d.id)}" aria-pressed="${onNow}">${d.type === 'valve' ? (onNow ? 'Fechar' : 'Abrir') : (onNow ? 'Desligar' : 'Ligar')}</button>` : ''}
       </li>`;
     }).join('')

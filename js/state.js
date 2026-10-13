@@ -2,6 +2,8 @@
 // NexusHome OS — Estado global + barramento de eventos (pub/sub)
 // ============================================================
 
+import { normalizeFloorType } from './floors.js';
+
 export const ROOM_ORDER = ['Sala de Estar', 'Quarto Principal', 'Cozinha', 'Área Externa'];
 
 // ---- Tipos de cômodo (v1.6.0) --------------------------------------------
@@ -70,7 +72,7 @@ export function normalizeRoom(row) {
   const pts = Array.isArray(row.points) && row.points.length >= 3
     ? row.points.map((p) => [Number(p[0]), Number(p[1])]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))
     : null;
-  return { ...row, floor, kind, points: pts && pts.length >= 3 ? pts : null };
+  return { ...row, floor, kind, points: pts && pts.length >= 3 ? pts : null, floor_type: normalizeFloorType(row.floor_type) };
 }
 
 // Planta padrão (espelha os seeds de supabase/migrations/003_rooms.sql
@@ -94,6 +96,7 @@ export const state = {
   openings: [],            // portas e janelas (tabela openings) — recortam as paredes no 3D
   furniture: [],           // móveis do layout do usuário (tabela furniture)
   scenes: [],              // cenas: vários dispositivos com um botão (tabela scenes)
+  devicePins: {},          // posição dos integrados (st-/tuya-) na planta: { id: { pos_x, pos_z, pos_floor } } — tabela device_pins
   selectedRoom: null,      // nome do cômodo selecionado no 3D
   health: 'safe',          // 'safe' | 'warning' | 'critical'
   lastTelemetry: {         // último valor conhecido por métrica
@@ -128,6 +131,9 @@ export function getDevice(id) {
 }
 
 export function upsertDevice(row) {
+  // integrados (Samsung/Tuya) recebem o ponto salvo na planta (tabela device_pins)
+  const pin = row.virtual && row.pos_x === undefined ? state.devicePins[row.id] : null;
+  if (pin) row = { ...row, ...pin };
   const i = state.devices.findIndex((d) => d.id === row.id);
   if (i >= 0) state.devices[i] = { ...state.devices[i], ...row };
   else state.devices.push(row);

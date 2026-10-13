@@ -44,6 +44,7 @@ const WALLS_KEY = 'nh_floorplan_walls';
 const OPENINGS_KEY = 'nh_floorplan_openings';   // portas e janelas (demo)
 const FURNITURE_KEY = 'nh_floorplan_furniture'; // móveis do layout (demo)
 const SCENES_KEY = 'nh_scenes';                 // cenas (demo)
+const PINS_KEY = 'nh_device_pins';              // posição dos integrados na planta (demo)
 
 function loadDemoScenes() {
   try {
@@ -154,7 +155,7 @@ class MockQueryBuilder {
   insert(rows) { this._op = 'insert'; this._payload = Array.isArray(rows) ? rows : [rows]; return this; }
   update(patch) { this._op = 'update'; this._payload = patch; return this; }
   delete() { this._op = 'delete'; return this; }
-  upsert(rows) { this._op = 'upsert'; this._payload = Array.isArray(rows) ? rows : [rows]; return this; }
+  upsert(rows, opts = {}) { this._op = 'upsert'; this._payload = Array.isArray(rows) ? rows : [rows]; this._conflict = opts.onConflict || null; return this; }
   eq(col, val) { this._filters.push({ col, val }); return this; }
   in(col, vals) { this._filters.push({ col, vals }); return this; }
   gte(col, min) { this._filters.push({ col, min }); return this; }
@@ -181,7 +182,8 @@ class MockQueryBuilder {
     }
     if (this._op === 'upsert') {
       const out = this._payload.map((p) => {
-        const cur = p.id ? rows.find((r) => r.id === p.id) : null;
+        const key = this._conflict || 'id';
+        const cur = p[key] ? rows.find((r) => r[key] === p[key]) : null;
         if (cur) {
           Object.assign(cur, clone(p));
           this._client._emitRealtime(this._table, 'UPDATE', cur);
@@ -356,6 +358,7 @@ export class MockSupabaseClient {
       openings: loadDemoOpenings(),
       furniture: loadDemoFurniture(),
       scenes: loadDemoScenes(),
+      device_pins: (() => { try { const r = JSON.parse(localStorage.getItem(PINS_KEY) || '[]'); return Array.isArray(r) ? r : []; } catch { return []; } })(),
     };
     this._simTimer = null;
     this._waterTicksLeft = 0;
@@ -375,6 +378,8 @@ export class MockSupabaseClient {
         localStorage.setItem(OPENINGS_KEY, JSON.stringify(this._db.openings || []));
       } else if (table === 'furniture') {
         localStorage.setItem(FURNITURE_KEY, JSON.stringify(this._db.furniture || []));
+      } else if (table === 'device_pins') {
+        localStorage.setItem(PINS_KEY, JSON.stringify(this._db.device_pins || []));
       } else if (table === 'scenes') {
         localStorage.setItem(SCENES_KEY, JSON.stringify(this._db.scenes || []));
       }
