@@ -12,6 +12,7 @@
 // ============================================================
 
 import { emit, DEFAULT_ROOMS, normalizeRoom } from './state.js';
+import { DEMO_SCENES } from './scenes.js';
 
 // ---- Planta demo: persiste em localStorage (chave nh_floorplan),
 //      semeada com os 4 cômodos padrão na primeira execução.
@@ -42,6 +43,15 @@ function loadDemoRooms() {
 const WALLS_KEY = 'nh_floorplan_walls';
 const OPENINGS_KEY = 'nh_floorplan_openings';   // portas e janelas (demo)
 const FURNITURE_KEY = 'nh_floorplan_furniture'; // móveis do layout (demo)
+const SCENES_KEY = 'nh_scenes';                 // cenas (demo)
+
+function loadDemoScenes() {
+  try {
+    const raw = localStorage.getItem(SCENES_KEY);
+    if (raw) { const rows = JSON.parse(raw); if (Array.isArray(rows)) return rows; }
+  } catch { /* seed */ }
+  return DEMO_SCENES.map((x) => JSON.parse(JSON.stringify(x)));
+}
 
 function loadDemoFurniture() {
   try {
@@ -147,13 +157,14 @@ class MockQueryBuilder {
   upsert(rows) { this._op = 'upsert'; this._payload = Array.isArray(rows) ? rows : [rows]; return this; }
   eq(col, val) { this._filters.push({ col, val }); return this; }
   in(col, vals) { this._filters.push({ col, vals }); return this; }
+  gte(col, min) { this._filters.push({ col, min }); return this; }
   order(col, opts = {}) { this._order = { col, ascending: opts.ascending !== false }; return this; }
   limit(n) { this._limit = n; return this; }
 
   then(resolve, reject) { return Promise.resolve(this._execute()).then(resolve, reject); }
 
   _rows() { return this._client._db[this._table] || (this._client._db[this._table] = []); }
-  _match(row) { return this._filters.every((f) => (f.vals ? f.vals.includes(row[f.col]) : row[f.col] === f.val)); }
+  _match(row) { return this._filters.every((f) => (f.vals ? f.vals.includes(row[f.col]) : f.min !== undefined ? row[f.col] >= f.min : row[f.col] === f.val)); }
 
   _execute() {
     const rows = this._rows();
@@ -344,6 +355,7 @@ export class MockSupabaseClient {
       walls: loadDemoWalls(),
       openings: loadDemoOpenings(),
       furniture: loadDemoFurniture(),
+      scenes: loadDemoScenes(),
     };
     this._simTimer = null;
     this._waterTicksLeft = 0;
@@ -363,6 +375,8 @@ export class MockSupabaseClient {
         localStorage.setItem(OPENINGS_KEY, JSON.stringify(this._db.openings || []));
       } else if (table === 'furniture') {
         localStorage.setItem(FURNITURE_KEY, JSON.stringify(this._db.furniture || []));
+      } else if (table === 'scenes') {
+        localStorage.setItem(SCENES_KEY, JSON.stringify(this._db.scenes || []));
       }
     } catch { /* modo restrito */ }
   }

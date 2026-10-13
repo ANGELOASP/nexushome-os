@@ -93,6 +93,7 @@ export const state = {
   walls: [],               // paredes vetoriais da planta (tabela walls) — renderizadas no 3D
   openings: [],            // portas e janelas (tabela openings) — recortam as paredes no 3D
   furniture: [],           // móveis do layout do usuário (tabela furniture)
+  scenes: [],              // cenas: vários dispositivos com um botão (tabela scenes)
   selectedRoom: null,      // nome do cômodo selecionado no 3D
   health: 'safe',          // 'safe' | 'warning' | 'critical'
   lastTelemetry: {         // último valor conhecido por métrica
