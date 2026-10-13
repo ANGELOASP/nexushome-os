@@ -91,12 +91,16 @@ serve(async (req: Request) => {
 
   // --- comandos pendentes para o ESP32 (app → válvulas) ---------
   if (wantsCommands) {
-    const { data: cmds, error: cmdErr } = await supabase
+    // ?devices=uuid1,uuid2 (v2.7): só os comandos dos dispositivos DESTE painel —
+    // com várias casas no projeto, um ESP32 não consome os comandos de outro
+    const only = (new URL(req.url).searchParams.get("devices") ?? "")
+      .split(",").map((x) => x.trim()).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+    let q = supabase
       .from("device_commands")
       .select("id, device_id, command")
-      .eq("status", "pending")
-      .order("created_at")
-      .limit(20);
+      .eq("status", "pending");
+    if (only.length) q = q.in("device_id", only);
+    const { data: cmds, error: cmdErr } = await q.order("created_at").limit(20);
     if (cmdErr) return json({ error: `Falha ao ler comandos (migração 013 aplicada?): ${cmdErr.message}` }, 500);
     const ids = (cmds ?? []).map((c) => c.id);
     if (ids.length) {

@@ -537,7 +537,13 @@ int valveForDevice(const char *id) {
 void pollCommands() {
   if (WiFi.status() != WL_CONNECTED) return;
   HTTPClient http;
-  http.begin(String(GATEWAY_URL) + "/commands");
+  // só os comandos dos dispositivos deste painel (várias casas no mesmo projeto)
+  String url = String(GATEWAY_URL) + "/commands?devices=";
+  bool first = true;
+  auto addId = [&](const char *id) { if (id && id[0]) { if (!first) url += ","; url += id; first = false; } };
+  for (int i = 0; i < 7; i++) addId(DEVICE_RAMAL[i]);
+  addId(DEVICE_VALVE_GERAL);
+  http.begin(url);
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(5000);
   int code = http.GET();
