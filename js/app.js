@@ -19,6 +19,7 @@ import { initFloorplan, loadRooms, subscribeRooms, loadWalls, subscribeWalls, lo
 import { initDevicesPanel } from './panels/devices.js';
 import { initRoomPanel } from './panels/room-panel.js';
 import { initScenesPanel, loadScenes, subscribeScenes } from './panels/scenes.js';
+import { initPwa } from './pwa.js';
 import { initMonitorPanel, loadInitialMonitorData, subscribeTelemetry, updateHealthBadge } from './panels/monitor.js';
 import { initAutomationsPanel, loadAutomations, subscribeAutomations } from './panels/automations.js';
 import { initSmartThingsPanel, teardownSmartThings } from './panels/smartthings.js';
@@ -135,6 +136,7 @@ async function enterApp(user) {
       initDevicesPanel(client);
       initAutomationsPanel(client);
       initScenesPanel(client);
+      initPwa(client);
       initRoomPanel(client);
       initMonitorPanel(client);
       initSmartThingsPanel(client);

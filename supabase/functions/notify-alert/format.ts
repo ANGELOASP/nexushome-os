@@ -30,6 +30,19 @@ export function formatMessage(a: AlertRecord): string {
   return `${ICON[sev] ?? "ℹ️"} <b>NexusHome — ${LABEL[sev] ?? "INFO"}</b>${src}\n${escapeHtml(a.message ?? "(sem mensagem)")}`;
 }
 
+/** Conteúdo da notificação push (lido pelo service worker do app — public/sw.js). */
+export function pushPayload(a: AlertRecord): { title: string; body: string; tag: string; severity: string; url: string } {
+  const sev = a.severity ?? "info";
+  const src = a.source_module ? ` · ${a.source_module}` : "";
+  return {
+    title: `NexusHome — ${LABEL[sev] ?? "INFO"}${src}`,
+    body: (a.message ?? "(sem mensagem)").slice(0, 240),
+    tag: `nh-alert-${a.id ?? Date.now()}`,
+    severity: sev,
+    url: "/",
+  };
+}
+
 /** Comparação em tempo (quase) constante para o segredo do webhook. */
 export function safeEqual(a: string, b: string): boolean {
   const ea = new TextEncoder().encode(a);

@@ -24,12 +24,22 @@
 //      evento INSERT, tipo "Supabase Edge Functions" → notify-alert,
 //      header HTTP  x-webhook-secret: <o mesmo segredo>.
 //
+// PUSH NO CELULAR (v2.7, opcional — funciona com ou sem Telegram):
+//   1. npx web-push generate-vapid-keys   (gera o par de chaves)
+//   2. supabase secrets set VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... \
+//        VAPID_SUBJECT="mailto:voce@exemplo.com"
+//   3. js/config.js → VAPID_PUBLIC_KEY: "<a mesma chave pública>"
+//   4. Rode a migração 017_push_subscriptions.sql e, no app, toque em
+//      "Ativar notificações" em cada aparelho.
+//   SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY já vêm no ambiente da função.
+//
 // SEGURANÇA: fail-closed — sem NOTIFY_WEBHOOK_SECRET a função
 // recusa tudo; o token do bot nunca é logado nem devolvido.
 // ============================================================
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { formatMessage, safeEqual, shouldNotify } from "./format.ts";
+import webpush from "npm:web-push@3.6.7";
+import { formatMessage, pushPayload, safeEqual, shouldNotify } from "./format.ts";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -41,8 +51,10 @@ serve(async (req: Request) => {
   const secret = Deno.env.get("NOTIFY_WEBHOOK_SECRET");
   const token = Deno.env.get("TELEGRAM_BOT_TOKEN");
   const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
-  if (!secret || !token || !chatId) {
-    console.error("[notify-alert] secrets ausentes (NOTIFY_WEBHOOK_SECRET/TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID)");
+  const telegramOn = !!(token && chatId);
+  const pushOn = !!(Deno.env.get("VAPID_PUBLIC_KEY") && Deno.env.get("VAPID_PRIVATE_KEY"));
+  if (!secret || (!telegramOn && !pushOn)) {
+    console.error("[notify-alert] secrets ausentes (NOTIFY_WEBHOOK_SECRET + Telegram e/ou VAPID)");
     return json({ error: "Função não configurada" }, 503);
   }
   if (!safeEqual(req.headers.get("x-webhook-secret") ?? "", secret)) {
@@ -62,6 +74,14 @@ serve(async (req: Request) => {
     return json({ ok: true, skipped: "severidade abaixo do mínimo" });
   }
 
+  const result: Record<string, unknown> = { ok: true };
+  if (telegramOn) result.telegram = await sendTelegram(token!, chatId!, alert);
+  if (pushOn) result.push = await sendPush(alert);
+  const failed = (telegramOn && result.telegram !== "ok") && (!pushOn || (result.push as { sent?: number })?.sent === 0);
+  return json(result, failed ? 502 : 200);
+});
+
+async function sendTelegram(token: string, chatId: string, alert: Record<string, string>): Promise<string> {
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
@@ -69,10 +89,44 @@ serve(async (req: Request) => {
       body: JSON.stringify({ chat_id: chatId, text: formatMessage(alert), parse_mode: "HTML" }),
     });
     console.log(`[notify-alert] ${alert.severity} -> Telegram ${res.status}`); // nunca loga o token
-    if (!res.ok) return json({ error: "Telegram recusou a mensagem", status: res.status }, 502);
-    return json({ ok: true });
+    return res.ok ? "ok" : `erro ${res.status}`;
   } catch (err) {
-    console.error("[notify-alert] falha de rede:", (err as Error)?.message ?? err);
-    return json({ error: "Falha ao contatar o Telegram" }, 502);
+    console.error("[notify-alert] falha de rede (Telegram):", (err as Error)?.message ?? err);
+    return "falha de rede";
   }
-});
+}
+
+/** Envia o alerta para todos os aparelhos inscritos; remove inscrições expiradas (404/410). */
+async function sendPush(alert: Record<string, string>): Promise<{ sent: number; removed: number; failed: number }> {
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const out = { sent: 0, removed: 0, failed: 0 };
+  if (!url || !key) return out;
+  webpush.setVapidDetails(
+    Deno.env.get("VAPID_SUBJECT") ?? "mailto:admin@nexushome.local",
+    Deno.env.get("VAPID_PUBLIC_KEY")!,
+    Deno.env.get("VAPID_PRIVATE_KEY")!,
+  );
+  const headers = { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
+  const res = await fetch(`${url}/rest/v1/push_subscriptions?select=endpoint,p256dh,auth`, { headers });
+  if (!res.ok) { console.error("[notify-alert] push_subscriptions:", res.status); return out; }
+  const subs: { endpoint: string; p256dh: string; auth: string }[] = await res.json();
+  const body = JSON.stringify(pushPayload(alert));
+  await Promise.all(subs.map(async (s) => {
+    try {
+      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, body, { TTL: 3600, urgency: alert.severity === "critical" ? "high" : "normal" });
+      out.sent++;
+    } catch (err) {
+      const code = (err as { statusCode?: number })?.statusCode;
+      if (code === 404 || code === 410) {
+        out.removed++;
+        await fetch(`${url}/rest/v1/push_subscriptions?endpoint=eq.${encodeURIComponent(s.endpoint)}`, { method: "DELETE", headers });
+      } else {
+        out.failed++;
+        console.error("[notify-alert] push falhou:", code ?? (err as Error)?.message);
+      }
+    }
+  }));
+  console.log(`[notify-alert] push: ${out.sent} enviados, ${out.removed} expirados, ${out.failed} falhas`);
+  return out;
+}

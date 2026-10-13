@@ -33,3 +33,12 @@ test('escapeHtml e safeEqual', () => {
   assert.equal(safeEqual('abc', 'abd'), false);
   assert.equal(safeEqual('abc', 'abcd'), false);
 });
+
+import { pushPayload } from '../supabase/functions/notify-alert/format.ts';
+test('pushPayload: título por severidade, corpo limitado e tag por alerta', () => {
+  const p = pushPayload({ id: 'x1', severity: 'critical', source_module: 'hidraulica', message: 'a'.repeat(300) });
+  assert.equal(p.title, 'NexusHome — CRÍTICO · hidraulica');
+  assert.equal(p.body.length, 240);
+  assert.equal(p.tag, 'nh-alert-x1');
+  assert.equal(p.severity, 'critical');
+});
