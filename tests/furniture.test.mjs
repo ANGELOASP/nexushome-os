@@ -25,3 +25,13 @@ test('normalizeFurniture: rotação negativa e textos', () => {
   const r = normalizeFurniture({ id: 'a', floor: '1', kind: 'sofa', x: '2.5', z: '-1', rot: -90 });
   assert.deepEqual([r.floor, r.x, r.z, r.rot], [1, 2.5, -1, 270]);
 });
+
+import { readFileSync } from 'node:fs';
+test('todo item do catálogo tem modelo 3D (case no scene-furniture)', () => {
+  const src = readFileSync(new URL('../js/scene-furniture.js', import.meta.url), 'utf8');
+  const missing = FURNITURE.filter((f) => !src.includes(`case '${f.kind}'`)).map((f) => f.kind);
+  assert.deepEqual(missing, []);
+});
+test('guarda-roupas de correr e de abrir no catálogo', () => {
+  ['gr_correr_2', 'gr_correr_3', 'gr_abrir_2', 'gr_abrir_4'].forEach((k) => assert.ok(FURNITURE_BY_KIND[k], k));
+});
