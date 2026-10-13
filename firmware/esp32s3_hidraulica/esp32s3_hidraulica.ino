@@ -39,6 +39,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <math.h>
+#include <time.h>
 #include "ui.h"
 
 // ---------------- Tela touch (SpotPear/Waveshare ESP32-S3-Touch-LCD-4.3B) ----------------
@@ -68,6 +69,8 @@ const char* DEVICE_TANK         = "b1000000-0000-4000-8000-000000000008";   // R
 const char* DEVICE_VALVE_GERAL  = "a3333333-3333-4333-8333-333333333333";  // Válvula de Água Geral (seed)
 
 #define PUBLISH_INTERVAL_MS  15000      // telemetria (tarefa separada: não atrasa a segurança)
+#define OFFLINE_QUEUE_LEN    480        // leituras guardadas sem Wi-Fi (≈ 30 min a cada 15 s × 9 medidas; RAM)
+#define OFFLINE_FLUSH_MAX    18         // leituras reenviadas por ciclo depois que a rede volta
 
 // ---------------- RS-485 (SpotPear / Waveshare ESP32-S3-Touch-LCD) ----------------
 // Pinos do RS-485 nativo segundo a wiki Waveshare (a SpotPear revende o mesmo hardware):
@@ -456,20 +459,69 @@ void checkExternalRule() {
 // ============================================================
 // Telemetria (tarefa separada no núcleo 0 — HTTP lento não atrasa a segurança)
 // ============================================================
-bool postTelemetry(const char* deviceId, const char* metric, float value, const char* statusJson) {
-  if (!deviceId || !deviceId[0] || WiFi.status() != WL_CONNECTED) return false;
+// Retorna o código HTTP (200 = ok) ou -1 sem Wi-Fi/dispositivo.
+int postTelemetry(const char* deviceId, const char* metric, float value, const char* statusJson, const char* tsIso = nullptr) {
+  if (!deviceId || !deviceId[0] || WiFi.status() != WL_CONNECTED) return -1;
   HTTPClient http;
   http.begin(GATEWAY_URL);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(5000);
-  char body[384];
-  snprintf(body, sizeof(body), "{\"device_id\":\"%s\",\"metric_type\":\"%s\",\"value\":%.2f%s%s}",
-           deviceId, metric, value, statusJson ? ",\"status\":" : "", statusJson ? statusJson : "");
+  char body[440];
+  // leitura reenviada (fila offline): leva o horário real ("ts") e NÃO manda status antigo
+  if (tsIso) snprintf(body, sizeof(body), "{\"device_id\":\"%s\",\"metric_type\":\"%s\",\"value\":%.2f,\"ts\":\"%s\",\"replayed\":true}",
+                      deviceId, metric, value, tsIso);
+  else snprintf(body, sizeof(body), "{\"device_id\":\"%s\",\"metric_type\":\"%s\",\"value\":%.2f%s%s}",
+                deviceId, metric, value, statusJson ? ",\"status\":" : "", statusJson ? statusJson : "");
   int code = http.POST(body);
   if (code != 200) Serial.printf("[iot] %s → HTTP %d %s\n", metric, code, code > 0 ? http.getString().c_str() : "");
   http.end();
-  return code == 200;
+  return code;
+}
+
+// Falha de rede ou do servidor (5xx) vale tentar de novo; 4xx (dado recusado) não.
+static bool retryable(int code) { return code <= 0 || code >= 500; }
+
+// ------------------------------------------------------------
+// Fila offline (v2.7): sem Wi-Fi as leituras ficam na RAM com o millis()
+// da medida; quando a rede e o relógio (NTP) voltam, são reenviadas com o
+// horário real. Fila cheia descarta a mais antiga. Reiniciar a placa perde
+// a fila (a segurança hidráulica não depende dela).
+// ------------------------------------------------------------
+struct PendingReading { const char* dev; const char* metric; float value; uint32_t ms; };
+static PendingReading offlineQ[OFFLINE_QUEUE_LEN];
+static int qHead = 0, qCount = 0;
+static uint32_t qDropped = 0;
+
+bool timeSynced() { return time(nullptr) > 1700000000; }   // NTP já respondeu (após nov/2023)
+
+void enqueueReading(const char* dev, const char* metric, float value) {
+  if (!dev || !dev[0]) return;
+  if (qCount == OFFLINE_QUEUE_LEN) { qHead = (qHead + 1) % OFFLINE_QUEUE_LEN; qCount--; qDropped++; }
+  offlineQ[(qHead + qCount) % OFFLINE_QUEUE_LEN] = PendingReading{ dev, metric, value, millis() };
+  qCount++;
+}
+
+// envia a leitura agora; se não der, guarda na fila
+void sendOrQueue(const char* dev, const char* metric, float value, const char* statusJson) {
+  int code = postTelemetry(dev, metric, value, statusJson);
+  if (code != 200 && retryable(code)) enqueueReading(dev, metric, value);
+}
+
+void flushOfflineQueue() {
+  if (!qCount || WiFi.status() != WL_CONNECTED || !timeSynced()) return;
+  time_t now = time(nullptr);
+  uint32_t nowMs = millis();
+  for (int n = 0; n < OFFLINE_FLUSH_MAX && qCount; n++) {
+    PendingReading &r = offlineQ[qHead];
+    time_t t = now - (time_t)((nowMs - r.ms) / 1000);
+    struct tm tmv; gmtime_r(&t, &tmv);
+    char iso[24]; strftime(iso, sizeof(iso), "%Y-%m-%dT%H:%M:%SZ", &tmv);
+    int code = postTelemetry(r.dev, r.metric, r.value, nullptr, iso);
+    if (code != 200 && retryable(code)) break;   // rede/servidor fora: tenta no próximo ciclo (4xx: descarta)
+    qHead = (qHead + 1) % OFFLINE_QUEUE_LEN; qCount--;
+  }
+  if (!qCount) Serial.println("[iot] fila offline reenviada por completo");
 }
 
 // Índice da válvula a partir do UUID do dispositivo (-1 = não é deste painel)
@@ -485,7 +537,13 @@ int valveForDevice(const char *id) {
 void pollCommands() {
   if (WiFi.status() != WL_CONNECTED) return;
   HTTPClient http;
-  http.begin(String(GATEWAY_URL) + "/commands");
+  // só os comandos dos dispositivos deste painel (várias casas no mesmo projeto)
+  String url = String(GATEWAY_URL) + "/commands?devices=";
+  bool first = true;
+  auto addId = [&](const char *id) { if (id && id[0]) { if (!first) url += ","; url += id; first = false; } };
+  for (int i = 0; i < 7; i++) addId(DEVICE_RAMAL[i]);
+  addId(DEVICE_VALVE_GERAL);
+  http.begin(url);
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(5000);
   int code = http.GET();
@@ -513,10 +571,13 @@ void pollCommands() {
 
 void telemetryTask(void*) {
   unsigned long lastPublish = 0;
+  bool wasOnline = false;
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(COMMAND_POLL_MS));
-    if (WiFi.status() != WL_CONNECTED) continue;
-    pollCommands();
+    bool online = WiFi.status() == WL_CONNECTED;
+    if (online && !wasOnline) configTime(0, 0, "pool.ntp.org", "time.google.com");   // relógio para a fila offline
+    wasOnline = online;
+    if (online) { pollCommands(); flushOfflineQueue(); }
     if (millis() - lastPublish < PUBLISH_INTERVAL_MS) continue;
     lastPublish = millis();
     Snapshot s;
@@ -527,18 +588,18 @@ void telemetryTask(void*) {
         int v = i < 6 ? i : VALVE_EXTERNA;      // ramal 7 é comandado pela válvula da Área Externa
         snprintf(st, sizeof(st), "{\"flow_lph\":%.1f,\"total_l\":%.1f,\"open\":%s}",
                  s.flowLph[i], s.totalL[i], s.valveOpen[v] ? "true" : "false");
-        postTelemetry(DEVICE_RAMAL[i], "water_flow_lph", s.flowLph[i], st);
+        sendOrQueue(DEVICE_RAMAL[i], "water_flow_lph", s.flowLph[i], st);
       }
     }
     if (s.sondaOk) {
       snprintf(st, sizeof(st), "{\"level_mm\":%.0f,\"volume_l\":%.0f,\"level_pct\":%.1f}", s.levelMm, s.volumeL, s.percent);
-      postTelemetry(DEVICE_TANK, "water_level_pct", s.percent, st);
+      sendOrQueue(DEVICE_TANK, "water_level_pct", s.percent, st);
     }
     float sumFlow = 0; for (int i = 0; i < 7; i++) sumFlow += s.flowLph[i];
     snprintf(st, sizeof(st), "{\"open\":%s,\"alarm_burst\":%s,\"alarm_external\":%s,\"panic\":%s}",
              s.valveOpen[VALVE_GERAL] ? "true" : "false", s.alarmBurst ? "true" : "false",
              s.alarmExternal ? "true" : "false", s.panic ? "true" : "false");
-    postTelemetry(DEVICE_VALVE_GERAL, "water_flow_lph", sumFlow, st);
+    sendOrQueue(DEVICE_VALVE_GERAL, "water_flow_lph", sumFlow, st);
   }
 }
 
@@ -561,6 +622,7 @@ void handleSerial() {
                     levelMm, volumeL, relaysOk ? "ok" : "FALHA", rs485Swapped ? "invertido" : "normal",
                     alarmBurst, alarmExternal, panicActive);
       for (int i = 0; i < 7; i++) Serial.printf("  ramal %d: %.1f L/h · total %.1f L\n", i + 1, flowLph[i], totalL[i]);
+      Serial.printf("  fila offline: %d leituras · %lu descartadas · relógio %s\n", qCount, (unsigned long)qDropped, timeSynced() ? "ok" : "sem NTP");
     }
     line = "";
   }

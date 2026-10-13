@@ -16,6 +16,7 @@ import { state, on, emit, floorLabel, inferRoomKind } from './state.js';
 import { isPoly, polyCentroid, innerRect, wallPieces, pointInPoly } from './geometry.js';
 import { FURNITURE_BY_KIND } from './furniture.js';
 import { buildFurnitureModel } from './scene-furniture.js';
+import { isPlaced, pinFloor, pinStyle, deviceActive } from './device-pins.js';
 
 const METER = 1.9;          // unidades de cena por metro (3.0 m → 5.7 un., paridade com o layout original)
 const WALL_H = 2.5;
@@ -45,6 +46,11 @@ let downPos = null;
 let sun = null;              // luz principal (sombra ajustada ao tamanho da planta)
 let insideRoom = null;       // nome do cômodo em que a câmera "entrou"
 const texCache = {};         // texturas procedurais de piso por tipo
+let markerGroup = null;      // marcadores dos dispositivos posicionados na planta (v2.7)
+let deviceMarkers = [];      // [{ id, floor, group, head, headMat }]
+let markerPicks = [];
+let markerSig = '';
+let tipEl = null;            // dica flutuante (nome + estado) sobre o marcador
 const clock = { t: 0, last: performance.now() };
 
 export function initScene3D(containerEl, labelsEl, onRoomSelect) {
@@ -96,6 +102,8 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
 
   // interação de clique (sem confundir arrasto de câmera com clique)
   renderer.domElement.addEventListener('pointerdown', (e) => { downPos = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener('pointermove', onHoverMarker);
+  renderer.domElement.addEventListener('pointerleave', () => showTip(null));
   renderer.domElement.addEventListener('pointerup', (e) => {
     if (!downPos) return;
     const moved = Math.hypot(e.clientX - downPos[0], e.clientY - downPos[1]);
@@ -111,6 +119,7 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   on('devices-changed', (devices) => {
     devices.forEach((d) => applyDeviceState(d));
     updateLabelBadges(devices);
+    refreshDeviceMarkers();
   });
 
   // planta editada → reconstrói os cômodos sem recarregar a página
@@ -238,6 +247,8 @@ function buildPlan(THREE) {
   state.rooms.forEach((row) => buildRoom(THREE, roomDefFromRow(row), realWallFloors.has(fl(row.floor)), furnByRoom.get(row.name) || []));
   buildRealWalls(THREE, wallsAll, state.openings || []);
   buildLooseFurniture(THREE, looseFurniture);
+  markerSig = '';
+  refreshDeviceMarkers();
   applyFloorFilter();
   fitShadow(THREE);
 }
@@ -659,6 +670,94 @@ function buildRealWalls(THREE, walls, openings = []) {
   });
 }
 
+// ---- marcadores dos dispositivos posicionados na planta (v2.7) ----------
+
+/** (Re)constrói os marcadores quando posição, tipo ou estado mudam (a telemetria não conta). */
+function refreshDeviceMarkers() {
+  const THREE = window.THREE;
+  if (!THREE || !scene) return;
+  const placed = state.devices.filter((d) => !d.virtual && isPlaced(d));
+  const sig = placed.map((d) => `${d.id}:${d.type}:${d.pos_x}:${d.pos_z}:${pinFloor(d, state.rooms)}:${deviceActive(d) ? 1 : 0}:${d.is_online === false ? 0 : 1}`).join('|');
+  if (sig === markerSig && markerGroup) return;
+  markerSig = sig;
+  if (markerGroup) {
+    markerGroup.traverse((o) => { o.geometry?.dispose(); o.material?.dispose?.(); });
+    scene.remove(markerGroup);
+  }
+  markerGroup = new THREE.Group();
+  scene.add(markerGroup);
+  deviceMarkers = [];
+  markerPicks = [];
+  const ringGeo = new THREE.RingGeometry(0.14 * METER, 0.2 * METER, 32);
+  const poleGeo = new THREE.CylinderGeometry(0.014 * METER, 0.014 * METER, 1.85 * VSCALE, 8);
+  const headGeo = new THREE.SphereGeometry(0.13 * METER, 24, 16);
+  const pickGeo = new THREE.SphereGeometry(0.32 * METER, 10, 8);
+  placed.forEach((d) => {
+    const st = pinStyle(d.type);
+    const on = deviceActive(d);
+    const offline = d.is_online === false;
+    const floor = pinFloor(d, state.rooms);
+    let color = new THREE.Color(d.type === 'valve' && !on ? '#ff6b6b' : st.color).convertSRGBToLinear();
+    const g = new THREE.Group();
+    g.position.set(Number(d.pos_x) * METER, 0.16 + floor * FLOOR_H, Number(d.pos_z) * METER);
+    const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: offline ? 0.25 : 0.7, side: THREE.DoubleSide, depthWrite: false });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.03;
+    const pole = new THREE.Mesh(poleGeo, new THREE.MeshBasicMaterial({ color: 0xcbd5e1, transparent: true, opacity: 0.55 }));
+    pole.position.y = 0.925 * VSCALE;
+    const headMat = new THREE.MeshStandardMaterial({
+      color, emissive: color, emissiveIntensity: offline ? 0 : (on ? 1.6 : 0.35),
+      roughness: 0.4, metalness: 0.1, transparent: offline, opacity: offline ? 0.4 : 1,
+    });
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.y = 1.95 * VSCALE;
+    const pick = new THREE.Mesh(pickGeo, new THREE.MeshBasicMaterial({ visible: false }));
+    pick.position.y = 1.95 * VSCALE;
+    pick.userData.deviceId = d.id;
+    g.add(ring, pole, head, pick);
+    markerGroup.add(g);
+    deviceMarkers.push({ id: d.id, floor, group: g, head, active: on && !offline });
+    markerPicks.push(pick);
+  });
+  const fIn = insideRoom && rooms[insideRoom] ? rooms[insideRoom].def.floorNo : null;
+  deviceMarkers.forEach((m) => {
+    m.group.visible = fIn !== null ? m.floor === fIn : (floorFilter === 'all' || m.floor === floorFilter);
+  });
+}
+
+let hoverT = 0;
+function onHoverMarker(e) {
+  const now = performance.now();
+  if (now - hoverT < 50 || !markerPicks.length) return;
+  hoverT = now;
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hit = raycaster.intersectObjects(markerPicks.filter((m) => m.parent?.visible), false)[0];
+  const d = hit ? state.devices.find((x) => x.id === hit.object.userData.deviceId) : null;
+  renderer.domElement.style.cursor = d ? 'pointer' : '';
+  showTip(d, e.clientX - rect.left, e.clientY - rect.top);
+}
+
+function showTip(d, x = 0, y = 0) {
+  if (!tipEl) {
+    tipEl = document.createElement('div');
+    tipEl.className = 'device-tip';
+    (labelRoot || document.body).appendChild(tipEl);
+  }
+  if (!d) { tipEl.style.opacity = '0'; return; }
+  const on = deviceActive(d);
+  const stateTxt = d.is_online === false ? 'offline' : d.type === 'valve' ? (on ? 'aberta' : 'fechada')
+    : (d.type === 'meter' || d.type === 'sensor') ? 'monitorando' : (on ? 'ligado' : 'desligado');
+  tipEl.innerHTML = `<strong></strong><span></span>`;
+  tipEl.firstChild.textContent = d.name;
+  tipEl.lastChild.textContent = `${pinStyle(d.type).label} · ${stateTxt}`;
+  tipEl.style.opacity = '1';
+  tipEl.style.transform = `translate(${Math.round(x + 14)}px, ${Math.round(y - 10)}px)`;
+}
+
 // ---- mobiliário por tipo de cômodo (kind) — v1.6.0
 const FURNISH_BY_KIND = {
   sala_estar: furnishLiving,
@@ -727,6 +826,7 @@ function applyFloorFilter() {
     ghostMesh(mesh, floorFilter === 'all' && floor > 0);
   });
   looseByFloor.forEach(({ floor, group }) => { group.visible = floorFilter === 'all' || floor === floorFilter; });
+  deviceMarkers.forEach((m) => { m.group.visible = floorFilter === 'all' || m.floor === floorFilter; });
 }
 
 function ghostMesh(mesh, ghost, k = 0.55) {
@@ -1111,6 +1211,15 @@ function handlePick(e) {
   pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
+  // marcador de dispositivo: entra no cômodo dele e destaca o dispositivo no cartão
+  const mHit = raycaster.intersectObjects(markerPicks.filter((m) => m.parent?.visible), false)[0];
+  if (mHit) {
+    const id = mHit.object.userData.deviceId;
+    const d = state.devices.find((x) => x.id === id);
+    if (d?.room && rooms[d.room]) { if (selectedRoom !== d.room) selectRoom(d.room); }
+    emit('device-picked', id);
+    return;
+  }
   // com filtro de andar ativo, só o andar isolado é clicável
   const pickables = floorFilter === 'all'
     ? pickMeshes
@@ -1253,6 +1362,7 @@ function enterRoom(name) {
   wallMeshes.forEach(({ floor, mesh }) => ghostMesh(mesh, true, floor === f ? 0.3 : 0.08));
   floorSlabs.forEach(({ floor, mesh }) => ghostMesh(mesh, floor !== f, 0.25));
   looseByFloor.forEach(({ floor, group }) => { group.visible = floor === f; });
+  deviceMarkers.forEach((m) => { m.group.visible = m.floor === f; });
   controls.minDistance = 1.2;
   applyViewOffset();
   Object.values(rooms).forEach((o) => o.label.classList.toggle('room-label-dim', o !== r));
@@ -1461,6 +1571,12 @@ function animate() {
       }
     });
     if (r.highlight.visible) r.highlight.material.opacity = (0.08 + 0.05 * Math.sin(clock.t * 3)) * k;
+  });
+
+  deviceMarkers.forEach((m, i) => {
+    if (!m.active) return;
+    const k = 1 + 0.12 * Math.sin(clock.t * 3 + i);
+    m.head.scale.setScalar(k);
   });
 
   controls.update();

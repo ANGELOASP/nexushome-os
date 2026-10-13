@@ -33,6 +33,12 @@
   <script src="js/config.js"></script>
 
   <link rel="stylesheet" href="css/styles.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0c1017" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="NexusHome" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322d3ee' stroke-width='2'%3E%3Cpath d='M3 10.5 12 3l9 7.5'/%3E%3Cpath d='M5 9.5V21h14V9.5'/%3E%3C/svg%3E" />
 </head>
 <body class="bg-navy text-slate-100 overflow-hidden">
@@ -66,6 +72,11 @@
       <button id="btn-floorplan" class="fp-open-btn" title="Abrir o Editor de Planta">
         <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 8.5V21h14V8.5"/><path d="M9 21v-5h6v5"/><path d="M9 12h6"/></svg>
         <span class="hidden sm:inline">Planta</span>
+      </button>
+
+      <button id="btn-install" type="button" class="fp-open-btn hidden" title="Instalar o NexusHome como aplicativo">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+        <span class="hidden sm:inline">Instalar app</span>
       </button>
 
       <span id="conn-badge" class="conn-badge conn-demo"><span class="conn-dot"></span> Demo</span>
@@ -145,6 +156,26 @@
     </div>
   </aside>
   <!-- ======================= PAINEL INFERIOR ESQ.: AUTOMAÇÕES ======================= -->
+  <aside id="panel-scenes" class="panel card">
+    <div class="glass card-surface">
+      <div class="panel-header">
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.9 4.8L19 9l-4 3.4L16.2 18 12 15.3 7.8 18 9 12.4 5 9l5.1-1.2z"/></svg>
+          <h2 class="panel-title">Cenas</h2>
+        </div>
+        <button class="collapse-btn" data-collapse-target="panel-scenes" aria-label="Recolher painel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+      </div>
+      <div class="panel-body">
+        <div id="scenes-list" class="scenes-grid"></div>
+        <button id="btn-new-scene" class="mt-3 w-full rounded-xl border border-dashed border-amber-400/40 bg-amber-500/10 px-3 py-2.5 text-xs font-semibold text-amber-200 hover:bg-amber-500/20 transition-all flex items-center justify-center gap-2">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Nova cena
+        </button>
+      </div>
+    </div>
+  </aside>
   <aside id="panel-automations" class="panel card">
     <div class="glass card-surface">
       <div class="panel-header">
@@ -230,6 +261,10 @@
         <div class="mt-3 flex items-center gap-2 px-1">
           <svg class="w-3.5 h-3.5 text-rose-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
           <h3 class="text-[11px] font-semibold uppercase tracking-widest text-slate-400">Alertas</h3>
+          <button id="btn-notify" type="button" class="notify-btn ml-auto hidden" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+            <span data-notify-label>Ativar notificações</span>
+          </button>
         </div>
         <div id="alerts-list" class="mt-2 space-y-2"></div>
       </div>
@@ -373,6 +408,45 @@
   <p id="cam-hint" class="cam-hint">Arraste para girar · botão direito ou Shift+arrastar para mover · roda do mouse para aproximar · duplo clique para centralizar</p>
 
   <!-- ======================= MODAL: NOVA AUTOMAÇÃO ======================= -->
+  <!-- ======================= MODAL: CENA (v2.7) ======================= -->
+  <div id="modal-scene" class="modal">
+    <div class="modal-card glass rounded-2xl w-[30rem] max-w-[calc(100vw-2rem)] p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h3 id="sc-title" class="text-base font-bold gradient-text">Nova cena</h3>
+        <button id="btn-cancel-scene" type="button" class="text-slate-400 hover:text-slate-100 transition-colors" aria-label="Fechar">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <form id="form-scene" class="space-y-3">
+        <div class="grid grid-cols-[1fr_9rem] gap-2">
+          <div>
+            <label class="form-label" for="sc-name">Nome</label>
+            <input id="sc-name" type="text" class="form-input" placeholder="Ex.: Cinema" maxlength="40" />
+          </div>
+          <div>
+            <label class="form-label" for="sc-room">Cômodo</label>
+            <select id="sc-room" class="form-input"></select>
+          </div>
+        </div>
+        <div>
+          <span class="form-label">Ícone</span>
+          <div id="sc-icons" class="sc-icons"></div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between">
+            <span class="form-label">Dispositivos e estado desejado</span>
+            <button id="btn-scene-capture" type="button" class="text-[11px] font-semibold text-amber-300 hover:text-amber-200">Usar estado atual</button>
+          </div>
+          <div id="sc-devices" class="sc-devices"></div>
+        </div>
+        <div class="flex gap-2 pt-1">
+          <button id="btn-scene-delete" type="button" class="hidden rounded-xl border border-rose-400/40 px-3 py-2 text-xs font-semibold text-rose-300 hover:bg-rose-500/10">Excluir</button>
+          <button type="submit" class="flex-1 rounded-xl bg-amber-400 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-amber-300">Salvar cena</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="modal-automation" class="modal">
     <div class="modal-card glass rounded-2xl w-[26rem] max-w-[calc(100vw-2rem)] p-5">
       <div class="flex items-center justify-between mb-4">
@@ -448,6 +522,7 @@
           <button id="btn-fp-redo" type="button" class="fp-icon-btn" title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/></svg></button>
           <button id="btn-fp-fit" type="button" class="fp-icon-btn fp-icon-btn-text" title="Ajustar à tela"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M16 21h3a2 2 0 0 0 2-2v-3M8 21H5a2 2 0 0 1-2-2v-3"/></svg>Ajustar</button>
           <label class="fp-snap-toggle" title="Snap na grade de 0,5 m"><input id="fp-snap" type="checkbox" checked />Snap 0,5 m</label>
+          <label class="fp-snap-toggle" title="Mostrar o comprimento de cada parede"><input id="fp-dims" type="checkbox" checked />Cotas</label>
           <span id="fp-area-status" class="fp-area-status">Térreo · 0 cômodos · 0 m²</span>
         </div>
       </div>
@@ -477,6 +552,9 @@
           </button>
           <button id="btn-fp-tool-furn" type="button" class="fp-tool" title="Móveis (M): escolha um móvel e clique na planta; R gira, Delete apaga">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3"/><path d="M3 11h18v5H3z"/><path d="M5 16v3M19 16v3"/></svg><span class="fp-tool-label">Móveis</span><kbd>M</kbd>
+          </button>
+          <button id="btn-fp-tool-dev" type="button" class="fp-tool" title="Dispositivos (X): escolha um dispositivo e clique onde ele está instalado">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.6-6-10.5A6 6 0 0 1 18 10.5C18 15.4 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.2"/></svg><span class="fp-tool-label">Dispositivos</span><kbd>X</kbd>
           </button>
           <button id="btn-fp-tool-erase" type="button" class="fp-tool" title="Apagar parede (E)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21 9.5-9.5a2.1 2.1 0 0 0-3-3L4 18z"/><path d="M13 7.5l3 3"/><path d="M16 21h5"/></svg><span class="fp-tool-label">Apagar</span><kbd>E</kbd>
@@ -518,10 +596,18 @@
           <div id="fp-furn-sel" class="fp-wall-panel fp-furn-sel hidden">
             <strong id="fp-furn-title">Móvel</strong>
             <button id="fp-furn-rot" type="button" class="fp-icon-btn" title="Girar 90° (R)">Girar 90°</button>
+            <label class="fp-furn-angle" title="Ângulo livre (Shift+R gira 15°)"><input id="fp-furn-angle" type="number" min="0" max="359" step="1" class="fp-input" />°</label>
             <button id="fp-furn-dup" type="button" class="fp-icon-btn" title="Duplicar (Ctrl+D)">Duplicar</button>
             <button id="fp-furn-del" type="button" class="fp-icon-btn" title="Apagar (Delete)">Apagar</button>
           </div>
-          <p class="fp-hint">Arraste uma parede para movê-la · Porta (D) e Janela (J): clique numa parede · Shift+clique soma · Shift+arraste seleciona uma área · alças esticam · Espaço ou botão direito movem a vista</p>
+          <div id="fp-dev-panel" class="fp-presets fp-furn-panel hidden"></div>
+          <div id="fp-dev-sel" class="fp-wall-panel fp-furn-sel hidden">
+            <strong id="fp-dev-title">Dispositivo</strong>
+            <span class="fp-dev-room" id="fp-dev-room"></span>
+            <button id="fp-dev-move" type="button" class="fp-icon-btn" title="Clique no novo ponto da planta">Mover</button>
+            <button id="fp-dev-del" type="button" class="fp-icon-btn" title="Retirar da planta (Delete)">Retirar da planta</button>
+          </div>
+          <p class="fp-hint">Arraste uma parede para movê-la · Porta (D), Janela (J), Dispositivos (X) · Ctrl+C / Ctrl+V copia para outro andar · Shift+clique soma · Shift+arraste seleciona uma área · alças esticam · Espaço ou botão direito movem a vista</p>
           <div id="fp-presets" class="fp-presets hidden"></div>
           <div id="fp-bg-panel" class="fp-presets fp-bg-panel hidden">
             <p class="fp-presets-title">Fundo de referência (planta CAD)</p>

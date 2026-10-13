@@ -18,6 +18,8 @@ import { initScene3D, selectRoom } from './scene3d.js';
 import { initFloorplan, loadRooms, subscribeRooms, loadWalls, subscribeWalls, loadOpenings, subscribeOpenings, loadFurniture, subscribeFurniture } from './floorplan.js';
 import { initDevicesPanel } from './panels/devices.js';
 import { initRoomPanel } from './panels/room-panel.js';
+import { initScenesPanel, loadScenes, subscribeScenes } from './panels/scenes.js';
+import { initPwa } from './pwa.js';
 import { initMonitorPanel, loadInitialMonitorData, subscribeTelemetry, updateHealthBadge } from './panels/monitor.js';
 import { initAutomationsPanel, loadAutomations, subscribeAutomations } from './panels/automations.js';
 import { initSmartThingsPanel, teardownSmartThings } from './panels/smartthings.js';
@@ -133,7 +135,9 @@ async function enterApp(user) {
     if (!panelsReady) {
       initDevicesPanel(client);
       initAutomationsPanel(client);
-      initRoomPanel();
+      initScenesPanel(client);
+      initPwa(client);
+      initRoomPanel(client);
       initMonitorPanel(client);
       initSmartThingsPanel(client);
       initTuyaPanel(client);
@@ -146,11 +150,11 @@ async function enterApp(user) {
       state.devices = devices;
       emit('devices-changed', state.devices);
     }
-    await Promise.all([loadAutomations(), loadInitialMonitorData()]);
+    await Promise.all([loadAutomations(), loadScenes(), loadInitialMonitorData()]);
 
     // realtime (re)assinatura
     activeChannels.forEach((ch) => { try { client.removeChannel?.(ch); } catch { /* noop */ } });
-    activeChannels = [...subscribeTelemetry(), ...subscribeAutomations(), ...subscribeRooms(client), ...subscribeWalls(client), ...subscribeOpenings(client), ...subscribeFurniture(client)];
+    activeChannels = [...subscribeTelemetry(), ...subscribeAutomations(), ...subscribeScenes(), ...subscribeRooms(client), ...subscribeWalls(client), ...subscribeOpenings(client), ...subscribeFurniture(client)];
 
     // cena 3D
     if (!sceneReady) {
@@ -234,7 +238,7 @@ function startClock() {
 // Painéis recolhíveis (mobile e desktop)
 // ------------------------------------------------------------
 
-const PANEL_IDS = ['panel-devices', 'panel-automations', 'panel-monitor', 'panel-smartthings', 'panel-tuya'];
+const PANEL_IDS = ['panel-devices', 'panel-scenes', 'panel-automations', 'panel-monitor', 'panel-smartthings', 'panel-tuya'];
 const PANEL_STATE_KEY = 'nh_panels_collapsed';
 
 function loadPanelState() {
@@ -293,6 +297,9 @@ function wireCollapsiblePanels() {
 on('ui-select-room', (room) => {
   if (sceneApi) selectRoom(state.selectedRoom === room ? null : room);
 });
+
+// gancho de desenvolvimento (testes de navegador): estado e seleção de cômodo
+if (import.meta.env?.DEV) window.__nh = { state, selectRoom: (r) => selectRoom(r) };
 
 boot().catch((err) => {
   console.error('[boot] erro fatal', err);

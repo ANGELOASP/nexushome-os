@@ -17,4 +17,7 @@
 window.NEXUSHOME_CONFIG = {
   SUPABASE_URL: "",       // ex.: "https://abcdefgh.supabase.co"
   SUPABASE_ANON_KEY: "",  // ex.: "eyJhbGciOi..."
+  // (opcional, v2.7) chave PÚBLICA VAPID para notificações push com o app fechado
+  // — gere com `npx web-push generate-vapid-keys` (a privada fica só nos secrets da função)
+  VAPID_PUBLIC_KEY: "",
 };
