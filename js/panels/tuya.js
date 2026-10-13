@@ -523,6 +523,14 @@ function saveLinks() {
   try { localStorage.setItem(LINKS_KEY, JSON.stringify(links)); } catch { /* modo restrito */ }
 }
 
+/** Vincula (ou desvincula, room vazio) um aparelho a um cômodo — usado pelo cadastro no Editor de Planta (v2.9). */
+export function linkTuyaDevice(id, room) {
+  if (room) links[id] = room; else delete links[id];
+  saveLinks();
+  syncVirtualDevices();
+  try { renderDevices(); } catch { /* painel ainda não montado */ }
+}
+
 function syncVirtualDevices() {
   // desvinculados (ou removidos da conta) saem do painel Dispositivos e da cena 3D
   const keep = new Set(tuyaDevices.filter((d) => links[d.id] && links[d.id] !== MAIN_VALVE_LINK).map((d) => `tuya-${d.id}`));
