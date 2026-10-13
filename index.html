@@ -507,6 +507,7 @@
           <button id="btn-fp-redo" type="button" class="fp-icon-btn" title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/></svg></button>
           <button id="btn-fp-fit" type="button" class="fp-icon-btn fp-icon-btn-text" title="Ajustar à tela"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M16 21h3a2 2 0 0 0 2-2v-3M8 21H5a2 2 0 0 1-2-2v-3"/></svg>Ajustar</button>
           <label class="fp-snap-toggle" title="Snap na grade de 0,5 m"><input id="fp-snap" type="checkbox" checked />Snap 0,5 m</label>
+          <label class="fp-snap-toggle" title="Mostrar o comprimento de cada parede"><input id="fp-dims" type="checkbox" checked />Cotas</label>
           <span id="fp-area-status" class="fp-area-status">Térreo · 0 cômodos · 0 m²</span>
         </div>
       </div>
@@ -580,6 +581,7 @@
           <div id="fp-furn-sel" class="fp-wall-panel fp-furn-sel hidden">
             <strong id="fp-furn-title">Móvel</strong>
             <button id="fp-furn-rot" type="button" class="fp-icon-btn" title="Girar 90° (R)">Girar 90°</button>
+            <label class="fp-furn-angle" title="Ângulo livre (Shift+R gira 15°)"><input id="fp-furn-angle" type="number" min="0" max="359" step="1" class="fp-input" />°</label>
             <button id="fp-furn-dup" type="button" class="fp-icon-btn" title="Duplicar (Ctrl+D)">Duplicar</button>
             <button id="fp-furn-del" type="button" class="fp-icon-btn" title="Apagar (Delete)">Apagar</button>
           </div>
@@ -590,7 +592,7 @@
             <button id="fp-dev-move" type="button" class="fp-icon-btn" title="Clique no novo ponto da planta">Mover</button>
             <button id="fp-dev-del" type="button" class="fp-icon-btn" title="Retirar da planta (Delete)">Retirar da planta</button>
           </div>
-          <p class="fp-hint">Arraste uma parede para movê-la · Porta (D) e Janela (J): clique numa parede · Shift+clique soma · Shift+arraste seleciona uma área · alças esticam · Espaço ou botão direito movem a vista</p>
+          <p class="fp-hint">Arraste uma parede para movê-la · Porta (D), Janela (J), Dispositivos (X) · Ctrl+C / Ctrl+V copia para outro andar · Shift+clique soma · Shift+arraste seleciona uma área · alças esticam · Espaço ou botão direito movem a vista</p>
           <div id="fp-presets" class="fp-presets hidden"></div>
           <div id="fp-bg-panel" class="fp-presets fp-bg-panel hidden">
             <p class="fp-presets-title">Fundo de referência (planta CAD)</p>

@@ -78,6 +78,9 @@ let devBaseline = [];
 let selDev = null;         // id do dispositivo selecionado na planta
 let devPlace = null;       // id do dispositivo sendo posicionado (ferramenta Dispositivos)
 let devHover = null;       // { x, z } — prévia do marcador sob o cursor
+let showDims = true;       // cotas (comprimento) nas paredes
+let clip = null;           // área de transferência do editor (Ctrl+C / Ctrl+V)
+try { showDims = localStorage.getItem('nh_fp_dims') !== '0'; } catch { /* storage bloqueado */ }
 let openingsLive = [];     // portas/janelas salvas
 let openingsDraft = [];    // cópia de trabalho
 let openingsBaseline = [];
@@ -150,6 +153,15 @@ export function initFloorplan({ getClient: gc } = {}) {
   document.getElementById('btn-fp-redo')?.addEventListener('click', redo);
   document.getElementById('btn-fp-fit')?.addEventListener('click', fitAllAnimated);
   document.getElementById('fp-snap')?.addEventListener('change', (e) => { snapEnabled = !!e.target.checked; });
+  const dimsEl = document.getElementById('fp-dims');
+  if (dimsEl) {
+    dimsEl.checked = showDims;
+    dimsEl.addEventListener('change', (e) => {
+      showDims = !!e.target.checked;
+      try { localStorage.setItem('nh_fp_dims', showDims ? '1' : '0'); } catch { /* noop */ }
+      draw();
+    });
+  }
 
   // ferramentas estilo CAD: Selecionar (V) · Parede (W) · Cômodo (R) · Apagar (E)
   document.getElementById('btn-fp-tool-select')?.addEventListener('click', () => setTool('select'));
@@ -810,6 +822,7 @@ function render() {
   drawFurniture();
   drawWalls();
   drawOpenings();
+  drawWallDims();
   drawDevices();
   // o cômodo selecionado vai para o primeiro plano: por cima das paredes e dos vizinhos
   const selRoom = rooms.find((r) => r.id === selectedId);
@@ -2637,7 +2650,7 @@ function onKeyDown(e) {
     if (k === 'j') { setTool('window'); return; }
     if (k === 'm') { setTool('furniture'); toggleFurnPanel(true); return; }
     if (k === 'x') { setTool('device'); toggleDevPanel(true); return; }
-    if (k === 'r' && selFurn) { e.preventDefault(); rotateFurniture(e.shiftKey ? -90 : 90); return; }
+    if (k === 'r' && selFurn) { e.preventDefault(); rotateFurniture(e.shiftKey ? 15 : 90); return; }
     // zoom e vista: + − 0 (tudo) F (seleção) Espaço (mover a vista)
     if (k === '+' || k === '=') { e.preventDefault(); zoomCenter(1.25); return; }
     if (k === '-' || k === '_') { e.preventDefault(); zoomCenter(1 / 1.25); return; }
@@ -2658,6 +2671,14 @@ function onKeyDown(e) {
   }
   if ((mod && e.shiftKey && e.key.toLowerCase() === 'z') || (mod && e.key.toLowerCase() === 'y')) {
     if (!typing) { e.preventDefault(); redo(); }
+    return;
+  }
+  if (mod && e.key.toLowerCase() === 'c' && !typing) {
+    if (copySelection()) e.preventDefault();
+    return;
+  }
+  if (mod && e.key.toLowerCase() === 'v' && !typing) {
+    if (clip) { e.preventDefault(); pasteClip(); }
     return;
   }
   if (mod && e.key.toLowerCase() === 'd' && !typing) {
@@ -3186,6 +3207,17 @@ function toggleFurnPanel(open) {
 
 function initFurniturePanel() {
   document.getElementById('fp-furn-rot')?.addEventListener('click', () => rotateFurniture(90));
+  const ang = document.getElementById('fp-furn-angle');
+  ang?.addEventListener('change', () => {
+    const f = selectedFurniture();
+    if (!f) return;
+    const v = Number(String(ang.value).replace(',', '.'));
+    if (!Number.isFinite(v)) { ang.value = String(f.rot || 0); return; }
+    pushHistory();
+    f.rot = ((Math.round(v) % 360) + 360) % 360;
+    ang.value = String(f.rot);
+    draw();
+  });
   document.getElementById('fp-furn-dup')?.addEventListener('click', duplicateFurniture);
   document.getElementById('fp-furn-del')?.addEventListener('click', () => { if (selFurn) deleteFurniture(selFurn); });
 }
@@ -3195,11 +3227,15 @@ function syncFurnitureSel() {
   const panel = document.getElementById('fp-furn-sel');
   if (!panel) return;
   const f = selectedFurniture();
-  const key = f ? `${f.id}:${f.kind}` : '';
+  const key = f ? `${f.id}:${f.kind}:${f.rot}` : '';
   if (key === furnSelKey) return;
   furnSelKey = key;
   panel.classList.toggle('hidden', !f);
-  if (f) document.getElementById('fp-furn-title').textContent = FURNITURE_BY_KIND[f.kind]?.label || 'Móvel';
+  if (f) {
+    document.getElementById('fp-furn-title').textContent = FURNITURE_BY_KIND[f.kind]?.label || 'Móvel';
+    const ang = document.getElementById('fp-furn-angle');
+    if (ang && document.activeElement !== ang) ang.value = String(Math.round(f.rot || 0));
+  }
 }
 
 // ------------------------------------------------------------
@@ -3367,6 +3403,101 @@ function syncDeviceSel() {
     document.getElementById('fp-dev-title').textContent = d.name;
     document.getElementById('fp-dev-room').textContent = d.room || 'sem cômodo';
   }
+}
+
+// ------------------------------------------------------------
+// Cotas das paredes (v2.7): comprimento ao longo de cada parede
+// ------------------------------------------------------------
+
+function drawWallDims() {
+  if (!showDims) return;
+  const walls = floorWalls();
+  if (!walls.length) return;
+  ctx.save();
+  ctx.font = "600 10.5px 'IBM Plex Sans', sans-serif";
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  walls.forEach((wl) => {
+    const x1 = w2sx(wl.x1), y1 = w2sz(wl.z1), x2 = w2sx(wl.x2), y2 = w2sz(wl.z2);
+    const pxLen = Math.hypot(x2 - x1, y2 - y1);
+    if (pxLen < 54) return;                       // parede curta na tela: não cabe a cota
+    const len = Math.hypot(wl.x2 - wl.x1, wl.z2 - wl.z1);
+    let ang = Math.atan2(y2 - y1, x2 - x1);
+    if (ang > Math.PI / 2 || ang < -Math.PI / 2) ang += Math.PI;   // texto sempre de pé
+    const off = Math.max(1.5, (wl.th || WALL_TH) * view.scale) / 2 + 9;
+    const nx = -Math.sin(ang), ny = Math.cos(ang);
+    const mx = (x1 + x2) / 2 - nx * off, my = (y1 + y2) / 2 - ny * off;
+    const label = `${fmtDim(len)} m`;
+    ctx.save();
+    ctx.translate(mx, my);
+    ctx.rotate(ang);
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = 'rgba(12,16,23,0.82)';
+    ctx.fillRect(-tw / 2 - 4, -7.5, tw + 8, 15);
+    ctx.fillStyle = selWalls.has(wl.id) ? '#fde68a' : '#a5b4c8';
+    ctx.fillText(label, 0, 0.5);
+    ctx.restore();
+  });
+  ctx.restore();
+}
+
+function fmtDim(v) { return (Math.round(v * 100) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+// ------------------------------------------------------------
+// Copiar / colar (v2.7): cômodo (com os móveis dele), paredes
+// selecionadas (com portas/janelas) ou móvel — inclusive para outro andar
+// ------------------------------------------------------------
+
+function copySelection() {
+  const r = sel();
+  if (r) {
+    const furn = furnDraft.filter((f) => (Number(f.floor) || 0) === r.floor && roomAtPoint([r], r.floor, f.x, f.z));
+    clip = { kind: 'room', floor: r.floor, rooms: [JSON.parse(JSON.stringify(r))], furniture: furn.map((f) => ({ ...f })), walls: [], openings: [] };
+  } else if (selWalls.size) {
+    const walls = wallsDraft.filter((w) => selWalls.has(w.id));
+    const ids = new Set(walls.map((w) => w.id));
+    clip = { kind: 'walls', floor: currentFloor, rooms: [], furniture: [], walls: walls.map((w) => ({ ...w })), openings: openingsDraft.filter((o) => ids.has(o.wall_id)).map((o) => ({ ...o })) };
+  } else if (selFurn) {
+    const f = selectedFurniture();
+    clip = { kind: 'furniture', floor: currentFloor, rooms: [], furniture: f ? [{ ...f }] : [], walls: [], openings: [] };
+  } else {
+    return false;
+  }
+  const n = clip.rooms.length + clip.walls.length + clip.furniture.length;
+  toast('Copiado', `${n} item(ns). Ctrl+V cola neste ou em outro andar.`, 'info');
+  return true;
+}
+
+function pasteClip() {
+  if (!clip) return;
+  pushHistory();
+  // mesmo andar: desloca 1 m para não sobrepor; outro andar: mesma posição (alinha com o de baixo)
+  const d = clip.floor === currentFloor ? 1 : 0;
+  const wallIds = new Map();
+  clip.walls.forEach((w) => {
+    const id = genUuid();
+    wallIds.set(w.id, id);
+    wallsDraft.push({ ...w, id, floor: currentFloor, x1: r4(w.x1 + d), z1: r4(w.z1 + d), x2: r4(w.x2 + d), z2: r4(w.z2 + d) });
+  });
+  clip.openings.forEach((o) => { if (wallIds.has(o.wall_id)) openingsDraft.push({ ...o, id: genUuid(), wall_id: wallIds.get(o.wall_id) }); });
+  let newRoom = null;
+  clip.rooms.forEach((r) => {
+    const maxSort = draft.reduce((m, x) => Math.max(m, x.sort_order ?? 0), 0);
+    newRoom = { ...r, id: genUuid(), floor: currentFloor, name: uniqueName(clip.floor === currentFloor ? `${r.name} (cópia)` : r.name), pos_x: r4(r.pos_x + d), pos_z: r4(r.pos_z + d), points: r.points ? r.points.map((q) => [...q]) : null, sort_order: maxSort + 1 };
+    draft.push(newRoom);
+  });
+  let lastFurn = null;
+  clip.furniture.forEach((f) => {
+    lastFurn = { ...f, id: genUuid(), floor: currentFloor, x: r4(f.x + d), z: r4(f.z + d) };
+    furnDraft.push(lastFurn);
+  });
+  selWalls.clear();
+  wallIds.forEach((id) => selWalls.add(id));
+  if (newRoom) { select(newRoom.id); showForm(newRoom); }
+  else if (lastFurn && !clip.walls.length) selFurn = lastFurn.id;
+  renderFloorTabs();
+  syncToolbar();
+  draw();
+  toast('Colado', `${floorLabel(currentFloor)}${d ? ' · deslocado 1 m' : ''}.`, 'success');
 }
 
 // ------------------------------------------------------------
