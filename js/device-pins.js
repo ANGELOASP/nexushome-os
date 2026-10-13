@@ -15,6 +15,15 @@ export const PIN_STYLE = {
   valve:  { color: '#22d3ee', letter: 'V', label: 'Válvula' },
   meter:  { color: '#4ade80', letter: 'M', label: 'Medidor' },
   sensor: { color: '#2dd4bf', letter: 'S', label: 'Sensor' },
+  solar:  { color: '#facc15', letter: 'E', label: 'Solar' },
+  fan:    { color: '#7dd3fc', letter: 'F', label: 'Ventilador' },
+  plug:   { color: '#a3e635', letter: 'P', label: 'Tomada' },
+  switch: { color: '#fcd34d', letter: 'I', label: 'Interruptor' },
+  lock:   { color: '#f472b6', letter: 'K', label: 'Fechadura' },
+  camera: { color: '#c084fc', letter: 'C', label: 'Câmera' },
+  curtain: { color: '#fb923c', letter: 'R', label: 'Cortina' },
+  speaker: { color: '#60a5fa', letter: 'A', label: 'Assistente' },
+  hub:    { color: '#94a3b8', letter: 'H', label: 'Hub' },
 };
 export const PIN_DEFAULT = { color: '#94a3b8', letter: '•', label: 'Dispositivo' };
 

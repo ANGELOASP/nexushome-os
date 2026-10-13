@@ -1094,3 +1094,15 @@ input.sc-mini { width: 3.4rem; padding: 0.3rem 0.4rem; }
 .notify-btn:hover { color: #e8edf5; border-color: rgba(242, 178, 74, 0.45); }
 .notify-on { color: #1b1403; background: #f2b24a; border-color: #f2b24a; }
 .notify-on:hover { color: #1b1403; }
+/* biblioteca de dispositivos no cadastro (v2.9) */
+.fp-dev-form { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.2rem 0 0.6rem; padding: 0.6rem; border-radius: 0.8rem; border: 1px solid rgba(242, 178, 74, 0.3); background: rgba(242, 178, 74, 0.05); }
+.fp-dev-form .fp-furn-group { margin: 0.1rem 0 0; }
+.fp-lib { display: flex; flex-direction: column; gap: 0.35rem; max-height: 15rem; overflow-y: auto; }
+.fp-lib-group > span { display: block; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); margin-bottom: 0.2rem; }
+.fp-lib-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.3rem; }
+.fp-lib-btn { display: flex; align-items: center; gap: 0.3rem; min-width: 0; text-align: left; padding: 0.35rem 0.5rem; border-radius: 0.55rem; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); font-size: 0.66rem; font-weight: 600; color: #e2e8f0; line-height: 1.2; overflow-wrap: anywhere; }
+.fp-lib-btn .fp-dev-dot { flex-shrink: 0; margin: 0; }
+.fp-lib-btn:hover { border-color: rgba(242, 178, 74, 0.5); }
+.fp-lib-on { border-color: #f2b24a; background: rgba(242, 178, 74, 0.16); color: #fbe3b3; }
+.fp-dev-mount { font-size: 0.64rem; color: var(--muted); }
+.fp-dev-mount b { color: #fbe3b3; font-weight: 600; }
