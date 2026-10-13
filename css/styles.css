@@ -928,3 +928,75 @@ button.from-indigo-500.to-cyan-500.text-white { color: var(--accent-ink); }
 .device-add-result { margin-top: 0.25rem; padding: 0.55rem; border-radius: 9px; background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.35); font-size: 0.7rem; color: var(--muted); }
 .device-add-result.hidden { display: none; }
 .device-add-result code { flex: 1; min-width: 0; overflow-wrap: anywhere; font: 600 0.72rem 'IBM Plex Mono', ui-monospace, monospace; color: #a7f3d0; }
+
+/* móveis do layout (editor de planta) */
+.fp-furn-panel { width: min(26rem, calc(100% - 1.5rem)); border-color: rgba(167, 139, 250, 0.35); }
+.fp-furn-panel .fp-presets-title { color: #c4b5fd; }
+.fp-furn-group { margin: 0.55rem 0 0.3rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #64748b; }
+.fp-furn-btn.fp-furn-active { background: rgba(167, 139, 250, 0.2); border-color: rgba(167, 139, 250, 0.6); }
+.fp-furn-sel { border-color: rgba(167, 139, 250, 0.5); }
+.fp-furn-sel strong { color: #c4b5fd; }
+
+/* ---------- painel do cômodo (câmera dentro do ambiente) — v2.6.0 ---------- */
+.room-panel {
+  position: fixed; z-index: 22; top: var(--top-h); left: 50%;
+  width: min(24rem, calc(100vw - 2 * var(--rail-w) - 3.6rem));
+  max-height: min(58vh, calc(100vh - var(--top-h) - 6.5rem));
+  display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 1.1rem;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(14px);
+  transform: translate(-50%, -10px); opacity: 0; pointer-events: none;
+  transition: opacity 0.3s ease, transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.room-panel-open { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+body:not(.authenticated) .room-panel { display: none; }
+.rp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; padding: 0.85rem 1rem 0.6rem; }
+.rp-kicker { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #f2b24a; }
+.rp-title { font-size: 1.05rem; font-weight: 800; color: #f1f5f9; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-sub { font-size: 0.68rem; color: var(--muted); margin-top: 0.15rem; }
+.rp-close { flex-shrink: 0; width: 2rem; height: 2rem; border-radius: 999px; display: grid; place-items: center; color: #cbd5e1; border: 1px solid var(--line); transition: background 0.2s; }
+.rp-close:hover { background: rgba(255, 255, 255, 0.08); }
+.rp-close svg { width: 0.95rem; height: 0.95rem; }
+.rp-body { overflow-y: auto; padding: 0 1rem 0.6rem; min-height: 0; }
+.rp-section { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin: 0.55rem 0 0.35rem; }
+.rp-list { display: flex; flex-direction: column; gap: 0.3rem; }
+.rp-empty { font-size: 0.72rem; color: var(--muted); padding: 0.35rem 0; }
+.rp-dev, .rp-rule {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.45rem 0.6rem; border-radius: 0.7rem;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.rp-dev-dot { width: 0.45rem; height: 0.45rem; border-radius: 999px; background: #475569; flex-shrink: 0; }
+.rp-dev-dot.rp-on { background: #f2b24a; box-shadow: 0 0 8px rgba(242, 178, 74, 0.7); }
+.rp-dev-name { flex: 1; min-width: 0; font-size: 0.78rem; font-weight: 600; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-dev-name small { display: block; font-size: 0.63rem; font-weight: 500; color: var(--muted); }
+.rp-dev-btn {
+  flex-shrink: 0; font-size: 0.66rem; font-weight: 700; padding: 0.3rem 0.65rem; border-radius: 999px;
+  border: 1px solid rgba(242, 178, 74, 0.35); color: #f6cf8a; transition: background 0.2s;
+}
+.rp-dev-btn:hover { background: rgba(242, 178, 74, 0.12); }
+.rp-dev-btn-on { background: rgba(242, 178, 74, 0.16); }
+.rp-rule-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rp-rule-text strong { font-size: 0.76rem; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-rule-text span { font-size: 0.65rem; color: var(--muted); line-height: 1.35; }
+.rp-rule-off { opacity: 0.55; }
+.rp-switch { position: relative; flex-shrink: 0; width: 2.1rem; height: 1.2rem; cursor: pointer; }
+.rp-switch input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.rp-switch span { position: absolute; inset: 0; border-radius: 999px; background: #334155; transition: background 0.2s; }
+.rp-switch span::after { content: ''; position: absolute; top: 0.15rem; left: 0.15rem; width: 0.9rem; height: 0.9rem; border-radius: 999px; background: #e2e8f0; transition: transform 0.2s; }
+.rp-switch input:checked + span { background: #d9962c; }
+.rp-switch input:checked + span::after { transform: translateX(0.9rem); }
+.rp-switch input:focus-visible + span { outline: 2px solid #f2b24a; outline-offset: 2px; }
+.rp-foot { padding: 0.6rem 1rem 0.85rem; border-top: 1px solid var(--line); }
+.rp-add {
+  width: 100%; font-size: 0.74rem; font-weight: 700; padding: 0.5rem; border-radius: 0.7rem;
+  background: rgba(242, 178, 74, 0.14); color: #fbe3b3; border: 1px solid rgba(242, 178, 74, 0.35); transition: background 0.2s;
+}
+.rp-add:hover:not(:disabled) { background: rgba(242, 178, 74, 0.22); }
+.rp-add:disabled { opacity: 0.45; cursor: not-allowed; }
+.room-label-dim { opacity: 0.35 !important; }
+@media (max-width: 899px) {
+  .room-panel { top: auto; bottom: 4.6rem; width: calc(100vw - 1.5rem); max-height: 46vh; transform: translate(-50%, 10px); }
+  .room-panel-open { transform: translate(-50%, 0); }
+}

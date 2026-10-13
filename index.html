@@ -43,6 +43,8 @@
   <div class="fixed inset-0 z-[5] pointer-events-none vignette"></div>
   <!-- filtro de andares da cena 3D (v1.6.0) — populado por scene3d.js -->
   <div id="floor-filter" class="floor-filter hidden"></div>
+  <!-- painel do cômodo em que a câmera entrou (v2.6.0) — populado por panels/room-panel.js -->
+  <aside id="room-panel" class="room-panel" aria-hidden="true" aria-live="polite"></aside>
 
   <!-- ======================= BARRA SUPERIOR ======================= -->
   <header class="fixed top-0 inset-x-0 z-30 px-3 sm:px-5 pt-3">
@@ -473,6 +475,9 @@
           <button id="btn-fp-tool-window" type="button" class="fp-tool" title="Inserir janela (J): clique numa parede">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M12 4v16"/><path d="M4 12h16"/></svg><span class="fp-tool-label">Janela</span><kbd>J</kbd>
           </button>
+          <button id="btn-fp-tool-furn" type="button" class="fp-tool" title="Móveis (M): escolha um móvel e clique na planta; R gira, Delete apaga">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3"/><path d="M3 11h18v5H3z"/><path d="M5 16v3M19 16v3"/></svg><span class="fp-tool-label">Móveis</span><kbd>M</kbd>
+          </button>
           <button id="btn-fp-tool-erase" type="button" class="fp-tool" title="Apagar parede (E)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21 9.5-9.5a2.1 2.1 0 0 0-3-3L4 18z"/><path d="M13 7.5l3 3"/><path d="M16 21h5"/></svg><span class="fp-tool-label">Apagar</span><kbd>E</kbd>
           </button>
@@ -508,6 +513,13 @@
               <label>Dobradiça <select id="fp-open-hinge" title="Vista por quem empurra a porta para abrir"><option value="left">Esquerda</option><option value="right">Direita</option></select></label>
             </span>
             <button id="fp-open-del" type="button" class="fp-icon-btn" title="Apagar (Delete)">Apagar</button>
+          </div>
+          <div id="fp-furn-panel" class="fp-presets fp-furn-panel hidden"></div>
+          <div id="fp-furn-sel" class="fp-wall-panel fp-furn-sel hidden">
+            <strong id="fp-furn-title">Móvel</strong>
+            <button id="fp-furn-rot" type="button" class="fp-icon-btn" title="Girar 90° (R)">Girar 90°</button>
+            <button id="fp-furn-dup" type="button" class="fp-icon-btn" title="Duplicar (Ctrl+D)">Duplicar</button>
+            <button id="fp-furn-del" type="button" class="fp-icon-btn" title="Apagar (Delete)">Apagar</button>
           </div>
           <p class="fp-hint">Arraste uma parede para movê-la · Porta (D) e Janela (J): clique numa parede · Shift+clique soma · Shift+arraste seleciona uma área · alças esticam · Espaço ou botão direito movem a vista</p>
           <div id="fp-presets" class="fp-presets hidden"></div>

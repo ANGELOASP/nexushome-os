@@ -206,16 +206,53 @@ function describeStAction(p) {
 async function onListClick(e) {
   const toggle = e.target.closest('[data-auto-toggle]');
   if (!toggle) return;
-  const id = toggle.dataset.autoToggle;
+  await setAutomationActive(toggle.dataset.autoToggle, toggle.checked);
+}
+
+/** Ativa/pausa uma regra (usado pelo painel de Automações e pelo painel do cômodo na cena 3D). */
+export async function setAutomationActive(id, active) {
   const a = state.automations.find((x) => x.id === id);
   if (!a) return;
-  upsertAutomation({ ...a, is_active: toggle.checked });
+  upsertAutomation({ ...a, is_active: active });
   try {
-    const { error } = await client.from('automations').update({ is_active: toggle.checked }).eq('id', id);
+    const { error } = await client.from('automations').update({ is_active: active }).eq('id', id);
     if (error) throw new Error(error.message);
-    toast(toggle.checked ? 'Automação ativada' : 'Automação pausada', a.name, 'info');
+    toast(active ? 'Automação ativada' : 'Automação pausada', a.name, 'info');
   } catch (err) {
+    upsertAutomation(a);
     toast('Falha ao atualizar automação', err.message, 'critical');
+  }
+}
+
+export { describe as describeAutomation };
+
+/**
+ * Cômodos ligados a uma regra: o do dispositivo que ela aciona e, em regras Samsung,
+ * o do aparelho gatilho/alvo vinculado a um cômodo (dispositivo virtual `st-<id>`).
+ */
+export function automationRooms(a) {
+  const out = new Set();
+  const p = a.action_payload || {};
+  const t = a.trigger_condition || {};
+  const add = (id) => { const d = id && getDevice(id); if (d?.room) out.add(d.room); };
+  add(p.device_id);
+  if (p.stDeviceId) add(`st-${p.stDeviceId}`);
+  if (t.stDeviceId) add(`st-${t.stDeviceId}`);
+  return [...out];
+}
+
+export function automationsForRoom(room) {
+  return state.automations.filter((a) => automationRooms(a).includes(room));
+}
+
+/** Abre o modal de nova regra já com o dispositivo escolhido (ex.: a partir de um cômodo). */
+export function openAutomationModal({ deviceId } = {}) {
+  openModal();
+  if (!deviceId) return;
+  const devSel = document.getElementById('f-device');
+  if (devSel && [...devSel.options].some((o) => o.value === deviceId)) {
+    devSel.value = deviceId;
+    refreshActionOptions();
   }
 }
 

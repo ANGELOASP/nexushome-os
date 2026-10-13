@@ -15,8 +15,9 @@ import { createNexusClient } from './supabase-client.js';
 import { toast } from './toasts.js';
 import { initAuthUI, showLogin, hideLogin, showResetView } from './auth.js';
 import { initScene3D, selectRoom } from './scene3d.js';
-import { initFloorplan, loadRooms, subscribeRooms, loadWalls, subscribeWalls, loadOpenings, subscribeOpenings } from './floorplan.js';
+import { initFloorplan, loadRooms, subscribeRooms, loadWalls, subscribeWalls, loadOpenings, subscribeOpenings, loadFurniture, subscribeFurniture } from './floorplan.js';
 import { initDevicesPanel } from './panels/devices.js';
+import { initRoomPanel } from './panels/room-panel.js';
 import { initMonitorPanel, loadInitialMonitorData, subscribeTelemetry, updateHealthBadge } from './panels/monitor.js';
 import { initAutomationsPanel, loadAutomations, subscribeAutomations } from './panels/automations.js';
 import { initSmartThingsPanel, teardownSmartThings } from './panels/smartthings.js';
@@ -126,11 +127,13 @@ async function enterApp(user) {
     await loadWalls(client);   // antes dos cômodos: a planta padrão só vale para quem não tem nada desenhado
     await loadRooms(client);
     await loadOpenings(client);
+    await loadFurniture(client);
 
     // painéis e cena são inicializados uma única vez
     if (!panelsReady) {
       initDevicesPanel(client);
       initAutomationsPanel(client);
+      initRoomPanel();
       initMonitorPanel(client);
       initSmartThingsPanel(client);
       initTuyaPanel(client);
@@ -147,7 +150,7 @@ async function enterApp(user) {
 
     // realtime (re)assinatura
     activeChannels.forEach((ch) => { try { client.removeChannel?.(ch); } catch { /* noop */ } });
-    activeChannels = [...subscribeTelemetry(), ...subscribeAutomations(), ...subscribeRooms(client), ...subscribeWalls(client), ...subscribeOpenings(client)];
+    activeChannels = [...subscribeTelemetry(), ...subscribeAutomations(), ...subscribeRooms(client), ...subscribeWalls(client), ...subscribeOpenings(client), ...subscribeFurniture(client)];
 
     // cena 3D
     if (!sceneReady) {
