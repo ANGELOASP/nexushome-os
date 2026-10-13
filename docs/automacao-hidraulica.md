@@ -83,6 +83,12 @@ A cada 15 s o firmware envia para a Edge Function `iot-gateway`:
 - reservatório: `water_level_pct` + status `{level_mm, volume_l, level_pct}` (`DEVICE_TANK`);
 - válvula geral: vazão total + status `{open, alarm_burst, alarm_external, panic}`.
 
+**Sem Wi-Fi (v2.7)**: as leituras ficam numa fila na RAM (até 480, ≈ 30 min de rede fora) com o horário da
+medida; quando a rede e o relógio (NTP) voltam, são reenviadas com o campo `ts` e entram no histórico na hora certa
+(o status atual não é sobrescrito por leitura antiga). Fila cheia descarta a mais antiga; reiniciar a placa perde a
+fila — a segurança hidráulica não depende dela. O comando serial `status` mostra o tamanho da fila. Precisa do
+`iot-gateway` atualizado (deploy de novo).
+
 O `iot-gateway` passou a aceitar `water_level_pct` (a coluna já existia desde a migração 005) — **faça o deploy
 da função** (`supabase functions deploy iot-gateway`).
 
@@ -126,13 +132,13 @@ selecionada) e as fontes `nh_font_*.c` (Montserrat com acentos do português). `
 ## Comandos pelo app
 
 Botão de válvula no app → o banco grava um pedido em `device_commands` (migração 013, também vale para automações
-do servidor) → o ESP32 busca a cada 5 s em `GET /iot-gateway/commands` e aplica. Regras:
+do servidor) → o ESP32 busca a cada 5 s em `GET /iot-gateway/commands?devices=…` (só os UUIDs deste painel — v2.7) e aplica. Regras:
 - o app pode **fechar** qualquer válvula; **abrir** uma válvula travada por alarme é recusado — rearmar só no
   painel (tela ou serial), de propósito;
 - o estado que o ESP32 reporta não gera comando de volta (função `device_report_status`).
 
 ## Ainda não implementado
 
-- **Consumo por dia**: o total na tela é desde que o painel ligou (sem relógio/NTP ainda).
+- **Consumo por dia**: o total na tela é desde que o painel ligou (o relógio NTP já existe para a fila offline; falta zerar à meia-noite).
 - **Gateway Waveshare RS485→Wi-Fi/ETH**: não é necessário com o ESP32-S3 conectando direto ao Wi-Fi; se for usado
   como segundo mestre no mesmo barramento, haverá colisão — use-o só para diagnóstico.

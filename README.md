@@ -85,7 +85,12 @@ A casa 3D é gerada a partir da tabela `rooms` (migrações 003 + 004) — posi�
 - **Importar CAD**: aceita **DXF** (ASCII). Escolha as camadas (a de paredes é pré-selecionada), confira a unidade estimada (mm/cm/m), veja a prévia e aplique — **Substituir** o andar ou **Adicionar**. Linhas viram **paredes reais** no 3D; polilinhas fechadas viram **cômodos** (o contorno externo da casa é ignorado).
 - **DWG** não pode ser lido no navegador (formato binário proprietário): converta para DXF no AutoCAD/LibreCAD/ODA File Converter. Passo a passo em [`docs/importar-planta-cad.md`](docs/importar-planta-cad.md).
 - **Migração obrigatória**: rode `supabase/migrations/008_room_polygons.sql` no SQL Editor do projeto para guardar o polígono exato (coluna `points`). Sem ela, o editor salva a caixa retangular e avisa.
-- **Móveis no layout** (v2.6): ferramenta **Móveis (M)** no editor de planta — escolha um item do catálogo (sala, quartos, cozinha, banheiro, lavanderia, externo; 26 peças em tamanho real) e clique na planta para inserir. Selecione para arrastar, **R** gira 90°, **Ctrl+D** duplica, setas ajustam, Delete apaga. O 3D desenha cada móvel no lugar (a borda grossa no editor é a frente) e, num cômodo com móveis seus, o mobiliário automático sai de cena. A luminária de piso acende com a luz do cômodo e a TV do rack brilha. Rode `supabase/migrations/014_furniture.sql`; sem ela o editor salva o resto e avisa.
+- **Móveis no layout** (v2.6): ferramenta **Móveis (M)** no editor de planta — escolha um item do catálogo (sala, quartos, cozinha, banheiro, escritório, externo; **65 peças** em tamanho real desde a v2.7, incluindo guarda-roupas de **2 e 3 portas de correr** e de **2, 3, 4 e 6 portas de abrir**) e clique na planta para inserir. Selecione para arrastar, **R** gira 90°, **Ctrl+D** duplica, setas ajustam, Delete apaga. O 3D desenha cada móvel no lugar (a borda grossa no editor é a frente) e, num cômodo com móveis seus, o mobiliário automático sai de cena. A luminária de piso acende com a luz do cômodo e a TV do rack brilha. Rode `supabase/migrations/014_furniture.sql`; sem ela o editor salva o resto e avisa.
+- **Dispositivos na planta** (v2.7): ferramenta **Dispositivos (X)** — escolha um dispositivo e clique no ponto exato onde ele está instalado (arraste para mover, setas ajustam, Delete tira da planta). O dispositivo passa a pertencer ao cômodo onde o marcador ficou. No 3D cada um vira um **marcador clicável** (cor por tipo, aceso quando ligado; válvula fechada em vermelho): passe o mouse para ver nome e estado, clique para entrar no cômodo com o dispositivo destacado. Rode `supabase/migrations/015_device_positions.sql`.
+- **Cenas** (v2.7): painel **Cenas** — "Cinema", "Dormir", "Sair de casa"… um toque ajusta vários dispositivos (luz com brilho/cor, AC com temperatura, TV, válvula). **Usar estado atual** copia como a casa está agora. As cenas do cômodo aparecem no cartão **Você está em…**. Rode `016_scenes.sql`.
+- **Histórico de 24 h no cartão do cômodo** (v2.7): energia, água, temperatura, umidade e nível dos dispositivos do ambiente, com mínimo, média e máximo.
+- **Editor** (v2.7): **cotas** com o comprimento de cada parede (caixa *Cotas*), **ângulo livre** para móveis (campo em graus; Shift+R gira 15°) e **Ctrl+C / Ctrl+V** para copiar cômodo (com os móveis dele), paredes (com portas e janelas) ou móvel — inclusive para outro andar.
+- **App instalável e notificações** (v2.7): botão **Instalar app** (celular/computador) e **Ativar notificações** em Alertas. Ver [Notificações push](#notificações-push-no-celular-v27).
 - **Entrar no ambiente** (v2.6): clique num cômodo do 3D — a câmera entra nele (vista em corte, paredes translúcidas, demais cômodos esmaecidos) e abre o cartão **Você está em…** com os dispositivos do cômodo (Ligar/Desligar, Abrir/Fechar), **todas as automações ligadas àquele ambiente** (com chave para ativar/desativar) e **+ Nova automação neste cômodo**. **Esc**, **F** ou o **×** saem do cômodo.
 - **Renderização** (v2.6): pisos com textura por tipo (madeira, deck, porcelanato, grama, concreto), paredes claras, tone mapping ACES e sombras ajustadas à planta.
 - **Cadastrar dispositivo pelo app** (v2.5): botão **+ Dispositivo** no painel Dispositivos (nome, tipo, cômodo); mostra o código (UUID) para colar no firmware.
@@ -279,7 +284,8 @@ nexushome-os/
 
 ## Limites de segurança (projeto demonstrativo)
 
-- O acesso aos dados exige login (RLS `authenticated-only` após a migração 002). Ainda assim, **qualquer usuário autenticado lê/escreve tudo** (single-tenant); isolamento por usuário (políticas com `auth.uid()`) é o próximo passo natural para multi-residência.
+- O acesso aos dados exige login (RLS `authenticated-only` após a migração 002). Sem a migração 018, **qualquer usuário autenticado lê/escreve tudo** (single-tenant).
+- **Isolamento por usuário (multi-residência, v2.7 — opcional)**: `supabase/migrations/018_owner_isolation.sql` adiciona `owner_id` em todas as tabelas da casa e troca as políticas por `owner_id = auth.uid()`. Os dados que já existem ficam com a **conta mais antiga** do projeto (confira em Authentication → Users antes de rodar); leituras do ESP32, comandos de válvula e alertas herdam o dono do dispositivo; as automações do servidor só agem dentro da mesma casa; nomes de cômodo passam a ser únicos por casa. Testado em `tests/sql/run_isolation.sh`.
 - O segredo `IOT_DEVICE_SECRET` é uma proteção mínima para a Edge Function; considere mTLS ou assinatura HMAC por dispositivo em cenários reais.
 - A `service_role` key jamais deve ser exposta ao frontend — ela bypassa o RLS.
 
@@ -303,11 +309,23 @@ Fail-closed: sem os três segredos a função responde 503; sem o header correto
 
 > **Limite conhecido**: a *geração* de alguns alertas ainda acontece no navegador (consumo elevado, vazamento por fluxo contínuo e o polling do sensor Tuya). A notificação em si é no servidor, mas esses alertas só existem enquanto o app estiver aberto em algum dispositivo. As regras de automação (migração 007) já rodam 100% no servidor.
 
+## Notificações push no celular (v2.7)
+
+Além do Telegram, a `notify-alert` envia **Web Push** para cada aparelho que tocou em **Ativar notificações** — o alerta chega com o app fechado (Android/Chrome/Edge; no iPhone, iOS 16.4+ com o app instalado na tela inicial).
+
+1. Gere as chaves: `npx web-push generate-vapid-keys`.
+2. `supabase secrets set VAPID_PUBLIC_KEY="..." VAPID_PRIVATE_KEY="..." VAPID_SUBJECT="mailto:voce@exemplo.com"` (o Telegram passa a ser opcional) e faça o deploy de novo: `supabase functions deploy notify-alert --no-verify-jwt`.
+3. Em `js/config.js`, preencha `VAPID_PUBLIC_KEY` com a chave **pública** (nunca a privada).
+4. Rode `supabase/migrations/017_push_subscriptions.sql` e, em cada aparelho, toque em **Ativar notificações**.
+
+Sem o push configurado, o botão ainda funciona: alertas críticos viram notificação do sistema enquanto o app estiver aberto em segundo plano. Inscrições expiradas são apagadas sozinhas.
+
 ## Testes
 
 ```bash
 npm test                      # regras, notificações, geometria e importação DXF — node:test, sem dependências
 DATABASE_URL=postgres://... tests/sql/run.sh   # trigger de automações (migração 007)
+DATABASE_URL=postgres://... tests/sql/run_isolation.sh   # isolamento por usuário (migração 018)
 ```
 
 O teste SQL aplica as migrações 001, 005 e 007 e exercita o trigger (limiar, edge-trigger, cooldown, regra inativa, regra inválida, regras SmartThings). **Use um banco de teste VAZIO** — nunca o de produção: o script cria tabelas e insere dados.
