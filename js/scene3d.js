@@ -1345,6 +1345,20 @@ export function applyDeviceState(device) {
 // Seleção de cômodos + rótulos
 // ------------------------------------------------------------
 
+/** Cômodo sob o ponteiro (respeita o filtro de andar). `ready`: raycaster já apontado. */
+function roomAtPointer(e, ready = false) {
+  if (!ready) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+  }
+  const pickables = floorFilter === 'all'
+    ? pickMeshes
+    : pickMeshes.filter((m) => (m.userData.roomFloor ?? 0) === floorFilter);
+  return raycaster.intersectObjects(pickables, false)[0]?.object.userData.roomName || null;
+}
+
 function handlePick(e) {
   const rect = renderer.domElement.getBoundingClientRect();
   pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1360,12 +1374,8 @@ function handlePick(e) {
     return;
   }
   // com filtro de andar ativo, só o andar isolado é clicável
-  const pickables = floorFilter === 'all'
-    ? pickMeshes
-    : pickMeshes.filter((m) => (m.userData.roomFloor ?? 0) === floorFilter);
-  const hits = raycaster.intersectObjects(pickables, false);
-  if (hits.length) {
-    const name = hits[0].object.userData.roomName;
+  const name = roomAtPointer(e, true);
+  if (name) {
     // fixado: clicar noutro cômodo move o foco; clicar no mesmo não solta
     if (lockedRoom) { if (name !== selectedRoom) selectRoom(name); return; }
     selectRoom(selectedRoom === name ? null : name);
@@ -1606,7 +1616,13 @@ function wireCameraUI() {
       default:
     }
   });
-  renderer.domElement.addEventListener('dblclick', () => { lockedRoom = false; if (selectedRoom) selectRoom(null); else fitCamera(true); syncCameraUI(); });
+  // duplo clique: num cômodo = entra (o usuário costuma dar duplo clique para "acessar");
+  // no vazio = sai do cômodo / recentraliza a planta
+  renderer.domElement.addEventListener('dblclick', (e) => {
+    const name = roomAtPointer(e);
+    if (name) { if (selectedRoom !== name) selectRoom(name); return; }
+    lockedRoom = false; if (selectedRoom) selectRoom(null); else fitCamera(true); syncCameraUI();
+  });
 
   window.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;

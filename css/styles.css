@@ -56,6 +56,12 @@ body {
 
 /* texto de destaque: cor sólida (sem degradê) */
 .gradient-text { color: var(--text); }
+.app-version {
+  font-size: 0.6rem; font-weight: 600; letter-spacing: 0.02em; line-height: 1;
+  padding: 0.15rem 0.35rem; border-radius: 999px;
+  color: var(--muted, #94a3b8); border: 1px solid rgba(148, 163, 184, 0.28);
+  font-variant-numeric: tabular-nums;
+}
 
 /* ---------- logotipo ---------- */
 .logo-mark {
