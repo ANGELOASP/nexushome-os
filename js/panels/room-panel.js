@@ -5,7 +5,7 @@
 // e todas as automações cadastradas para aquele ambiente.
 // ============================================================
 
-import { state, on } from '../state.js';
+import { state, on, emit } from '../state.js';
 import { escapeHtml } from '../toasts.js';
 import { updateStatus } from './devices.js';
 import { automationsForRoom, describeAutomation, setAutomationActive, openAutomationModal } from './automations.js';
@@ -59,7 +59,7 @@ function isOn(d) {
 
 function render() {
   if (!panel) return;
-  if (!current) { panel.classList.remove('room-panel-open'); panel.setAttribute('aria-hidden', 'true'); return; }
+  if (!current) { panel.classList.remove('room-panel-open'); panel.setAttribute('aria-hidden', 'true'); document.body.classList.remove('room-open'); emit('room-panel', false); return; }
   const devices = roomDevices(current);
   const rules = automationsForRoom(current);
   const active = devices.filter((d) => SWITCHABLE.has(d.type) && isOn(d)).length;
@@ -99,9 +99,14 @@ function render() {
         <h2 class="rp-title">${escapeHtml(current)}</h2>
         <p class="rp-sub">${devices.length} dispositivo${devices.length === 1 ? '' : 's'}${active ? ` · ${active} ativo${active > 1 ? 's' : ''}` : ''} · ${rules.length} automaç${rules.length === 1 ? 'ão' : 'ões'}</p>
       </div>
-      <button type="button" class="rp-close" data-act="exit" aria-label="Sair do cômodo" title="Sair do cômodo (Esc)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-      </button>
+      <div class="rp-actions">
+        <button type="button" class="rp-close" data-act="min" aria-label="Minimizar painel" title="Minimizar / expandir">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 12h12"/></svg>
+        </button>
+        <button type="button" class="rp-close" data-act="exit" aria-label="Sair do cômodo" title="Sair do cômodo (Esc)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
     </div>
     <div class="rp-body">
       <h3 class="rp-section">Dispositivos</h3>
@@ -117,7 +122,11 @@ function render() {
       <button type="button" class="rp-add" data-act="new-rule" ${firstDev ? `data-dev="${escapeHtml(firstDev.id)}"` : 'disabled title="Cadastre um dispositivo neste cômodo primeiro"'}>+ Nova automação neste cômodo</button>
     </div>`;
   if (html !== lastHtml) { panel.innerHTML = html; lastHtml = html; }
-  panel.classList.add('room-panel-open');
+  if (!panel.classList.contains('room-panel-open')) {
+    panel.classList.add('room-panel-open');
+    document.body.classList.add('room-open');     // o painel ocupa o lugar do trilho direito
+    emit('room-panel', true);                      // a cena 3D recentra o cômodo na faixa livre
+  }
   panel.setAttribute('aria-hidden', 'false');
 }
 
@@ -125,6 +134,7 @@ function onClick(e) {
   const btn = e.target.closest('button');
   if (!btn) return;
   if (btn.dataset.act === 'exit') { selectRoom(null); return; }
+  if (btn.dataset.act === 'min') { panel.classList.toggle('room-panel-min'); emit('room-panel', true); return; }
   if (btn.dataset.act === 'new-rule') { openAutomationModal({ deviceId: btn.dataset.dev }); return; }
   if (btn.dataset.act === 'new-scene') { openSceneModal(null, { room: current }); return; }
   if (btn.dataset.scene) { runScene(btn.dataset.scene); return; }

@@ -135,6 +135,15 @@
               <option value="meter">Medidor</option>
               <option value="light">Luz</option>
               <option value="ac">Ar-condicionado</option>
+              <option value="tv">TV</option>
+              <option value="fan">Ventilador</option>
+              <option value="plug">Tomada inteligente</option>
+              <option value="switch">Interruptor</option>
+              <option value="lock">Fechadura</option>
+              <option value="camera">Câmera</option>
+              <option value="curtain">Cortina</option>
+              <option value="speaker">Assistente / caixa de som</option>
+              <option value="hub">Hub / gateway</option>
               <option value="solar">Solar</option>
             </select>
           </div>
@@ -604,6 +613,8 @@
           <div id="fp-dev-sel" class="fp-wall-panel fp-furn-sel hidden">
             <strong id="fp-dev-title">Dispositivo</strong>
             <span class="fp-dev-room" id="fp-dev-room"></span>
+            <label class="fp-furn-angle" title="Altura da base do aparelho (m)">Altura <input id="fp-dev-y" type="number" min="0" max="3" step="0.05" class="fp-input" />m</label>
+            <button id="fp-dev-rot" type="button" class="fp-icon-btn" title="Girar 90°">Girar</button>
             <button id="fp-dev-move" type="button" class="fp-icon-btn" title="Clique no novo ponto da planta">Mover</button>
             <button id="fp-dev-del" type="button" class="fp-icon-btn" title="Retirar da planta (Delete)">Retirar da planta</button>
           </div>

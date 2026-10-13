@@ -777,7 +777,7 @@ function refreshDeviceMarkers() {
   if (!THREE || !scene) return;
   // nativos e integrados (Samsung SmartThings, Tuya...) posicionados na planta
   const placed = state.devices.filter((d) => isPlaced(d));
-  const sig = placed.map((d) => `${d.id}:${d.type}:${d.model || ''}:${d.pos_x}:${d.pos_z}:${pinFloor(d, state.rooms)}`).join('|');
+  const sig = placed.map((d) => `${d.id}:${d.type}:${d.model || ''}:${d.pos_x}:${d.pos_z}:${d.pos_y ?? ''}:${d.pos_rot ?? ''}:${pinFloor(d, state.rooms)}`).join('|');
   if (sig === markerSig && markerGroup) {
     // só o estado mudou: atualiza os modelos sem reconstruir
     deviceMarkers.forEach((m) => {
@@ -805,28 +805,38 @@ function refreshDeviceMarkers() {
     const x = Number(d.pos_x), z = Number(d.pos_z);
     const g = new THREE.Group();
     g.position.set(x * METER, 0.16 + floor * FLOOR_H, z * METER);
-    // modelo 3D do dispositivo (escala metro → cena), virado para o centro do cômodo
+    // modelo 3D do dispositivo (escala metro → cena) na altura de fixação
     const model = buildDeviceModel(THREE, d);
     model.group.scale.set(METER, VSCALE, METER);
-    const room = roomAtPoint(state.rooms, floor, x, z) || state.rooms.find((r) => r.name === d.room);
-    if (room) {
-      const dx = (Number(room.pos_x) || 0) - x, dz = (Number(room.pos_z) || 0) - z;
-      if (Math.hypot(dx, dz) > 0.05) model.group.rotation.y = Math.atan2(dx, dz);
+    const mountY = Number.isFinite(Number(d.pos_y)) && d.pos_y !== null ? Number(d.pos_y) : model.entry.y;
+    model.group.position.y = mountY * VSCALE;
+    if (d.pos_rot !== null && d.pos_rot !== undefined && Number.isFinite(Number(d.pos_rot))) {
+      model.group.rotation.y = -(Number(d.pos_rot) * Math.PI) / 180;   // mesma convenção dos móveis
+    } else {
+      const room = roomAtPoint(state.rooms, floor, x, z) || state.rooms.find((r) => r.name === d.room);
+      if (room) {
+        const dx = (Number(room.pos_x) || 0) - x, dz = (Number(room.pos_z) || 0) - z;
+        if (Math.hypot(dx, dz) > 0.05) model.group.rotation.y = Math.atan2(dx, dz);
+      }
     }
     model.update(d, 0);
     g.add(model.group);
-    // anel no piso + indicador de estado acima do modelo
+    // anel no piso + indicador de estado junto do aparelho
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
     const ring = new THREE.Mesh(ringGeo, ringMat);
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.03;
     const headMat = new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.1 });
     const head = new THREE.Mesh(headGeo, headMat);
-    head.position.y = (Math.min(2.45, model.top) + 0.22) * VSCALE;
-    // área de clique: cobre o modelo inteiro
-    const pickH = (model.top + 0.3) * VSCALE;
-    const pick = new THREE.Mesh(new THREE.BoxGeometry(0.6 * METER, pickH, 0.6 * METER), new THREE.MeshBasicMaterial({ visible: false }));
-    pick.position.y = pickH / 2;
+    head.position.y = Math.min(2.7, mountY + model.orb) * VSCALE;
+    // área de clique: a caixa do modelo (com folga) + o indicador
+    g.add(model.group);
+    g.updateMatrixWorld(true);
+    const bb = new THREE.Box3().setFromObject(model.group);
+    const size = bb.getSize(new THREE.Vector3()).max(new THREE.Vector3(0.35 * METER, 0.35 * VSCALE, 0.35 * METER));
+    const center = bb.getCenter(new THREE.Vector3()).sub(g.position);
+    const pick = new THREE.Mesh(new THREE.BoxGeometry(size.x * 1.2, size.y * 1.2, size.z * 1.2), new THREE.MeshBasicMaterial({ visible: false }));
+    pick.position.copy(center);
     pick.userData.deviceId = d.id;
     g.add(ring, head, pick);
     markerGroup.add(g);
@@ -1408,7 +1418,9 @@ function freeBand() {
   const w = container.clientWidth || window.innerWidth;
   if (window.innerWidth < 900) return { w, shift: 0 };
   const rl = document.getElementById('rail-left')?.getBoundingClientRect();
-  const rr = document.getElementById('rail-right')?.getBoundingClientRect();
+  // com o painel do cômodo aberto ele ocupa a direita (o trilho direito some)
+  const rpEl = document.getElementById('room-panel');
+  const rr = (rpEl?.classList.contains('room-panel-open') ? rpEl : document.getElementById('rail-right'))?.getBoundingClientRect();
   // trilho oculto/recolhido (largura 0) não ocupa espaço
   const left = rl && rl.width > 0 ? rl.right + 12 : 0;
   const right = rr && rr.width > 0 ? w - rr.left + 12 : 0;
@@ -1528,8 +1540,8 @@ function applyViewOffset() {
   const w = container.clientWidth || window.innerWidth;
   const h = container.clientHeight || window.innerHeight;
   const { shift } = freeBand();
-  // dentro de um cômodo o painel do ambiente ocupa o topo: desce um pouco a cena
-  const vy = insideRoom && window.innerWidth >= 900 ? Math.min(130, h * 0.14) : 0;
+  // celular: o painel do cômodo é uma folha inferior — sobe um pouco a cena
+  const vy = insideRoom && window.innerWidth < 900 ? -Math.min(120, h * 0.12) : 0;
   if (Math.abs(shift) < 1 && !vy) { camera.clearViewOffset(); }
   else camera.setViewOffset(w, h, -shift, -vy, w, h);
   camera.updateProjectionMatrix();
@@ -1651,6 +1663,12 @@ function updateLabels() {
 
 let scenePaused = false;
 on('editor-open', (open) => { scenePaused = !!open; });
+// painel do cômodo abriu/fechou/minimizou: a faixa livre mudou → recentra
+on('room-panel', () => requestAnimationFrame(() => {
+  if (!camera || !controls) return;
+  applyViewOffset();
+  if (insideRoom && selectedRoom) focusRoom(selectedRoom);
+}));
 
 function animate() {
   requestAnimationFrame(animate);

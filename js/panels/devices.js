@@ -95,6 +95,7 @@ function initAddForm() {
     try {
       const { data, error } = await client.from('devices')
         .insert({ name, type, room, status, is_online: false }).select();
+      if (error && /devices_type_check/.test(error.message || '')) throw new Error('o banco ainda não aceita este tipo — execute a migração 021_device_catalog.sql no Supabase e tente de novo');
       if (error) throw new Error(error.message);
       const row = Array.isArray(data) ? data[0] : data;
       if (row) upsertDevice(row);

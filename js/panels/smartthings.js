@@ -423,6 +423,14 @@ function saveLinks() {
   try { localStorage.setItem(LINKS_KEY, JSON.stringify(links)); } catch { /* modo restrito */ }
 }
 
+/** Vincula (ou desvincula, room vazio) um aparelho a um cômodo — usado pelo cadastro no Editor de Planta (v2.9). */
+export function linkStDevice(id, room) {
+  if (room) links[id] = room; else delete links[id];
+  saveLinks();
+  syncVirtualDevices();
+  try { renderDevices(); } catch { /* painel ainda não montado */ }
+}
+
 function syncVirtualDevices() {
   // aparelhos desvinculados (ou que sumiram da conta) saem do painel Dispositivos e da cena 3D
   const keep = new Set(stDevices.filter((d) => links[d.id]).map((d) => `st-${d.id}`));
