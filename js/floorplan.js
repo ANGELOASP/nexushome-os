@@ -3395,11 +3395,16 @@ function originOptions(type) {
   const taken = new Set(devDraft.map((d) => d.id));
   const st = (getStDevices?.() || []).filter((x) => !taken.has(`st-${x.id}`) || !isPlaced(devDraft.find((d) => d.id === `st-${x.id}`)));
   const ty = (getTuyaDevices?.() || []).filter((x) => !taken.has(`tuya-${x.id}`) || !isPlaced(devDraft.find((d) => d.id === `tuya-${x.id}`)));
-  const fit = (kind) => !type || (type === 'ac' && kind === 'ac') || (type === 'tv' && kind === 'tv') || (type === 'valve' && kind === 'valve_meter') || (type === 'sensor' && ['leak', 'level'].includes(kind)) || !['ac', 'tv'].includes(kind);
+  // aparelhos compatíveis com o modelo escolhido aparecem primeiro (os demais ficam em "Outros")
+  const want = { split: 'ac', ac_portatil: 'ac', smart_tv: 'tv', tv_wall: 'tv', valve: 'valve_meter', leak: 'leak', level: 'level' }[newDevModel];
+  const fit = (kind) => !want || kind === want;
+  const opt = (src, x) => `<option value="${src}:${escapeHtml(x.id)}">${escapeHtml(x.name)}</option>`;
+  const good = [...st.filter((x) => fit(x.kind)).map((x) => opt('st', x)), ...ty.filter((x) => fit(x.kind)).map((x) => opt('tuya', x))];
+  const rest = [...st.filter((x) => !fit(x.kind)).map((x) => opt('st', x)), ...ty.filter((x) => !fit(x.kind)).map((x) => opt('tuya', x))];
   return [
     '<option value="native">Novo no NexusHome (ESP32 / nativo)</option>',
-    st.length ? `<optgroup label="Samsung SmartThings">${st.filter((x) => fit(x.kind)).map((x) => `<option value="st:${escapeHtml(x.id)}">${escapeHtml(x.name)}</option>`).join('')}</optgroup>` : '',
-    ty.length ? `<optgroup label="Tuya / Smart Life">${ty.filter((x) => fit(x.kind)).map((x) => `<option value="tuya:${escapeHtml(x.id)}">${escapeHtml(x.name)}</option>`).join('')}</optgroup>` : '',
+    good.length ? `<optgroup label="Samsung / Tuya compatíveis">${good.join('')}</optgroup>` : '',
+    rest.length ? `<optgroup label="Outros aparelhos Samsung / Tuya">${rest.join('')}</optgroup>` : '',
   ].join('');
 }
 

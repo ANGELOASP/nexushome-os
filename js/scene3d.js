@@ -1418,7 +1418,9 @@ function freeBand() {
   const w = container.clientWidth || window.innerWidth;
   if (window.innerWidth < 900) return { w, shift: 0 };
   const rl = document.getElementById('rail-left')?.getBoundingClientRect();
-  const rr = document.getElementById('rail-right')?.getBoundingClientRect();
+  // com o painel do cômodo aberto ele ocupa a direita (o trilho direito some)
+  const rpEl = document.getElementById('room-panel');
+  const rr = (rpEl?.classList.contains('room-panel-open') ? rpEl : document.getElementById('rail-right'))?.getBoundingClientRect();
   // trilho oculto/recolhido (largura 0) não ocupa espaço
   const left = rl && rl.width > 0 ? rl.right + 12 : 0;
   const right = rr && rr.width > 0 ? w - rr.left + 12 : 0;
@@ -1538,8 +1540,8 @@ function applyViewOffset() {
   const w = container.clientWidth || window.innerWidth;
   const h = container.clientHeight || window.innerHeight;
   const { shift } = freeBand();
-  // dentro de um cômodo o painel do ambiente ocupa o topo: desce um pouco a cena
-  const vy = insideRoom && window.innerWidth >= 900 ? Math.min(130, h * 0.14) : 0;
+  // celular: o painel do cômodo é uma folha inferior — sobe um pouco a cena
+  const vy = insideRoom && window.innerWidth < 900 ? -Math.min(120, h * 0.12) : 0;
   if (Math.abs(shift) < 1 && !vy) { camera.clearViewOffset(); }
   else camera.setViewOffset(w, h, -shift, -vy, w, h);
   camera.updateProjectionMatrix();
@@ -1661,6 +1663,12 @@ function updateLabels() {
 
 let scenePaused = false;
 on('editor-open', (open) => { scenePaused = !!open; });
+// painel do cômodo abriu/fechou/minimizou: a faixa livre mudou → recentra
+on('room-panel', () => requestAnimationFrame(() => {
+  if (!camera || !controls) return;
+  applyViewOffset();
+  if (insideRoom && selectedRoom) focusRoom(selectedRoom);
+}));
 
 function animate() {
   requestAnimationFrame(animate);
