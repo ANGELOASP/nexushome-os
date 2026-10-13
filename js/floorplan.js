@@ -34,10 +34,10 @@
 // ============================================================
 
 import {
-  state, setRooms, DEFAULT_ROOMS, emit,
+  state, setRooms, DEFAULT_ROOMS, emit, upsertDevice,
   ROOM_PRESETS, MAX_FLOORS, floorLabel, presetByKind, normalizeRoom,
 } from './state.js';
-import { toast } from './toasts.js';
+import { toast, escapeHtml } from './toasts.js';
 import {
   isPoly, polyAbs, setPolyAbs, pointInPoly, polyArea, polyCentroid, distToSegment,
   cleanPoly, isSimplePoly, rectToPoints, roomArea, MIN_POLY_AREA,
@@ -45,6 +45,7 @@ import {
 } from './geometry.js';
 import { initDxfImport } from './dxf-import.js';
 import { FURNITURE, FURNITURE_BY_KIND, furnitureCorners, furnitureHit, normalizeFurniture } from './furniture.js';
+import { pinStyle, isPlaced, pinFloor, roomAtPoint } from './device-pins.js';
 import { roomFromPoint } from './dxf.js';
 
 const CELL_M = 0.5;        // 1 célula da grade = 0,5 m
@@ -72,6 +73,11 @@ let furnTableOk = true;    // false se a tabela furniture não existe (migraçã
 let selFurn = null;        // id do móvel selecionado
 let furnPlace = null;      // tipo do catálogo sendo inserido (ferramenta Móveis)
 let furnHover = null;      // { x, z } — prévia do móvel sob o cursor
+let devDraft = [];         // dispositivos na planta (v2.7): { id, name, type, room, pos_x, pos_z, pos_floor }
+let devBaseline = [];
+let selDev = null;         // id do dispositivo selecionado na planta
+let devPlace = null;       // id do dispositivo sendo posicionado (ferramenta Dispositivos)
+let devHover = null;       // { x, z } — prévia do marcador sob o cursor
 let openingsLive = [];     // portas/janelas salvas
 let openingsDraft = [];    // cópia de trabalho
 let openingsBaseline = [];
@@ -155,6 +161,7 @@ export function initFloorplan({ getClient: gc } = {}) {
   document.getElementById('btn-fp-tool-door')?.addEventListener('click', () => setTool('door'));
   document.getElementById('btn-fp-tool-window')?.addEventListener('click', () => setTool('window'));
   document.getElementById('btn-fp-tool-furn')?.addEventListener('click', () => { setTool('furniture'); toggleFurnPanel(true); });
+  document.getElementById('btn-fp-tool-dev')?.addEventListener('click', () => { setTool('device'); toggleDevPanel(true); });
   document.getElementById('btn-fp-topoly')?.addEventListener('click', convertToPolygon);
   initDxfImport({
     getContext: () => ({ floor: currentFloor, rooms: draft, walls: wallsDraft }),
@@ -296,8 +303,9 @@ export function initFloorplan({ getClient: gc } = {}) {
   initWallPanel();
   initOpeningPanel();
   initFurniturePanel();
+  initDevicePanel();
   // gancho de depuração/teste (só no `vite dev`; some do build de produção)
-  if (import.meta.env?.DEV) window.__fp = { w2sx, w2sz, s2wx, s2wz, get view() { return view; }, get walls() { return wallsDraft; }, get rooms() { return draft; }, get openings() { return openingsDraft; }, get furniture() { return furnDraft; }, get sel() { return [...selWalls]; } };
+  if (import.meta.env?.DEV) window.__fp = { w2sx, w2sz, s2wx, s2wz, get view() { return view; }, get walls() { return wallsDraft; }, get rooms() { return draft; }, get openings() { return openingsDraft; }, get furniture() { return furnDraft; }, get devices() { return devDraft; }, get sel() { return [...selWalls]; } };
 }
 
 /** Planta padrão (4 cômodos) apenas se não existe nenhuma parede: evita ressuscitar cômodos que o usuário apagou. */
@@ -454,6 +462,9 @@ function openEditor() {
   furnBaseline = furnLive.map((f) => ({ ...f }));
   furnDraft = furnBaseline.map((f) => ({ ...f }));
   selFurn = null;
+  devBaseline = state.devices.filter((d) => !d.virtual).map(devRow);
+  devDraft = devBaseline.map((d) => ({ ...d }));
+  selDev = null; devPlace = null; devHover = null;
   currentFloor = Math.min(maxFloorUsed(), currentFloor);
   if (!draft.some((r) => r.floor === currentFloor)) currentFloor = 0;
   selectedId = null;
@@ -494,6 +505,8 @@ function closeEditor() {
   selFurn = null;
   furnPlace = null;
   toggleFurnPanel(false);
+  devDraft = []; selDev = null; devPlace = null; devHover = null;
+  toggleDevPanel(false);
   selectedId = null;
   selWalls.clear();
   wallDraw = null;
@@ -520,11 +533,13 @@ function setTool(t) {
   if (t !== 'select' && t !== 'door' && t !== 'window') selOpening = null;
   if (t !== 'select' && t !== 'furniture') selFurn = null;
   if (t !== 'furniture') { furnPlace = null; furnHover = null; toggleFurnPanel(false); }
-  const map = { select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase', room: 'btn-fp-tool-room', poly: 'btn-fp-tool-poly', fill: 'btn-fp-tool-fill', door: 'btn-fp-tool-door', window: 'btn-fp-tool-window', furniture: 'btn-fp-tool-furn' };
+  if (t !== 'select' && t !== 'device') selDev = null;
+  if (t !== 'device') { devPlace = null; devHover = null; toggleDevPanel(false); }
+  const map = { device: 'btn-fp-tool-dev', select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase', room: 'btn-fp-tool-room', poly: 'btn-fp-tool-poly', fill: 'btn-fp-tool-fill', door: 'btn-fp-tool-door', window: 'btn-fp-tool-window', furniture: 'btn-fp-tool-furn' };
   Object.entries(map).forEach(([k, id]) => {
     document.getElementById(id)?.classList.toggle('fp-tool-active', k === t);
   });
-  if (canvas) canvas.style.cursor = (t === 'wall' || t === 'room' || t === 'poly' || t === 'fill' || t === 'door' || t === 'window' || t === 'furniture') ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
+  if (canvas) canvas.style.cursor = (t === 'wall' || t === 'room' || t === 'poly' || t === 'fill' || t === 'door' || t === 'window' || t === 'furniture' || t === 'device') ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
   draw();
 }
 
@@ -583,7 +598,7 @@ function setFloor(f) {
 // ------------------------------------------------------------
 
 function snapshot() {
-  return JSON.stringify({ rooms: draft, walls: wallsDraft, openings: openingsDraft, furniture: furnDraft, floor: currentFloor });
+  return JSON.stringify({ rooms: draft, walls: wallsDraft, openings: openingsDraft, furniture: furnDraft, devices: devDraft, floor: currentFloor });
 }
 
 /** Empilha o estado ATUAL como passo de undo (chame ANTES de mutar). */
@@ -605,13 +620,15 @@ function pushHistorySnap(snapStr) {
 
 function restore(snapStr) {
   try {
-    const { rooms, walls, openings, furniture, floor } = JSON.parse(snapStr);
+    const { rooms, walls, openings, furniture, devices, floor } = JSON.parse(snapStr);
     draft = rooms;
     wallsDraft = walls || [];
     openingsDraft = openings || [];
     furnDraft = furniture || [];
+    if (devices) devDraft = devices;
     selOpening = null;
     selFurn = null;
+    selDev = null;
     currentFloor = Math.min(floor ?? 0, maxFloorUsed());
     select(null);
     selWalls.clear();
@@ -793,6 +810,7 @@ function render() {
   drawFurniture();
   drawWalls();
   drawOpenings();
+  drawDevices();
   // o cômodo selecionado vai para o primeiro plano: por cima das paredes e dos vizinhos
   const selRoom = rooms.find((r) => r.id === selectedId);
   if (selRoom) drawRoom(selRoom, flashing);
@@ -806,6 +824,7 @@ function render() {
   syncWallPanel();
   syncOpeningPanel();
   syncFurnitureSel();
+  syncDeviceSel();
   if (animating || performance.now() < flashUntil) draw();
 }
 
@@ -1892,6 +1911,25 @@ function onPointerDown(e) {
     return;
   }
 
+  // ferramenta DISPOSITIVOS: clique posiciona o dispositivo escolhido; clicar num marcador o seleciona
+  if (tool === 'device') {
+    if (e.button !== 0) return;
+    const hitD = deviceAt(wx, wz);
+    if (devPlace) {
+      placeDevice(devPlace, wx, wz);
+    } else if (hitD) {
+      selDev = hitD.id;
+      drag = { mode: 'dev-move', id: hitD.id, snapBefore: snapshot(), changed: false, startPX: px, startPY: py, live: false, offX: wx - Number(hitD.pos_x), offZ: wz - Number(hitD.pos_z) };
+      capture(e);
+      draw();
+    } else {
+      toggleDevPanel(true);
+      toast('Escolha um dispositivo', 'Selecione na lista e depois clique no ponto da planta onde ele fica.', 'info');
+    }
+    e.preventDefault();
+    return;
+  }
+
   // ferramenta MÓVEIS: clique insere o móvel escolhido na paleta; clicar num móvel existente o seleciona
   if (tool === 'furniture') {
     if (e.button !== 0) return;
@@ -1936,6 +1974,8 @@ function onPointerDown(e) {
     if (e.button !== 0) return;
     const oHit = openingAt(wx, wz);
     if (oHit) { deleteOpening(oHit.id); e.preventDefault(); return; }
+    const dHit = deviceAt(wx, wz);
+    if (dHit) { unplaceDevice(dHit.id); e.preventDefault(); return; }
     const fHit = furnitureAt(wx, wz);
     if (fHit) { deleteFurniture(fHit.id); e.preventDefault(); return; }
     const wl = wallAt(wx, wz);
@@ -2025,6 +2065,22 @@ function onPointerDown(e) {
     }
   }
   if (selOpening) { selOpening = null; draw(); }
+
+  // dispositivo: selecionar e arrastar (marcadores ficam por cima de tudo)
+  {
+    const dHit = deviceAt(wx, wz);
+    if (dHit && e.button === 0) {
+      selDev = dHit.id; selFurn = null;
+      select(null); selWalls.clear();
+      drag = { mode: 'dev-move', id: dHit.id, snapBefore: snapshot(), changed: false, startPX: px, startPY: py, live: false, offX: wx - Number(dHit.pos_x), offZ: wz - Number(dHit.pos_z) };
+      capture(e);
+      canvas.style.cursor = 'grabbing';
+      draw();
+      e.preventDefault();
+      return;
+    }
+  }
+  if (selDev) { selDev = null; draw(); }
 
   // móvel: selecionar e arrastar (fica por cima de cômodos e paredes no clique)
   {
@@ -2153,6 +2209,12 @@ function onPointerMove(e) {
     draw();
     return;
   }
+  if (tool === 'device' && !drag) {
+    devHover = devPlace ? { x: snapDev(wx), z: snapDev(wz) } : null;
+    canvas.style.cursor = devPlace ? 'copy' : (deviceAt(wx, wz) ? 'grab' : 'default');
+    draw();
+    return;
+  }
   if (tool === 'furniture' && !drag) {
     furnHover = furnPlace ? { x: snapFurn(wx), z: snapFurn(wz) } : null;
     canvas.style.cursor = furnPlace ? 'copy' : (furnitureAt(wx, wz) ? 'grab' : 'default');
@@ -2193,12 +2255,26 @@ function onPointerMove(e) {
     }
     if (sr && isPoly(sr) && polyAbs(sr).some(([x, z]) => Math.hypot(wx - x, wz - z) <= vtxR())) { setHover(null); canvas.style.cursor = 'move'; return; }
     if (openingAt(wx, wz)) { setHover(null); canvas.style.cursor = 'pointer'; return; }
-    if (furnitureAt(wx, wz)) { setHover(null); canvas.style.cursor = 'grab'; return; }
+    if (deviceAt(wx, wz) || furnitureAt(wx, wz)) { setHover(null); canvas.style.cursor = 'grab'; return; }
     const wl = wallAt(wx, wz);
     setHover(wl?.id || null);
     if (wl) { canvas.style.cursor = 'grab'; return; }
     const r = roomAt(wx, wz);
     canvas.style.cursor = r ? 'grab' : 'default';
+    return;
+  }
+
+  // arrasto de um dispositivo
+  if (drag.mode === 'dev-move') {
+    const d = devDraft.find((x) => x.id === drag.id);
+    if (!d) { drag = null; return; }
+    if (!drag.live) {
+      if (Math.hypot(px - drag.startPX, py - drag.startPY) < 4) return;
+      drag.live = true;
+    }
+    d.pos_x = snapDev(wx - drag.offX); d.pos_z = snapDev(wz - drag.offZ);
+    drag.changed = true;
+    draw();
     return;
   }
 
@@ -2382,6 +2458,17 @@ function onPointerUp(e) {
     return;
   }
 
+  if (mode === 'dev-move') {
+    const { snapBefore, changed, id } = drag;
+    drag = null;
+    canvas.style.cursor = 'default';
+    try { canvas.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+    if (changed) { assignDeviceRoom(devDraft.find((x) => x.id === id)); pushHistorySnap(snapBefore); }
+    syncToolbar();
+    draw();
+    return;
+  }
+
   if (mode === 'furn-move') {
     const { snapBefore, changed } = drag;
     drag = null;
@@ -2549,6 +2636,7 @@ function onKeyDown(e) {
     if (k === 'd') { setTool('door'); return; }
     if (k === 'j') { setTool('window'); return; }
     if (k === 'm') { setTool('furniture'); toggleFurnPanel(true); return; }
+    if (k === 'x') { setTool('device'); toggleDevPanel(true); return; }
     if (k === 'r' && selFurn) { e.preventDefault(); rotateFurniture(e.shiftKey ? -90 : 90); return; }
     // zoom e vista: + − 0 (tudo) F (seleção) Espaço (mover a vista)
     if (k === '+' || k === '=') { e.preventDefault(); zoomCenter(1.25); return; }
@@ -2594,6 +2682,8 @@ function onKeyDown(e) {
     if (wallDraw) { wallDraw = null; draw(); return; } // encerra o encadeamento de paredes
     if (!presetsEl?.classList.contains('hidden')) { hidePresets(); return; }
     if (marquee) { marquee = null; drag = null; draw(); return; }
+    if (devPlace) { devPlace = null; devHover = null; setTool('select'); return; }       // sai do posicionamento de dispositivo
+    if (selDev) { selDev = null; draw(); return; }
     if (furnPlace) { furnPlace = null; furnHover = null; setTool('select'); return; }   // sai da inserção de móveis
     if (selFurn) { selFurn = null; draw(); return; }
     if (selOpening) { selOpening = null; draw(); return; }
@@ -2604,6 +2694,7 @@ function onKeyDown(e) {
   }
 
   if ((e.key === 'Delete' || e.key === 'Backspace') && !typing) {
+    if (selDev) { e.preventDefault(); unplaceDevice(selDev); return; }
     if (selFurn) { e.preventDefault(); deleteFurniture(selFurn); return; }
     if (selOpening) { e.preventDefault(); deleteOpening(selOpening); return; }
     if (selWalls.size) {
@@ -2625,6 +2716,21 @@ function onKeyDown(e) {
   // setas: nudge de 0,5 m (Shift = 0,1 m) no cômodo selecionado
   const NUDGE = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
   // setas nas paredes selecionadas: 0,1 m (Shift = 0,5 m); vizinhas coladas acompanham (Alt solta)
+  if (NUDGE[e.key] && selDev && !typing) {
+    const d = devDraft.find((x) => x.id === selDev);
+    if (d && isPlaced(d)) {
+      e.preventDefault();
+      if (!nudgeSnap) nudgeSnap = snapshot();
+      clearTimeout(nudgeTimer);
+      nudgeTimer = setTimeout(commitNudge, 700);
+      const step = e.shiftKey ? 0.25 : 0.05;
+      const [dx, dz] = NUDGE[e.key];
+      d.pos_x = r4(Number(d.pos_x) + dx * step); d.pos_z = r4(Number(d.pos_z) + dz * step);
+      assignDeviceRoom(d);
+      draw();
+    }
+    return;
+  }
   if (NUDGE[e.key] && selFurn && !typing) {
     const f = selectedFurniture();
     if (f) {
@@ -3097,6 +3203,173 @@ function syncFurnitureSel() {
 }
 
 // ------------------------------------------------------------
+// Dispositivos na planta (v2.7): ponto exato de cada luz/AC/válvula
+// (colunas pos_x/pos_z/pos_floor de devices — migração 015)
+// ------------------------------------------------------------
+
+const DEV_SNAP = 0.05;
+function snapDev(v) { return r4(Math.round(v / DEV_SNAP) * DEV_SNAP); }
+function devRow(d) {
+  return { id: d.id, name: d.name, type: d.type, room: d.room, pos_x: d.pos_x ?? null, pos_z: d.pos_z ?? null, pos_floor: d.pos_floor ?? null };
+}
+function floorDevices() { return devDraft.filter((d) => isPlaced(d) && pinFloor(d, draft) === currentFloor); }
+function devRadiusM() { return Math.max(0.2, 11 / view.scale); }
+
+/** Marcador sob o cursor (o último desenhado ganha). */
+function deviceAt(wx, wz) {
+  const list = floorDevices();
+  const r = devRadiusM() + hitR() * 0.3;
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (Math.hypot(wx - Number(list[i].pos_x), wz - Number(list[i].pos_z)) <= r) return list[i];
+  }
+  return null;
+}
+
+/** O cômodo do dispositivo passa a ser o cômodo onde o marcador está (se houver). */
+function assignDeviceRoom(d) {
+  if (!d || !isPlaced(d)) return;
+  const r = roomAtPoint(draft, currentFloor, Number(d.pos_x), Number(d.pos_z));
+  d.pos_floor = currentFloor;
+  if (r && r.name !== d.room) {
+    d.room = r.name;
+    toast(`${d.name} → ${r.name}`, 'O dispositivo passa a pertencer a este cômodo ao salvar.', 'info');
+  }
+}
+
+function placeDevice(id, wx, wz) {
+  const d = devDraft.find((x) => x.id === id);
+  if (!d) return;
+  pushHistory();
+  d.pos_x = snapDev(wx); d.pos_z = snapDev(wz);
+  assignDeviceRoom(d);
+  selDev = d.id;
+  devPlace = null; devHover = null;
+  if (devPanelOpen()) buildDevPanel();
+  syncToolbar();
+  draw();
+}
+
+function unplaceDevice(id) {
+  const d = devDraft.find((x) => x.id === id);
+  if (!d || !isPlaced(d)) return;
+  pushHistory();
+  d.pos_x = null; d.pos_z = null; d.pos_floor = null;
+  if (selDev === id) selDev = null;
+  toast(`${d.name} saiu da planta`, 'Ele continua cadastrado; posicione de novo pela ferramenta Dispositivos (X).', 'info');
+  syncToolbar();
+  draw();
+}
+
+function drawOneDevice(d, mode = '') {
+  const st = pinStyle(d.type);
+  const x = w2sx(Number(d.pos_x)), y = w2sz(Number(d.pos_z));
+  const r = Math.max(8, Math.min(16, devRadiusM() * view.scale));
+  ctx.save();
+  if (mode === 'ghost') ctx.globalAlpha = 0.55;
+  ctx.beginPath();
+  ctx.arc(x, y, r + (mode === 'sel' ? 4 : 2), 0, Math.PI * 2);
+  ctx.fillStyle = mode === 'sel' ? 'rgba(255,255,255,0.9)' : 'rgba(12,16,23,0.85)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = st.color;
+  ctx.fill();
+  ctx.font = `800 ${Math.round(r * 1.05)}px 'IBM Plex Sans', sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#0c1017';
+  ctx.fillText(st.letter, x, y + 0.5);
+  if (mode === 'sel' || view.scale > 60) {
+    ctx.font = "600 11px 'IBM Plex Sans', sans-serif";
+    const label = d.name || st.label;
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = 'rgba(12,16,23,0.85)';
+    ctx.fillRect(x - tw / 2 - 5, y + r + 5, tw + 10, 16);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText(label, x, y + r + 13);
+  }
+  ctx.restore();
+}
+
+function drawDevices() {
+  const list = floorDevices();
+  list.forEach((d) => { if (d.id !== selDev) drawOneDevice(d); });
+  const s = list.find((d) => d.id === selDev);
+  if (s) drawOneDevice(s, 'sel');
+  if (tool === 'device' && devPlace && devHover) {
+    const d = devDraft.find((x) => x.id === devPlace);
+    if (d) drawOneDevice({ ...d, pos_x: devHover.x, pos_z: devHover.z }, 'ghost');
+  }
+}
+
+function devPanelOpen() { return !document.getElementById('fp-dev-panel')?.classList.contains('hidden'); }
+
+function buildDevPanel() {
+  const el = document.getElementById('fp-dev-panel');
+  if (!el) return;
+  el.innerHTML = '';
+  const title = document.createElement('p');
+  title.className = 'fp-presets-title';
+  title.textContent = devDraft.length ? 'Escolha um dispositivo e clique onde ele fica' : 'Nenhum dispositivo cadastrado — use “+ Dispositivo” no painel Dispositivos';
+  el.appendChild(title);
+  const rooms = [...new Set(devDraft.map((d) => d.room || 'Sem cômodo'))];
+  rooms.forEach((room) => {
+    const h = document.createElement('p');
+    h.className = 'fp-furn-group';
+    h.textContent = room;
+    el.appendChild(h);
+    const grid = document.createElement('div');
+    grid.className = 'fp-presets-grid';
+    devDraft.filter((d) => (d.room || 'Sem cômodo') === room).forEach((d) => {
+      const st = pinStyle(d.type);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'fp-preset-btn fp-furn-btn fp-dev-btn';
+      btn.dataset.dev = d.id;
+      const placed = isPlaced(d);
+      btn.innerHTML = `<span><i class="fp-dev-dot" style="background:${st.color}"></i>${escapeHtml(d.name)}</span><small>${placed ? `na planta · ${floorLabel(pinFloor(d, draft))}` : 'não posicionado'}</small>`;
+      if (devPlace === d.id) btn.classList.add('fp-furn-active');
+      btn.addEventListener('click', () => {
+        devPlace = d.id;
+        selDev = null;
+        toggleDevPanel(false);
+        toast(`${d.name}: clique na planta`, placed ? 'Clique no novo ponto para mover o marcador. Esc cancela.' : 'Clique no ponto exato onde ele está instalado. Esc cancela.', 'info');
+        draw();
+      });
+      grid.appendChild(btn);
+    });
+    el.appendChild(grid);
+  });
+}
+
+function toggleDevPanel(open) {
+  const el = document.getElementById('fp-dev-panel');
+  if (!el) return;
+  if (open) buildDevPanel();
+  el.classList.toggle('hidden', !open);
+  if (open) { hidePresets(); hideBgPanel(); toggleFurnPanel(false); }
+}
+
+function initDevicePanel() {
+  document.getElementById('fp-dev-move')?.addEventListener('click', () => { if (selDev) { const id = selDev; setTool('device'); devPlace = id; draw(); } });
+  document.getElementById('fp-dev-del')?.addEventListener('click', () => { if (selDev) unplaceDevice(selDev); });
+}
+
+let devSelKey = '';
+function syncDeviceSel() {
+  const panel = document.getElementById('fp-dev-sel');
+  if (!panel) return;
+  const d = devDraft.find((x) => x.id === selDev);
+  const key = d ? `${d.id}:${d.room}` : '';
+  if (key === devSelKey) return;
+  devSelKey = key;
+  panel.classList.toggle('hidden', !d);
+  if (d) {
+    document.getElementById('fp-dev-title').textContent = d.name;
+    document.getElementById('fp-dev-room').textContent = d.room || 'sem cômodo';
+  }
+}
+
+// ------------------------------------------------------------
 // Seleção + formulário lateral
 // ------------------------------------------------------------
 
@@ -3424,6 +3697,29 @@ async function savePlan() {
     }
     if (furnSkipped) {
       toast('Móveis não foram gravados', `${furnError} — execute a migração 014_furniture.sql no Supabase e salve de novo. O resto da planta foi salvo.`, 'critical');
+    }
+
+    // dispositivos posicionados na planta (migração 015): grava ponto + cômodo dos que mudaram
+    {
+      const base = new Map(devBaseline.map((d) => [d.id, d]));
+      const changedDevs = devDraft.filter((d) => {
+        const b = base.get(d.id);
+        return b && (b.pos_x !== d.pos_x || b.pos_z !== d.pos_z || b.pos_floor !== d.pos_floor || b.room !== d.room);
+      });
+      let posDropped = false;
+      for (const d of changedDevs) {
+        const patch = { pos_x: d.pos_x, pos_z: d.pos_z, pos_floor: d.pos_floor, room: d.room };
+        let { error: e10 } = await client.from('devices').update(patch).eq('id', d.id);
+        if (e10 && /pos_(x|z|floor)/.test(e10.message || '')) {
+          posDropped = true;
+          ({ error: e10 } = await client.from('devices').update({ room: d.room }).eq('id', d.id));
+        }
+        if (e10) throw new Error(e10.message);
+        const cur = state.devices.find((x) => x.id === d.id);
+        if (cur) upsertDevice(posDropped ? { ...cur, room: d.room } : { ...cur, ...patch });
+      }
+      if (posDropped) toast('Posição dos dispositivos não gravada', 'Execute a migração 015_device_positions.sql no Supabase e salve de novo. O cômodo de cada dispositivo foi atualizado.', 'warning');
+      devBaseline = devDraft.map((d) => ({ ...d }));
     }
 
     // recarrega do banco; só troca o rascunho se a leitura funcionou (senão mantém o que está na tela)

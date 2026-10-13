@@ -24,6 +24,13 @@ export function initRoomPanel() {
   on('room-selected', (room) => { current = room || null; render(); });
   on('devices-changed', () => { if (current) render(); });
   on('automations-changed', () => { if (current) render(); });
+  // clique num marcador do 3D: destaca o dispositivo no cartão
+  on('device-picked', (id) => setTimeout(() => {
+    const row = panel.querySelector(`[data-row="${CSS.escape(id)}"]`);
+    if (!row) return;
+    row.classList.remove('rp-dev-flash'); void row.offsetWidth; row.classList.add('rp-dev-flash');
+    row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, 60));
   panel.addEventListener('click', onClick);
   panel.addEventListener('change', onChange);
 }
@@ -48,7 +55,7 @@ function render() {
       const sw = SWITCHABLE.has(d.type);
       const onNow = isOn(d);
       const label = d.type === 'valve' ? (onNow ? 'Aberta' : 'Fechada') : (onNow ? 'Ligado' : 'Desligado');
-      return `<li class="rp-dev">
+      return `<li class="rp-dev" data-row="${escapeHtml(d.id)}">
         <span class="rp-dev-dot ${onNow ? 'rp-on' : ''}"></span>
         <span class="rp-dev-name">${escapeHtml(d.name)}<small>${escapeHtml(TYPE_LABEL[d.type] || d.type)}${sw ? ` · ${label}` : ''}</small></span>
         ${sw ? `<button type="button" class="rp-dev-btn ${onNow ? 'rp-dev-btn-on' : ''}" data-dev="${escapeHtml(d.id)}" aria-pressed="${onNow}">${d.type === 'valve' ? (onNow ? 'Fechar' : 'Abrir') : (onNow ? 'Desligar' : 'Ligar')}</button>` : ''}

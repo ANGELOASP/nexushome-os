@@ -936,6 +936,10 @@ button.from-indigo-500.to-cyan-500.text-white { color: var(--accent-ink); }
 .fp-furn-btn.fp-furn-active { background: rgba(167, 139, 250, 0.2); border-color: rgba(167, 139, 250, 0.6); }
 .fp-furn-sel { border-color: rgba(167, 139, 250, 0.5); }
 .fp-furn-sel strong { color: #c4b5fd; }
+/* dispositivos na planta (v2.7) */
+.fp-dev-dot { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 999px; margin-right: 0.35rem; vertical-align: 0.05rem; }
+.fp-dev-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fp-dev-room { font-size: 0.68rem; color: var(--muted); }
 
 /* ---------- painel do cômodo (câmera dentro do ambiente) — v2.6.0 ---------- */
 .room-panel {
@@ -1000,3 +1004,15 @@ body:not(.authenticated) .room-panel { display: none; }
   .room-panel { top: auto; bottom: 4.6rem; width: calc(100vw - 1.5rem); max-height: 46vh; transform: translate(-50%, 10px); }
   .room-panel-open { transform: translate(-50%, 0); }
 }
+
+/* dica flutuante dos marcadores de dispositivo no 3D (v2.7) */
+.device-tip {
+  position: absolute; top: 0; left: 0; z-index: 30; pointer-events: none; opacity: 0;
+  display: flex; flex-direction: column; gap: 0.05rem;
+  padding: 0.35rem 0.6rem; border-radius: 0.6rem;
+  background: rgba(12, 16, 23, 0.9); border: 1px solid var(--line);
+  font-size: 0.7rem; color: #e2e8f0; white-space: nowrap; transition: opacity 0.15s;
+}
+.device-tip span { font-size: 0.62rem; color: var(--muted); }
+.rp-dev-flash { animation: rp-flash 1.6s ease; }
+@keyframes rp-flash { 0%, 60% { border-color: rgba(242, 178, 74, 0.9); background: rgba(242, 178, 74, 0.16); } 100% { } }
