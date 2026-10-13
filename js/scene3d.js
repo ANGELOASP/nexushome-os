@@ -496,6 +496,24 @@ function floorTexture(THREE, style) {
 const FLOOR_ROUGH = { tile: 0.3, porcelain_dark: 0.28, marble: 0.22, granite: 0.3, epoxy: 0.25, ceramic: 0.45, grass: 1, carpet: 1, gravel: 1, pavers: 0.85, concrete: 0.85, burnt_cement: 0.55, slate: 0.7 };
 
 /** Mobília mínima quando o usuário montou o próprio layout: brilho de teto, lâmpada e ar-condicionado (se houver). */
+/** Grupo do ar-condicionado genérico do cômodo (oculto quando o AC real está na planta). */
+function legacyAcGroup(THREE, g, room) {
+  const acG = new THREE.Group();
+  g.add(acG);
+  room.fx.acLegacy = acG;
+  acG.visible = !roomHasPlacedAc(room.def.name);
+  return acG;
+}
+
+function roomHasPlacedAc(name) {
+  return state.devices.some((d) => d.room === name && d.type === 'ac' && isPlaced(d));
+}
+
+/** Mostra/oculta o AC genérico de cada cômodo conforme o AC real esteja posicionado. */
+function syncLegacyAc() {
+  Object.values(rooms).forEach((r) => { if (r.fx.acLegacy) r.fx.acLegacy.visible = !roomHasPlacedAc(r.def.name); });
+}
+
 function furnishFx(THREE, g, room, userFx) {
   const SX = room.def.sizeX, SZ = room.def.sizeZ;
   const glowMat = mat(THREE, 0x1a2440, { emissive: 0xffc887, emissiveIntensity: 0 });
@@ -519,17 +537,20 @@ function furnishFx(THREE, g, room, userFx) {
     room.lights.lamp = pt;
   }
   if (state.devices.some((d) => d.room === room.def.name && d.type === 'ac')) {
+    // ar genérico na parede do fundo — some quando o AC do cômodo é posicionado na
+    // planta (aí o modelo 3D do dispositivo, no lugar certo, assume o papel)
+    const acG = legacyAcGroup(THREE, g, room);
     const acMat = mat(THREE, 0xe8edf5, { roughness: 0.4, emissive: 0x38bdf8, emissiveIntensity: 0 });
-    g.add(box(THREE, 1.5, 0.5, 0.3, acMat, 0, 1.95, -SZ / 2 + 0.25));
+    acG.add(box(THREE, 1.5, 0.5, 0.3, acMat, 0, 1.95, -SZ / 2 + 0.25));
     const ventMat = mat(THREE, 0x94a3b8, { emissive: 0x38bdf8, emissiveIntensity: 0 });
-    g.add(box(THREE, 1.3, 0.08, 0.05, ventMat, 0, 1.78, -SZ / 2 + 0.42));
+    acG.add(box(THREE, 1.3, 0.08, 0.05, ventMat, 0, 1.78, -SZ / 2 + 0.42));
     room.fx.acBody = acMat; room.fx.acVent = ventMat;
     const flowMat = new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0, depthWrite: false });
     room.fx.airFlows = [0, 1, 2].map((i) => {
       const f = new THREE.Mesh(new THREE.PlaneGeometry(1.1 - i * 0.2, 0.16), flowMat.clone());
       f.position.set(0, 1.55 - i * 0.28, -SZ / 2 + 0.6 + i * 0.15);
       f.rotation.x = 0.5;
-      g.add(f);
+      acG.add(f);
       return f;
     });
   }
@@ -778,6 +799,7 @@ function refreshDeviceMarkers() {
   // nativos e integrados (Samsung SmartThings, Tuya...) posicionados na planta
   const placed = state.devices.filter((d) => isPlaced(d));
   const sig = placed.map((d) => `${d.id}:${d.type}:${d.model || ''}:${d.pos_x}:${d.pos_z}:${d.pos_y ?? ''}:${d.pos_rot ?? ''}:${pinFloor(d, state.rooms)}`).join('|');
+  syncLegacyAc();
   if (sig === markerSig && markerGroup) {
     // só o estado mudou: atualiza os modelos sem reconstruir
     deviceMarkers.forEach((m) => {
@@ -1031,11 +1053,11 @@ function furnishBedroom(THREE, g, room) {
   g.add(box(THREE, 0.5, 0.5, 0.5, mat(THREE, 0x334155), 0.2, 0.31, 1.6)); // criado
 
   // unidade de ar-condicionado na parede
+  const acG = legacyAcGroup(THREE, g, room);
   const acMat = mat(THREE, 0xe8edf5, { roughness: 0.4, emissive: 0x38bdf8, emissiveIntensity: 0 });
-  const ac = box(THREE, 1.5, 0.5, 0.3, acMat, 0.9, 1.95, 2.28);
-  g.add(ac);
+  acG.add(box(THREE, 1.5, 0.5, 0.3, acMat, 0.9, 1.95, 2.28));
   const ventMat = mat(THREE, 0x94a3b8, { emissive: 0x38bdf8, emissiveIntensity: 0 });
-  g.add(box(THREE, 1.3, 0.08, 0.05, ventMat, 0.9, 1.78, 2.42));
+  acG.add(box(THREE, 1.3, 0.08, 0.05, ventMat, 0.9, 1.78, 2.42));
   room.fx.acBody = acMat;
   room.fx.acVent = ventMat;
 
@@ -1046,7 +1068,7 @@ function furnishBedroom(THREE, g, room) {
     const f = new THREE.Mesh(new THREE.PlaneGeometry(1.1 - i * 0.2, 0.16), flowMat.clone());
     f.position.set(0.9, 1.55 - i * 0.28, 2.1 - i * 0.15);
     f.rotation.x = -0.5;
-    g.add(f);
+    acG.add(f);
     room.fx.airFlows.push(f);
   }
 
