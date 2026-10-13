@@ -9,6 +9,8 @@
 //               "metric_type": "energy_watts|water_flow_lph|temperature|humidity|water_level_pct",
 //               "value": 1234.5,
 //               "status": { "watts": 1234 }        // opcional: atualiza devices.status
+//               "ts": "2026-10-13T12:00:00Z"       // opcional (v2.7): horário real de leitura
+//               "replayed": true                   //   reenviada da fila offline (não mexe no status)
 //             }
 //
 // GET  /iot-gateway/health    → status simples
@@ -33,6 +35,7 @@
 // ============================================================
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { parseReadingTs } from "./ts.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ALLOWED_METRICS = new Set(["energy_watts", "water_flow_lph", "temperature", "humidity", "water_level_pct"]);  // water_level_pct: migração 005
@@ -125,15 +128,18 @@ serve(async (req: Request) => {
   if (!Number.isFinite(value)) return json({ error: "value deve ser numérico" }, 400);
 
   // --- escrita no Supabase (service role: ignora RLS) ---------
+  // leitura reenviada da fila offline do ESP32: grava com o horário real da medida
+  const createdAt = parseReadingTs(body.ts);
+  const replayed = body.replayed === true;
   const { error: telErr } = await supabase
     .from("telemetry_logs")
-    .insert({ device_id: deviceId, metric_type: metricType, value });
+    .insert({ device_id: deviceId, metric_type: metricType, value, ...(createdAt ? { created_at: createdAt } : {}) });
 
   if (telErr) return json({ error: `Falha ao gravar telemetria: ${telErr.message}` }, 500);
 
   // opcional: o firmware pode atualizar o status do dispositivo
   // (ex.: medidor publica {"watts": X} para o painel 3D reagir)
-  if (body.status && typeof body.status === "object") {
+  if (!replayed && body.status && typeof body.status === "object") {
     // migração 013: device_report_status grava o estado reportado sem gerar comando de volta (eco)
     const { error: rpcErr } = await supabase.rpc("device_report_status", { p_device: deviceId, p_patch: body.status });
     if (!rpcErr) return json({ ok: true, device_id: deviceId, metric_type: metricType, value });
