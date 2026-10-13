@@ -2,6 +2,8 @@
 // NexusHome OS — Estado global + barramento de eventos (pub/sub)
 // ============================================================
 
+import { normalizeFloorType } from './floors.js';
+
 export const ROOM_ORDER = ['Sala de Estar', 'Quarto Principal', 'Cozinha', 'Área Externa'];
 
 // ---- Tipos de cômodo (v1.6.0) --------------------------------------------
@@ -70,7 +72,7 @@ export function normalizeRoom(row) {
   const pts = Array.isArray(row.points) && row.points.length >= 3
     ? row.points.map((p) => [Number(p[0]), Number(p[1])]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))
     : null;
-  return { ...row, floor, kind, points: pts && pts.length >= 3 ? pts : null };
+  return { ...row, floor, kind, points: pts && pts.length >= 3 ? pts : null, floor_type: normalizeFloorType(row.floor_type) };
 }
 
 // Planta padrão (espelha os seeds de supabase/migrations/003_rooms.sql

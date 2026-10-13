@@ -17,6 +17,7 @@ import { isPoly, polyCentroid, innerRect, wallPieces, pointInPoly } from './geom
 import { FURNITURE_BY_KIND } from './furniture.js';
 import { buildFurnitureModel } from './scene-furniture.js';
 import { isPlaced, pinFloor, pinStyle, deviceActive } from './device-pins.js';
+import { FLOOR_BY_KEY, floorTypeOf } from './floors.js';
 
 const METER = 1.9;          // unidades de cena por metro (3.0 m → 5.7 un., paridade com o layout original)
 const WALL_H = 2.5;
@@ -190,6 +191,8 @@ function roomDefFromRow(row) {
     sizeZ: Math.max(1, Number(row.size_z) || 3) * METER,
     color: row.color || '#818cf8',
     outdoor: kind === 'area_externa' || row.name === 'Área Externa',
+    floorType: floorTypeOf({ ...row, kind }),          // tipo de piso (v2.8)
+    floorChosen: !!row.floor_type,
     points: isPoly(row) ? row.points.map(([x, z]) => [x * METER, z * METER]) : null,   // polígono (cena, relativo ao centro)
   };
 }
@@ -346,11 +349,10 @@ function box(THREE, w, h, d, material, x = 0, y = 0, z = 0, castShadow = true) {
 }
 
 // ---- texturas procedurais de piso (canvas, sem arquivos): madeira, cerâmica, grama, cimento
-const FLOOR_STYLE = {
-  sala_estar: 'wood', quarto: 'wood', suite: 'wood', escritorio: 'wood', closet: 'wood', sala_jantar: 'wood', corredor: 'wood',
-  cozinha: 'tile', banheiro: 'tile', lavanderia: 'tile', despensa: 'tile',
-  area_externa: 'grass', varanda: 'deck', garagem: 'concrete',
-};
+/**
+ * Textura procedural (canvas 256×256, repetível) de cada tipo de piso do
+ * catálogo js/floors.js — sem imagens externas, carrega instantâneo.
+ */
 function floorTexture(THREE, style) {
   if (texCache[style]) return texCache[style];
   const S = 256;
@@ -358,35 +360,129 @@ function floorTexture(THREE, style) {
   cv.width = cv.height = S;
   const g = cv.getContext('2d');
   const rnd = (() => { let x = 12345; return () => ((x = (x * 16807) % 2147483647) / 2147483647); })();
-  if (style === 'wood' || style === 'deck') {
-    const base = style === 'deck' ? [120, 92, 66] : [168, 128, 92];
-    for (let i = 0; i < 8; i++) {                         // 8 réguas de 32 px
-      const k = 0.82 + rnd() * 0.3;
-      g.fillStyle = `rgb(${base.map((c) => Math.round(c * k)).join(',')})`;
-      g.fillRect(0, i * 32, S, 32);
-      for (let j = 0; j < 40; j++) {                       // veios
-        g.strokeStyle = `rgba(60,40,25,${0.05 + rnd() * 0.08})`;
-        g.beginPath(); const y = i * 32 + rnd() * 32; g.moveTo(0, y); g.bezierCurveTo(S / 3, y + 3, S / 1.5, y - 3, S, y + 1); g.stroke();
+  const rgb = (c, k = 1) => `rgb(${c.map((v) => Math.max(0, Math.min(255, Math.round(v * k)))).join(',')})`;
+  const speckle = (n, size, col, a) => { for (let i = 0; i < n; i++) { g.fillStyle = `rgba(${col.join(',')},${a * (0.5 + rnd())})`; g.fillRect(rnd() * S, rnd() * S, size, size); } };
+  const planks = (base, rows, grain, seam) => {
+    const h = S / rows;
+    for (let i = 0; i < rows; i++) {
+      g.fillStyle = rgb(base, 0.82 + rnd() * 0.3);
+      g.fillRect(0, i * h, S, h);
+      for (let j = 0; j < 36; j++) {                       // veios
+        g.strokeStyle = `rgba(${grain.join(',')},${0.05 + rnd() * 0.08})`;
+        g.beginPath(); const y = i * h + rnd() * h; g.moveTo(0, y); g.bezierCurveTo(S / 3, y + 3, S / 1.5, y - 3, S, y + 1); g.stroke();
       }
-      g.fillStyle = 'rgba(40,26,16,0.55)'; g.fillRect(0, i * 32, S, 1.5);
-      g.fillRect(((i * 97) % S), i * 32, 1.5, 32);         // emenda de topo
+      g.fillStyle = seam; g.fillRect(0, i * h, S, 1.5);
+      g.fillRect(((i * 97) % S), i * h, 1.5, h);          // emenda de topo
     }
-  } else if (style === 'tile') {
-    g.fillStyle = '#d9dde3'; g.fillRect(0, 0, S, S);
-    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
-      const k = 0.94 + rnd() * 0.08;
-      g.fillStyle = `rgb(${[222, 226, 232].map((c) => Math.round(c * k)).join(',')})`;
-      g.fillRect(x * 64 + 1.5, y * 64 + 1.5, 61, 61);
+  };
+  const tiles = (n, base, jitter, grout, gw = 2) => {
+    const t = S / n;
+    g.fillStyle = grout; g.fillRect(0, 0, S, S);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      g.fillStyle = rgb(base, 1 - jitter / 2 + rnd() * jitter);
+      g.fillRect(x * t + gw / 2, y * t + gw / 2, t - gw, t - gw);
     }
-    g.fillStyle = '#a8aeb8';
-    for (let i = 0; i <= 4; i++) { g.fillRect(i * 64 - 1, 0, 2, S); g.fillRect(0, i * 64 - 1, S, 2); }
-  } else if (style === 'grass') {
-    g.fillStyle = '#3f7a3a'; g.fillRect(0, 0, S, S);
-    for (let i = 0; i < 2600; i++) { g.fillStyle = `rgba(${30 + rnd() * 60},${100 + rnd() * 70},${30 + rnd() * 40},0.55)`; g.fillRect(rnd() * S, rnd() * S, 1.5, 3); }
-  } else {
-    g.fillStyle = '#8b9099'; g.fillRect(0, 0, S, S);
-    for (let i = 0; i < 3500; i++) { const v = 110 + rnd() * 60; g.fillStyle = `rgba(${v},${v},${v + 4},0.25)`; g.fillRect(rnd() * S, rnd() * S, 2, 2); }
-    g.fillStyle = 'rgba(60,64,70,0.5)'; g.fillRect(0, S / 2, S, 1.5); g.fillRect(S / 2, 0, 1.5, S);
+  };
+  const veins = (n, col, a, w) => {
+    for (let i = 0; i < n; i++) {
+      g.strokeStyle = `rgba(${col.join(',')},${a * (0.4 + rnd())})`; g.lineWidth = w * (0.5 + rnd());
+      g.beginPath(); let x = rnd() * S, y = rnd() * S; g.moveTo(x, y);
+      for (let k = 0; k < 6; k++) { x += (rnd() - 0.3) * 70; y += (rnd() - 0.5) * 50; g.lineTo(x, y); }
+      g.stroke();
+    }
+    g.lineWidth = 1;
+  };
+  switch (style) {
+    case 'wood': planks([168, 128, 92], 8, [60, 40, 25], 'rgba(40,26,16,0.55)'); break;
+    case 'wood_dark': planks([96, 66, 44], 8, [30, 18, 10], 'rgba(20,12,6,0.6)'); break;
+    case 'deck': planks([120, 92, 66], 8, [60, 40, 25], 'rgba(30,20,12,0.75)'); g.fillStyle = 'rgba(20,14,8,0.6)'; for (let i = 0; i < 8; i++) g.fillRect(0, i * 32 + 30, S, 2.5); break;
+    case 'laminate': planks([150, 146, 140], 6, [80, 76, 70], 'rgba(60,58,54,0.5)'); break;
+    case 'herringbone': {
+      g.fillStyle = '#6b4a2f'; g.fillRect(0, 0, S, S);
+      const L = 64, W = 16;
+      for (let y = -L; y < S + L; y += W * 2) for (let x = -L; x < S + L; x += W * 2) {
+        [[x, y, 1], [x + W, y + W, -1]].forEach(([px, py, d]) => {
+          g.save(); g.translate(px, py); g.rotate(d * Math.PI / 4);
+          g.fillStyle = rgb([176, 132, 92], 0.8 + rnd() * 0.3); g.fillRect(0, 0, L, W - 1.5);
+          g.restore();
+        });
+      }
+      break;
+    }
+    case 'tile': tiles(4, [222, 226, 232], 0.08, '#a8aeb8'); break;
+    case 'porcelain_dark': tiles(4, [70, 72, 78], 0.1, '#2b2d32'); speckle(900, 1.5, [120, 120, 126], 0.25); break;
+    case 'ceramic': tiles(8, [214, 196, 168], 0.12, '#9c8b74', 2.5); break;
+    case 'marble':
+      g.fillStyle = '#eceae6'; g.fillRect(0, 0, S, S);
+      veins(14, [140, 140, 150], 0.35, 1.6); veins(8, [190, 170, 140], 0.25, 1);
+      g.fillStyle = 'rgba(160,160,165,0.55)'; g.fillRect(0, S / 2, S, 1); g.fillRect(S / 2, 0, 1, S);
+      break;
+    case 'granite':
+      g.fillStyle = '#5b5752'; g.fillRect(0, 0, S, S);
+      speckle(5000, 2, [20, 18, 16], 0.5); speckle(3000, 2, [200, 190, 180], 0.4); speckle(800, 3, [150, 90, 70], 0.3);
+      break;
+    case 'hydraulic': {
+      const t = S / 4;
+      for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+        const cx = x * t + t / 2, cy = y * t + t / 2;
+        g.fillStyle = '#e8e1d2'; g.fillRect(x * t, y * t, t, t);
+        g.fillStyle = '#2f5d73';                           // estrela/flor de 4 pétalas
+        for (let k = 0; k < 4; k++) { g.beginPath(); g.ellipse(cx, cy, t * 0.38, t * 0.14, k * Math.PI / 4, 0, Math.PI * 2); g.fill(); }
+        g.fillStyle = '#c0533a'; g.beginPath(); g.arc(cx, cy, t * 0.1, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#2f5d73'; [[0, 0], [t, 0], [0, t], [t, t]].forEach(([dx, dy]) => { g.beginPath(); g.arc(x * t + dx, y * t + dy, t * 0.16, 0, Math.PI * 2); g.fill(); });
+        g.strokeStyle = 'rgba(120,110,95,0.6)'; g.strokeRect(x * t + 0.5, y * t + 0.5, t - 1, t - 1);
+      }
+      break;
+    }
+    case 'slate': {
+      const t = S / 4;
+      for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+        const off = (y % 2) * t / 2;
+        g.fillStyle = rgb([78, 84, 92], 0.8 + rnd() * 0.35);
+        g.fillRect(((x * t + off) % S), y * t, t, t);
+        if (off && x === 3) g.fillRect(0, y * t, off, t);
+      }
+      speckle(1500, 2, [40, 44, 50], 0.3);
+      g.fillStyle = 'rgba(30,32,36,0.8)';
+      for (let y = 0; y <= 4; y++) g.fillRect(0, y * t - 1, S, 2);
+      for (let y = 0; y < 4; y++) for (let x = 0; x <= 4; x++) g.fillRect((x * t + (y % 2) * t / 2) % S - 1, y * t, 2, t);
+      break;
+    }
+    case 'burnt_cement':
+      g.fillStyle = '#9a9a96'; g.fillRect(0, 0, S, S);
+      for (let i = 0; i < 40; i++) { const r = 20 + rnd() * 60; const gr = g.createRadialGradient(rnd() * S, rnd() * S, 0, rnd() * S, rnd() * S, r); gr.addColorStop(0, `rgba(${rnd() > 0.5 ? '120,120,116' : '170,170,166'},0.35)`); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, S, S); }
+      speckle(1500, 1.5, [80, 80, 78], 0.2);
+      break;
+    case 'epoxy':
+      g.fillStyle = '#7d8590'; g.fillRect(0, 0, S, S);
+      speckle(2500, 1.5, [230, 232, 236], 0.25); speckle(1500, 1.5, [40, 44, 50], 0.25);
+      break;
+    case 'carpet':
+      g.fillStyle = '#6f6a73'; g.fillRect(0, 0, S, S);
+      speckle(12000, 1, [40, 36, 44], 0.35); speckle(8000, 1, [150, 145, 155], 0.3);
+      break;
+    case 'grass':
+      g.fillStyle = '#3f7a3a'; g.fillRect(0, 0, S, S);
+      for (let i = 0; i < 2600; i++) { g.fillStyle = `rgba(${30 + rnd() * 60},${100 + rnd() * 70},${30 + rnd() * 40},0.55)`; g.fillRect(rnd() * S, rnd() * S, 1.5, 3); }
+      break;
+    case 'pavers': {
+      g.fillStyle = '#5c5650'; g.fillRect(0, 0, S, S);
+      const w = 64, h = 32;
+      for (let y = 0; y < S / h; y++) for (let x = -1; x < S / w + 1; x++) {
+        const off = (y % 2) * w / 2;
+        g.fillStyle = rgb(rnd() > 0.85 ? [150, 96, 72] : [170, 160, 150], 0.85 + rnd() * 0.2);
+        g.fillRect(x * w + off + 1.5, y * h + 1.5, w - 3, h - 3);
+      }
+      break;
+    }
+    case 'gravel':
+      g.fillStyle = '#8f877c'; g.fillRect(0, 0, S, S);
+      for (let i = 0; i < 1800; i++) { const v = 110 + rnd() * 100; g.fillStyle = `rgb(${v},${v - 6},${v - 14})`; g.beginPath(); g.ellipse(rnd() * S, rnd() * S, 1.5 + rnd() * 3, 1 + rnd() * 2.2, rnd() * 3, 0, Math.PI * 2); g.fill(); }
+      break;
+    default: // concrete
+      g.fillStyle = '#8b9099'; g.fillRect(0, 0, S, S);
+      for (let i = 0; i < 3500; i++) { const v = 110 + rnd() * 60; g.fillStyle = `rgba(${v},${v},${v + 4},0.25)`; g.fillRect(rnd() * S, rnd() * S, 2, 2); }
+      g.fillStyle = 'rgba(60,64,70,0.5)'; g.fillRect(0, S / 2, S, 1.5); g.fillRect(S / 2, 0, 1.5, S);
   }
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
@@ -395,7 +491,8 @@ function floorTexture(THREE, style) {
   texCache[style] = tex;
   return tex;
 }
-const TILE_M = { wood: 1.6, deck: 1.6, tile: 1.2, grass: 2.5, concrete: 2.0 };   // metros por repetição da textura
+/** Acabamento por tipo de piso: brilho (roughness) — porcelanato/mármore refletem mais. */
+const FLOOR_ROUGH = { tile: 0.3, porcelain_dark: 0.28, marble: 0.22, granite: 0.3, epoxy: 0.25, ceramic: 0.45, grass: 1, carpet: 1, gravel: 1, pavers: 0.85, concrete: 0.85, burnt_cement: 0.55, slate: 0.7 };
 
 /** Mobília mínima quando o usuário montou o próprio layout: brilho de teto, lâmpada e ar-condicionado (se houver). */
 function furnishFx(THREE, g, room, userFx) {
@@ -449,14 +546,15 @@ function buildRoom(THREE, def, skipWalls = false, userFurn = []) {
   const SX = def.sizeX, SZ = def.sizeZ;
 
   // piso com textura pelo tipo do cômodo (madeira, cerâmica, grama...) e leve tom da cor do cômodo
-  const style = FLOOR_STYLE[def.kind] || (def.outdoor ? 'grass' : 'wood');
+  const style = def.floorType;
   const tex = floorTexture(THREE, style).clone();
   tex.needsUpdate = true;
-  const tileU = TILE_M[style] * METER;
+  const tileU = (FLOOR_BY_KEY[style]?.tile || 1.6) * METER;
   if (poly) tex.repeat.set(1 / tileU, 1 / tileU);          // UV do ExtrudeGeometry = coordenadas da forma
   else tex.repeat.set(SX / tileU, SZ / tileU);
-  const floorColor = new THREE.Color(0xffffff).lerp(new THREE.Color(def.color), 0.16);
-  const floorMat = mat(THREE, floorColor, { map: tex, roughness: style === 'tile' ? 0.35 : (style === 'grass' ? 1 : 0.62) });
+  // piso escolhido pelo usuário: cor fiel; automático: leve tom da cor do cômodo
+  const floorColor = new THREE.Color(0xffffff).lerp(new THREE.Color(def.color), def.floorChosen ? 0.03 : 0.16);
+  const floorMat = mat(THREE, floorColor, { map: tex, roughness: FLOOR_ROUGH[style] ?? 0.62 });
   const floor = poly ? polyFloor(THREE, def.points, floorMat) : box(THREE, SX, 0.12, SZ, floorMat, 0, 0, 0);
   floor.userData.roomName = def.name;
   g.add(floor);

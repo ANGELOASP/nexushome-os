@@ -46,6 +46,7 @@ import {
 import { initDxfImport } from './dxf-import.js';
 import { FURNITURE, FURNITURE_BY_KIND, furnitureCorners, furnitureHit, normalizeFurniture } from './furniture.js';
 import { pinStyle, isPlaced, pinFloor, roomAtPoint } from './device-pins.js';
+import { FLOOR_TYPES, FLOOR_BY_KEY, floorTypeOf } from './floors.js';
 import { roomFromPoint } from './dxf.js';
 
 const CELL_M = 0.5;        // 1 célula da grade = 0,5 m
@@ -221,6 +222,20 @@ export function initFloorplan({ getClient: gc } = {}) {
       .join('');
   }
 
+  // select de piso (v2.8): automático pelo tipo + catálogo agrupado
+  const ftSel = document.getElementById('fp-in-floortype');
+  if (ftSel && !ftSel.options.length) {
+    const groups = [...new Set(FLOOR_TYPES.map((f) => f.group))];
+    ftSel.innerHTML = '<option value="">Automático (pelo tipo do cômodo)</option>' + groups.map((g) =>
+      `<optgroup label="${g}">${FLOOR_TYPES.filter((f) => f.group === g).map((f) => `<option value="${f.key}">${f.label}</option>`).join('')}</optgroup>`).join('');
+  }
+  document.getElementById('fp-in-floortype')?.addEventListener('change', (e) => {
+    const r = sel(); if (!r) return;
+    r.floor_type = FLOOR_BY_KEY[e.target.value] ? e.target.value : null;
+    commitFormChange();
+    draw();
+  });
+
   // formulário lateral: edição em tempo real do rascunho
   formEl?.addEventListener('focusin', () => { if (!formSnap) formSnap = snapshot(); });
   document.getElementById('fp-in-name')?.addEventListener('input', (e) => {
@@ -282,7 +297,7 @@ export function initFloorplan({ getClient: gc } = {}) {
     });
     document.getElementById(id)?.addEventListener('change', (e) => {
       const r = sel(); if (!r) { commitFormChange(); return; }
-      e.target.value = fmt1(r[key]);
+      e.target.value = String(Math.round(r[key] * 10) / 10);
       commitFormChange();
       draw();
     });
@@ -3537,11 +3552,16 @@ function syncForm(r) {
   };
   setIfIdle('fp-in-color', normHex(r.color));
   setIfIdle('fp-in-kind', r.kind || 'personalizado');
+  setIfIdle('fp-in-floortype', r.floor_type || '');
+  const ftSel = document.getElementById('fp-in-floortype');
+  if (ftSel?.options[0]) ftSel.options[0].textContent = `Automático (${FLOOR_BY_KEY[floorTypeOf({ kind: r.kind })]?.label || 'pelo tipo'})`;
   setIfIdle('fp-in-floor', String(r.floor ?? 0));
-  setIfIdle('fp-in-px', fmt1(r.pos_x));
-  setIfIdle('fp-in-pz', fmt1(r.pos_z));
-  setIfIdle('fp-in-sx', fmt1(r.size_x));
-  setIfIdle('fp-in-sz', fmt1(r.size_z));
+  // campos type=number só aceitam ponto decimal (fmt1 usa vírgula e o campo ficava vazio)
+  const num1 = (v) => String(Math.round((Number(v) || 0) * 10) / 10);
+  setIfIdle('fp-in-px', num1(r.pos_x));
+  setIfIdle('fp-in-pz', num1(r.pos_z));
+  setIfIdle('fp-in-sx', num1(r.size_x));
+  setIfIdle('fp-in-sz', num1(r.size_z));
   const poly = isPoly(r);
   ['fp-in-sx', 'fp-in-sz'].forEach((id) => {
     const el = document.getElementById(id);
@@ -3736,15 +3756,24 @@ async function savePlan() {
       floor: r.floor ?? 0,
       kind: r.kind || 'personalizado',
       points: isPoly(r) ? r.points : null,
+      floor_type: r.floor_type || null,
     }));
     let pointsDropped = false;
+    let floorTypeDropped = false;
     let { error: e3 } = roomRows.length ? await client.from('rooms').upsert(roomRows) : { error: null };
+    if (e3 && /floor_type/i.test(e3.message || '')) {
+      // migração 019 pendente: salva sem o piso escolhido e avisa
+      floorTypeDropped = roomRows.some((r) => r.floor_type);
+      roomRows.forEach((r) => { delete r.floor_type; });
+      ({ error: e3 } = await client.from('rooms').upsert(roomRows));
+    }
     if (e3 && /points/i.test(e3.message || '')) {
       // migração 008 ainda não aplicada: salva como retângulo (caixa) e avisa
       ({ error: e3 } = await client.from('rooms').upsert(roomRows.map(({ points: _p, ...rest }) => rest)));
       if (!e3) pointsDropped = true;
     }
     if (e3) throw new Error(e3.message);
+    if (floorTypeDropped) toast('Tipo de piso não gravado', 'Execute a migração 019_floor_type.sql no Supabase e salve de novo. O resto da planta foi salvo.', 'warning');
 
     // paredes: remove apagadas, grava novas e alteradas em lotes (antes era uma chamada por parede)
     const { data: existingWalls, error: ew } = await client.from('walls').select('id');
