@@ -25,6 +25,7 @@ import { initMonitorPanel, loadInitialMonitorData, subscribeTelemetry, updateHea
 import { initAutomationsPanel, loadAutomations, subscribeAutomations } from './panels/automations.js';
 import { initSmartThingsPanel, teardownSmartThings } from './panels/smartthings.js';
 import { initTuyaPanel, teardownTuya } from './panels/tuya.js';
+import { version as APP_VERSION } from '../package.json';
 
 let client = null;
 let sceneApi = null;
@@ -293,6 +294,10 @@ function wireCollapsiblePanels() {
     else setPanelCollapsed(panel, small || id === 'panel-tuya' || id === 'panel-smartthings');
   });
 }
+
+// versão do app na barra superior
+const verEl = document.getElementById('app-version');
+if (verEl) verEl.textContent = `v${APP_VERSION}`;
 
 // seleção de cômodo a partir do painel de dispositivos
 on('ui-select-room', (room) => {
