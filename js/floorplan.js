@@ -47,6 +47,7 @@ import { initDxfImport } from './dxf-import.js';
 import { FURNITURE, FURNITURE_BY_KIND, furnitureCorners, furnitureHit, normalizeFurniture } from './furniture.js';
 import { pinStyle, isPlaced, pinFloor, roomAtPoint } from './device-pins.js';
 import { FLOOR_TYPES, FLOOR_BY_KEY, floorTypeOf } from './floors.js';
+import { saveDevicePin } from './device-pins-store.js';
 import { roomFromPoint } from './dxf.js';
 
 const CELL_M = 0.5;        // 1 célula da grade = 0,5 m
@@ -489,7 +490,7 @@ function openEditor() {
   furnBaseline = furnLive.map((f) => ({ ...f }));
   furnDraft = furnBaseline.map((f) => ({ ...f }));
   selFurn = null;
-  devBaseline = state.devices.filter((d) => !d.virtual).map(devRow);
+  devBaseline = state.devices.map(devRow);   // nativos + integrados (Samsung, Tuya...)
   devDraft = devBaseline.map((d) => ({ ...d }));
   selDev = null; devPlace = null; devHover = null;
   currentFloor = Math.min(maxFloorUsed(), currentFloor);
@@ -3261,7 +3262,7 @@ function syncFurnitureSel() {
 const DEV_SNAP = 0.05;
 function snapDev(v) { return r4(Math.round(v / DEV_SNAP) * DEV_SNAP); }
 function devRow(d) {
-  return { id: d.id, name: d.name, type: d.type, room: d.room, pos_x: d.pos_x ?? null, pos_z: d.pos_z ?? null, pos_floor: d.pos_floor ?? null };
+  return { id: d.id, name: d.name, type: d.type, room: d.room, virtual: !!d.virtual, vendor: d.vendor || null, pos_x: d.pos_x ?? null, pos_z: d.pos_z ?? null, pos_floor: d.pos_floor ?? null };
 }
 function floorDevices() { return devDraft.filter((d) => isPlaced(d) && pinFloor(d, draft) === currentFloor); }
 function devRadiusM() { return Math.max(0.2, 11 / view.scale); }
@@ -3281,7 +3282,8 @@ function assignDeviceRoom(d) {
   if (!d || !isPlaced(d)) return;
   const r = roomAtPoint(draft, currentFloor, Number(d.pos_x), Number(d.pos_z));
   d.pos_floor = currentFloor;
-  if (r && r.name !== d.room) {
+  // integrados: o cômodo é o vínculo feito no painel Samsung/Tuya — não muda pela planta
+  if (r && r.name !== d.room && !d.virtual) {
     d.room = r.name;
     toast(`${d.name} → ${r.name}`, 'O dispositivo passa a pertencer a este cômodo ao salvar.', 'info');
   }
@@ -3354,42 +3356,92 @@ function drawDevices() {
 
 function devPanelOpen() { return !document.getElementById('fp-dev-panel')?.classList.contains('hidden'); }
 
+const VENDOR_LABEL = { smartthings: 'Samsung', tuya: 'Tuya' };
+const DEV_TYPES = [['light', 'Luz'], ['ac', 'Ar-condicionado'], ['tv', 'TV'], ['valve', 'Válvula'], ['meter', 'Medidor'], ['sensor', 'Sensor'], ['solar', 'Solar']];
+
 function buildDevPanel() {
   const el = document.getElementById('fp-dev-panel');
   if (!el) return;
-  el.innerHTML = '';
-  const title = document.createElement('p');
-  title.className = 'fp-presets-title';
-  title.textContent = devDraft.length ? 'Escolha um dispositivo e clique onde ele fica' : 'Nenhum dispositivo cadastrado — use “+ Dispositivo” no painel Dispositivos';
-  el.appendChild(title);
-  const rooms = [...new Set(devDraft.map((d) => d.room || 'Sem cômodo'))];
-  rooms.forEach((room) => {
+  el.innerHTML = `
+    <div class="fp-dev-head">
+      <p class="fp-presets-title">${devDraft.length ? 'Escolha um dispositivo e clique onde ele fica' : 'Nenhum dispositivo ainda'}</p>
+      <button type="button" class="fp-dev-new" data-act="new">+ Novo dispositivo</button>
+    </div>
+    <form class="fp-dev-form hidden" data-form="new">
+      <input class="form-input" name="name" maxlength="40" placeholder="Nome (ex.: Luz do quarto)" required />
+      <select class="form-input" name="type">${DEV_TYPES.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
+      <button type="submit" class="fp-dev-new fp-dev-new-go">Cadastrar e posicionar</button>
+    </form>
+    <p class="fp-dev-hint">Samsung SmartThings e Tuya aparecem aqui depois de vincular o aparelho a um cômodo no painel da integração.</p>`;
+  el.querySelector('[data-act="new"]').addEventListener('click', () => {
+    const f = el.querySelector('[data-form="new"]');
+    f.classList.toggle('hidden');
+    if (!f.classList.contains('hidden')) f.querySelector('input').focus();
+  });
+  el.querySelector('[data-form="new"]').addEventListener('submit', (e) => { e.preventDefault(); createDeviceFromEditor(e.currentTarget); });
+  const groups = [...new Set(devDraft.map((d) => d.room || 'Sem cômodo'))];
+  groups.forEach((room) => {
     const h = document.createElement('p');
     h.className = 'fp-furn-group';
     h.textContent = room;
     el.appendChild(h);
     const grid = document.createElement('div');
-    grid.className = 'fp-presets-grid';
+    grid.className = 'fp-dev-grid';
     devDraft.filter((d) => (d.room || 'Sem cômodo') === room).forEach((d) => {
       const st = pinStyle(d.type);
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'fp-preset-btn fp-furn-btn fp-dev-btn';
+      btn.className = 'fp-dev-btn';
       btn.dataset.dev = d.id;
+      btn.title = d.name;
       const placed = isPlaced(d);
-      btn.innerHTML = `<span><i class="fp-dev-dot" style="background:${st.color}"></i>${escapeHtml(d.name)}</span><small>${placed ? `na planta · ${floorLabel(pinFloor(d, draft))}` : 'não posicionado'}</small>`;
+      const vendor = VENDOR_LABEL[d.vendor] || (d.virtual ? 'Integrado' : '');
+      btn.innerHTML = `<span class="fp-dev-name"><i class="fp-dev-dot" style="background:${st.color}"></i><span>${escapeHtml(d.name)}</span></span>
+        <small>${vendor ? `<b class="fp-dev-vendor">${vendor}</b> · ` : ''}${placed ? `na planta · ${floorLabel(pinFloor(d, draft))}` : 'não posicionado'}</small>`;
       if (devPlace === d.id) btn.classList.add('fp-furn-active');
       btn.addEventListener('click', () => {
         devPlace = d.id;
         selDev = null;
         toggleDevPanel(false);
-        toast(`${d.name}: clique na planta`, placed ? 'Clique no novo ponto para mover o marcador. Esc cancela.' : 'Clique no ponto exato onde ele está instalado. Esc cancela.', 'info');
+        toast(`${d.name}: clique na planta`, placed ? 'Clique no novo ponto para mover. Esc cancela.' : 'Clique no ponto exato onde ele está instalado. Esc cancela.', 'info');
         draw();
       });
       grid.appendChild(btn);
     });
     el.appendChild(grid);
   });
+}
+
+/** "+ Novo dispositivo" no editor: cadastra (tabela devices) e já entra no modo de posicionar. */
+async function createDeviceFromEditor(form) {
+  const name = form.name.value.trim();
+  const type = form.type.value;
+  if (!name) { toast('Dê um nome ao dispositivo', '', 'warning'); return; }
+  const room = floorRooms()[0]?.name || draft[0]?.name || state.rooms[0]?.name;
+  if (!room) { toast('Crie um cômodo primeiro', 'O dispositivo pertence ao cômodo onde você o colocar.', 'warning'); return; }
+  const client = await getClient?.();
+  if (!client) return;
+  const btn = form.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try {
+    const { data, error } = await client.from('devices')
+      .insert({ name, type, room, status: type === 'valve' ? { open: true } : {}, is_online: false }).select();
+    if (error) throw new Error(error.message);
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new Error('o banco não devolveu o dispositivo criado');
+    upsertDevice(row);
+    const r = devRow(row);
+    devBaseline.push({ ...r });
+    devDraft.push(r);
+    devPlace = r.id;
+    toggleDevPanel(false);
+    toast(`${name} cadastrado`, 'Agora clique na planta onde ele fica. O cômodo é ajustado pelo ponto escolhido.', 'success');
+    draw();
+  } catch (err) {
+    toast('Não foi possível cadastrar', err.message, 'critical');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function toggleDevPanel(open) {
@@ -3867,7 +3919,14 @@ async function savePlan() {
         return b && (b.pos_x !== d.pos_x || b.pos_z !== d.pos_z || b.pos_floor !== d.pos_floor || b.room !== d.room);
       });
       let posDropped = false;
-      for (const d of changedDevs) {
+      let pinsFailed = '';
+      for (const d of changedDevs.filter((x) => x.virtual)) {
+        const err = await saveDevicePin(client, d);
+        if (err) pinsFailed = err;
+        else { const cur = state.devices.find((x) => x.id === d.id); if (cur) upsertDevice({ ...cur, pos_x: d.pos_x, pos_z: d.pos_z, pos_floor: d.pos_floor }); }
+      }
+      if (pinsFailed) toast('Posição dos integrados não gravada', `${pinsFailed} — execute a migração 020_device_pins.sql no Supabase e salve de novo.`, 'warning');
+      for (const d of changedDevs.filter((x) => !x.virtual)) {
         const patch = { pos_x: d.pos_x, pos_z: d.pos_z, pos_floor: d.pos_floor, room: d.room };
         let { error: e10 } = await client.from('devices').update(patch).eq('id', d.id);
         if (e10 && /pos_(x|z|floor)/.test(e10.message || '')) {

@@ -1409,8 +1409,9 @@ function freeBand() {
   if (window.innerWidth < 900) return { w, shift: 0 };
   const rl = document.getElementById('rail-left')?.getBoundingClientRect();
   const rr = document.getElementById('rail-right')?.getBoundingClientRect();
-  const left = rl ? rl.right + 12 : 0;
-  const right = rr ? w - rr.left + 12 : 0;
+  // trilho oculto/recolhido (largura 0) não ocupa espaço
+  const left = rl && rl.width > 0 ? rl.right + 12 : 0;
+  const right = rr && rr.width > 0 ? w - rr.left + 12 : 0;
   return { w: Math.max(240, w - left - right), shift: (left - right) / 2 };
 }
 

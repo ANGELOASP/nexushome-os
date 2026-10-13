@@ -938,7 +938,28 @@ button.from-indigo-500.to-cyan-500.text-white { color: var(--accent-ink); }
 .fp-furn-sel strong { color: #c4b5fd; }
 /* dispositivos na planta (v2.7) */
 .fp-dev-dot { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 999px; margin-right: 0.35rem; vertical-align: 0.05rem; }
-.fp-dev-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* lista de dispositivos do editor (v2.8): nomes longos quebram em até 2 linhas, nada sai do card */
+.fp-dev-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.35rem; }
+.fp-dev-head .fp-presets-title { margin: 0; }
+.fp-dev-new { flex-shrink: 0; font-size: 0.68rem; font-weight: 700; padding: 0.35rem 0.65rem; border-radius: 999px; border: 1px solid rgba(242, 178, 74, 0.45); color: #fbe3b3; background: rgba(242, 178, 74, 0.12); white-space: nowrap; }
+.fp-dev-new:hover { background: rgba(242, 178, 74, 0.22); }
+.fp-dev-form { display: grid; grid-template-columns: 1fr 9rem; gap: 0.4rem; margin: 0.2rem 0 0.5rem; }
+.fp-dev-form .fp-dev-new-go { grid-column: 1 / -1; border-radius: 0.6rem; padding: 0.45rem; }
+.fp-dev-hint { font-size: 0.62rem; color: var(--muted); margin-bottom: 0.2rem; }
+.fp-dev-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4rem; }
+.fp-dev-btn {
+  min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; text-align: left;
+  padding: 0.5rem 0.6rem; border-radius: 0.65rem; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03);
+  transition: border-color 0.2s, background 0.2s;
+}
+.fp-dev-btn:hover { border-color: rgba(167, 139, 250, 0.5); background: rgba(167, 139, 250, 0.08); }
+.fp-dev-btn.fp-furn-active { border-color: rgba(167, 139, 250, 0.7); background: rgba(167, 139, 250, 0.18); }
+.fp-dev-name { display: flex; align-items: flex-start; gap: 0.35rem; min-width: 0; width: 100%; font-size: 0.72rem; font-weight: 700; color: #e8edf5; line-height: 1.25; }
+.fp-dev-name > span { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.fp-dev-name .fp-dev-dot { flex-shrink: 0; margin: 0.25rem 0 0; }
+.fp-dev-btn small { font-size: 0.6rem; color: var(--muted); padding-left: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.fp-dev-vendor { font-weight: 700; color: #93c5fd; }
+#fp-dev-panel { max-height: min(70vh, 34rem); overflow-y: auto; }
 .fp-dev-room { font-size: 0.68rem; color: var(--muted); }
 
 /* ---------- painel do cômodo (câmera dentro do ambiente) — v2.6.0 ---------- */
