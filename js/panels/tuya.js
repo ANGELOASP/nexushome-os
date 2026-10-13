@@ -540,6 +540,8 @@ function syncVirtualDevices() {
         : { on: true },
       is_online: d.online,
       virtual: true, // não aparece no painel de dispositivos nem aceita escrita direta
+      vendor: 'tuya',
+      model: d.kind,
     });
   });
 }

@@ -440,6 +440,8 @@ function syncVirtualDevices() {
         : { on: d.st.on, volume: d.st.volume },
       is_online: d.online,
       virtual: true, // não aparece no painel de dispositivos nem aceita escrita direta
+      vendor: 'smartthings',
+      model: d.kind,
     });
   });
 }

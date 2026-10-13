@@ -20,6 +20,7 @@ import { initDevicesPanel } from './panels/devices.js';
 import { initRoomPanel } from './panels/room-panel.js';
 import { initScenesPanel, loadScenes, subscribeScenes } from './panels/scenes.js';
 import { initPwa } from './pwa.js';
+import { loadDevicePins } from './device-pins-store.js';
 import { initMonitorPanel, loadInitialMonitorData, subscribeTelemetry, updateHealthBadge } from './panels/monitor.js';
 import { initAutomationsPanel, loadAutomations, subscribeAutomations } from './panels/automations.js';
 import { initSmartThingsPanel, teardownSmartThings } from './panels/smartthings.js';
@@ -150,7 +151,7 @@ async function enterApp(user) {
       state.devices = devices;
       emit('devices-changed', state.devices);
     }
-    await Promise.all([loadAutomations(), loadScenes(), loadInitialMonitorData()]);
+    await Promise.all([loadAutomations(), loadScenes(), loadInitialMonitorData(), loadDevicePins(client)]);
 
     // realtime (re)assinatura
     activeChannels.forEach((ch) => { try { client.removeChannel?.(ch); } catch { /* noop */ } });

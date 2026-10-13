@@ -16,7 +16,8 @@ import { state, on, emit, floorLabel, inferRoomKind } from './state.js';
 import { isPoly, polyCentroid, innerRect, wallPieces, pointInPoly } from './geometry.js';
 import { FURNITURE_BY_KIND } from './furniture.js';
 import { buildFurnitureModel } from './scene-furniture.js';
-import { isPlaced, pinFloor, pinStyle, deviceActive } from './device-pins.js';
+import { isPlaced, pinFloor, pinStyle, deviceActive, roomAtPoint } from './device-pins.js';
+import { buildDeviceModel } from './scene-devices.js';
 import { FLOOR_BY_KEY, floorTypeOf } from './floors.js';
 
 const METER = 1.9;          // unidades de cena por metro (3.0 m → 5.7 un., paridade com o layout original)
@@ -774,9 +775,20 @@ function buildRealWalls(THREE, walls, openings = []) {
 function refreshDeviceMarkers() {
   const THREE = window.THREE;
   if (!THREE || !scene) return;
-  const placed = state.devices.filter((d) => !d.virtual && isPlaced(d));
-  const sig = placed.map((d) => `${d.id}:${d.type}:${d.pos_x}:${d.pos_z}:${pinFloor(d, state.rooms)}:${deviceActive(d) ? 1 : 0}:${d.is_online === false ? 0 : 1}`).join('|');
-  if (sig === markerSig && markerGroup) return;
+  // nativos e integrados (Samsung SmartThings, Tuya...) posicionados na planta
+  const placed = state.devices.filter((d) => isPlaced(d));
+  const sig = placed.map((d) => `${d.id}:${d.type}:${d.model || ''}:${d.pos_x}:${d.pos_z}:${pinFloor(d, state.rooms)}`).join('|');
+  if (sig === markerSig && markerGroup) {
+    // só o estado mudou: atualiza os modelos sem reconstruir
+    deviceMarkers.forEach((m) => {
+      const d = state.devices.find((x) => x.id === m.id);
+      if (!d) return;
+      m.update(d, clock.t);
+      m.active = deviceActive(d) && d.is_online !== false;
+      paintOrb(THREE, m, d);
+    });
+    return;
+  }
   markerSig = sig;
   if (markerGroup) {
     markerGroup.traverse((o) => { o.geometry?.dispose(); o.material?.dispose?.(); });
@@ -787,41 +799,60 @@ function refreshDeviceMarkers() {
   deviceMarkers = [];
   markerPicks = [];
   const ringGeo = new THREE.RingGeometry(0.14 * METER, 0.2 * METER, 32);
-  const poleGeo = new THREE.CylinderGeometry(0.014 * METER, 0.014 * METER, 1.85 * VSCALE, 8);
-  const headGeo = new THREE.SphereGeometry(0.13 * METER, 24, 16);
-  const pickGeo = new THREE.SphereGeometry(0.32 * METER, 10, 8);
+  const headGeo = new THREE.SphereGeometry(0.07 * METER, 18, 12);
   placed.forEach((d) => {
-    const st = pinStyle(d.type);
-    const on = deviceActive(d);
-    const offline = d.is_online === false;
     const floor = pinFloor(d, state.rooms);
-    let color = new THREE.Color(d.type === 'valve' && !on ? '#ff6b6b' : st.color).convertSRGBToLinear();
+    const x = Number(d.pos_x), z = Number(d.pos_z);
     const g = new THREE.Group();
-    g.position.set(Number(d.pos_x) * METER, 0.16 + floor * FLOOR_H, Number(d.pos_z) * METER);
-    const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: offline ? 0.25 : 0.7, side: THREE.DoubleSide, depthWrite: false });
+    g.position.set(x * METER, 0.16 + floor * FLOOR_H, z * METER);
+    // modelo 3D do dispositivo (escala metro → cena), virado para o centro do cômodo
+    const model = buildDeviceModel(THREE, d);
+    model.group.scale.set(METER, VSCALE, METER);
+    const room = roomAtPoint(state.rooms, floor, x, z) || state.rooms.find((r) => r.name === d.room);
+    if (room) {
+      const dx = (Number(room.pos_x) || 0) - x, dz = (Number(room.pos_z) || 0) - z;
+      if (Math.hypot(dx, dz) > 0.05) model.group.rotation.y = Math.atan2(dx, dz);
+    }
+    model.update(d, 0);
+    g.add(model.group);
+    // anel no piso + indicador de estado acima do modelo
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
     const ring = new THREE.Mesh(ringGeo, ringMat);
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.03;
-    const pole = new THREE.Mesh(poleGeo, new THREE.MeshBasicMaterial({ color: 0xcbd5e1, transparent: true, opacity: 0.55 }));
-    pole.position.y = 0.925 * VSCALE;
-    const headMat = new THREE.MeshStandardMaterial({
-      color, emissive: color, emissiveIntensity: offline ? 0 : (on ? 1.6 : 0.35),
-      roughness: 0.4, metalness: 0.1, transparent: offline, opacity: offline ? 0.4 : 1,
-    });
+    const headMat = new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.1 });
     const head = new THREE.Mesh(headGeo, headMat);
-    head.position.y = 1.95 * VSCALE;
-    const pick = new THREE.Mesh(pickGeo, new THREE.MeshBasicMaterial({ visible: false }));
-    pick.position.y = 1.95 * VSCALE;
+    head.position.y = (Math.min(2.45, model.top) + 0.22) * VSCALE;
+    // área de clique: cobre o modelo inteiro
+    const pickH = (model.top + 0.3) * VSCALE;
+    const pick = new THREE.Mesh(new THREE.BoxGeometry(0.6 * METER, pickH, 0.6 * METER), new THREE.MeshBasicMaterial({ visible: false }));
+    pick.position.y = pickH / 2;
     pick.userData.deviceId = d.id;
-    g.add(ring, pole, head, pick);
+    g.add(ring, head, pick);
     markerGroup.add(g);
-    deviceMarkers.push({ id: d.id, floor, group: g, head, active: on && !offline });
+    const m = { id: d.id, floor, group: g, head, ring, update: model.update, active: deviceActive(d) && d.is_online !== false };
+    paintOrb(THREE, m, d);
+    deviceMarkers.push(m);
     markerPicks.push(pick);
   });
   const fIn = insideRoom && rooms[insideRoom] ? rooms[insideRoom].def.floorNo : null;
   deviceMarkers.forEach((m) => {
     m.group.visible = fIn !== null ? m.floor === fIn : (floorFilter === 'all' || m.floor === floorFilter);
   });
+}
+
+/** Cor do indicador: tipo do dispositivo; válvula fechada em vermelho; offline apagado. */
+function paintOrb(THREE, m, d) {
+  const on = deviceActive(d);
+  const offline = d.is_online === false;
+  const color = new THREE.Color(d.type === 'valve' && !on ? '#ff6b6b' : pinStyle(d.type).color).convertSRGBToLinear();
+  m.head.material.color.copy(color);
+  m.head.material.emissive.copy(color);
+  m.head.material.emissiveIntensity = offline ? 0 : (on ? 1.6 : 0.35);
+  m.head.material.transparent = offline;
+  m.head.material.opacity = offline ? 0.4 : 1;
+  m.ring.material.color.copy(color);
+  m.ring.material.opacity = offline ? 0.25 : 0.7;
 }
 
 let hoverT = 0;
@@ -1675,6 +1706,8 @@ function animate() {
     if (!m.active) return;
     const k = 1 + 0.12 * Math.sin(clock.t * 3 + i);
     m.head.scale.setScalar(k);
+    const d = (i % 8 === Math.floor(clock.t * 30) % 8) ? state.devices.find((x) => x.id === m.id) : null;
+    if (d) m.update(d, clock.t);                 // animações (fluxo do AC, brilho da TV) sem custo por quadro
   });
 
   controls.update();

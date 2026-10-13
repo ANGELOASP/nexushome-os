@@ -96,6 +96,7 @@ export const state = {
   openings: [],            // portas e janelas (tabela openings) — recortam as paredes no 3D
   furniture: [],           // móveis do layout do usuário (tabela furniture)
   scenes: [],              // cenas: vários dispositivos com um botão (tabela scenes)
+  devicePins: {},          // posição dos integrados (st-/tuya-) na planta: { id: { pos_x, pos_z, pos_floor } } — tabela device_pins
   selectedRoom: null,      // nome do cômodo selecionado no 3D
   health: 'safe',          // 'safe' | 'warning' | 'critical'
   lastTelemetry: {         // último valor conhecido por métrica
@@ -130,6 +131,9 @@ export function getDevice(id) {
 }
 
 export function upsertDevice(row) {
+  // integrados (Samsung/Tuya) recebem o ponto salvo na planta (tabela device_pins)
+  const pin = row.virtual && row.pos_x === undefined ? state.devicePins[row.id] : null;
+  if (pin) row = { ...row, ...pin };
   const i = state.devices.findIndex((d) => d.id === row.id);
   if (i >= 0) state.devices[i] = { ...state.devices[i], ...row };
   else state.devices.push(row);
