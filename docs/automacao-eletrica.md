@@ -38,7 +38,12 @@ Controle Residencial via Modbus RTU e ESP32-S3* e a implementação no NexusHome
 
 - O NexusHome faz o papel que o memorial dá ao Home Assistant: histórico, painel, automações e alertas no celular.
   O firmware não fala MQTT nesta versão (ver §10).
-- A **proteção roda no ESP32**, não na nuvem: sobrecarga e gestão de demanda continuam funcionando sem Wi-Fi.
+- A **proteção roda no ESP32**, não na nuvem: sobrecarga e gestão de demanda continuam funcionando sem internet
+  (com o RS-485 direto, também sem Wi-Fi; pelo gateway, precisa da rede local — §8A).
+- **Dois jeitos de ligar o ESP32 ao barramento** (`BUS_VIA_GATEWAY` no firmware):
+  - **RS-485 direto** (padrão): a tela fica no quadro, com o par A/B saindo dela.
+  - **Pelo gateway Waveshare RS485 TO WIFI/ETH** (§8A): o gateway fica no quadro e é o único mestre do RS-485; a
+    tela pode ficar em qualquer cômodo, e o PC ou o Home Assistant também leem os medidores pela rede.
 - A cada 15 s o ESP32 manda **um POST** com o estado dos 34 dispositivos (33 circuitos + total). O histórico
   (`telemetry_logs`) é gravado a cada 5 min por circuito — ou antes, numa mudança ≥ 100 W e ≥ 25% (no máx. 1 por
   minuto) — e a cada 1 min para o total.
@@ -218,6 +223,52 @@ Uma tela para a hidráulica e **outra para a elétrica** (placas e barramentos s
 - Imagens geradas renderizando o `ui.cpp` real com LVGL 8.4 num simulador (sem a placa), com dados de exemplo.
 - Créditos: `lvgl_v8_port.*` e os `esp_panel_*_conf.h` vêm dos exemplos do ESP32_Display_Panel (Espressif,
   Apache-2.0); as fontes `nh_font_*.c` foram geradas com lv_font_conv a partir da Montserrat (SIL OFL 1.1).
+
+## 8A. Gateway RS485 TO WIFI/ETH (Waveshare) no quadro elétrico
+
+O mesmo conversor da automação hidráulica. Aqui ele vira a **ponte entre a rede e o barramento**:
+
+```
+ Subquadros (relés + 33 PZEM) ── RS-485 ── Gateway RS485 TO WIFI/ETH ── cabo de rede ── roteador
+                                            (único mestre Modbus RTU)                    │ Wi-Fi
+                                                                                         ├── ESP32-S3 + tela (qualquer cômodo)
+                                                                                         └── PC / Home Assistant (leitura)
+```
+
+**Por que vale a pena:** com o gateway em modo de conversão **Modbus TCP ⇄ RTU**, todos os pedidos passam por ele e
+ele os faz um de cada vez no RS-485. Assim o ESP32, o Modbus Poll do PC e o Home Assistant podem consultar o
+quadro **ao mesmo tempo sem colisão**. A colisão era o motivo de, na hidráulica, o gateway ficar só para
+diagnóstico. A tela também deixa de precisar morar dentro do quadro.
+
+**Cuidados:**
+- **A rede passa a fazer parte da proteção.** Sem Wi-Fi entre a tela e o gateway, o ESP32 não lê os medidores:
+  corte por sobrecarga e gestão de demanda param. Os relés mantêm o último estado e, com a fiação no NC (§3.5), a
+  casa continua com energia. Depois de 1 min sem gateway, o app recebe o alerta "Gateway RS-485 sem conexão".
+  Disjuntores e DR continuam sendo a proteção de verdade (§3.11).
+- **Um mestre só no RS-485.** Ou o ESP32 fala pelo gateway (`BUS_VIA_GATEWAY 1`), ou pelo RS-485 direto com o
+  gateway **ligado ao barramento sem consultar ninguém**. Nunca os dois perguntando no mesmo par A/B.
+- Desligue no gateway qualquer **leitura automática** própria ("Modbus polling", MQTT com consulta periódica): isso
+  também seria um segundo mestre.
+- O PC e o Home Assistant devem **só ler**. Ligar e desligar relés por fora pula a lógica do ESP32 (sobrecarga,
+  demanda, estado salvo): use o app, a tela ou as automações do NexusHome.
+
+**Configuração do gateway** (página web do aparelho, pelo Wi-Fi dele ou pela rede; a ferramenta de busca da
+Waveshare acha o IP. Os IPs de fábrica citados na wiki são 10.10.100.254 / 10.10.110.254):
+1. **Alimentação**: 5–36 V DC da fonte de 12 V do quadro.
+2. **RS-485**: A→A e B→B no início do barramento (ou no hub isolado, §3.7), com **120 Ω** nessa ponta.
+3. **Serial**: **9600 bps, 8N1**. É obrigatório, porque o PZEM-016 só fala 9600.
+4. **Rede**: de preferência **cabo** até o roteador, com **IP fixo** (ex.: `192.168.1.200`) reservado no roteador.
+5. **Modo**: servidor TCP na porta **502** com **conversão Modbus TCP ⇄ RTU**. Se o seu lote só tiver o modo
+   transparente, use `GATEWAY_MBAP false` no firmware.
+6. **Firmware** (`esp32s3_eletrica.ino`): `BUS_VIA_GATEWAY 1`, `GATEWAY_IP "192.168.1.200"` e `GATEWAY_PORT 502`.
+   O comando `status` na serial mostra "gateway … conectado".
+7. **Teste com o PC** (antes do ESP32): no Modbus Poll / QModMaster, conexão TCP no IP do gateway, porta 502,
+   *slave* 7, função 04, endereço 0, 10 registradores. Deve aparecer a tensão do primeiro PZEM (ex.: 2200 = 220,0 V).
+8. **Home Assistant** (opcional): integração Modbus `type: tcp`, `host: 192.168.1.200`, `port: 502`, sensores de
+   *input registers* com `slave` = endereço de cada PZEM (§4) e os mesmos registradores do item 7.
+
+Compilado com o core `esp32:esp32` 3.3.12 nos três modos (RS-485 direto, gateway Modbus TCP e gateway
+transparente): ~1,6 MB (50% da partição), 19% da RAM, sem avisos. Ainda não testado com o gateway de verdade.
 
 ## 9. No app NexusHome
 

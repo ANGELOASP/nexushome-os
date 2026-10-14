@@ -67,6 +67,20 @@ const char* DEVICE_TOTAL = "b2000000-0000-4000-8000-000000000000";
 #define RS485_DE_PIN    -1      // só com transceptor externo de controle manual
 #define RS485_BAUD      9600    // o PZEM-016 só fala 9600 8N1: todo o barramento fica em 9600
 #define MB_TIMEOUT_MS   200     // o PZEM responde em ~50–100 ms
+
+// ---------------- Meio do barramento: RS-485 direto ou pelo gateway (v2.14) ----------------
+// 0 = RS-485 nativo da placa: o ESP32 fica no quadro, com o par A/B até os escravos.
+// 1 = pela rede, via conversor Waveshare "RS485 TO WIFI/ETH" no modo de conversão Modbus TCP ⇄ RTU:
+//     o gateway fica no quadro e é o ÚNICO mestre do RS-485; a tela pode ficar em qualquer cômodo
+//     (Wi-Fi), e o PC (Modbus Poll) ou o Home Assistant também consultam pelo gateway sem colisão.
+//     Sem rede, a tela não lê os medidores e a proteção por software para (os relés mantêm o
+//     último estado; com a fiação NC a casa continua com energia) — ver docs/automacao-eletrica.md.
+#define BUS_VIA_GATEWAY    0
+#define GATEWAY_IP         "192.168.1.200"   // IP fixo do conversor (configure nele e reserve no roteador)
+#define GATEWAY_PORT       502               // porta Modbus TCP configurada no conversor
+#define GATEWAY_MBAP       true              // true = Modbus TCP (conversão); false = RTU dentro do TCP (modo transparente)
+#define MB_TIMEOUT_TCP_MS  800               // rede + 9600 baud no RS-485 do gateway
+#define GATEWAY_ALERT_MS   60000UL           // gateway fora por 1 min → alerta no app
 #define MB_RETRIES      2
 
 // ---------------- Placas de relé Waveshare (bobinas 0x0000.., funções 01/05/0F) ----------------
@@ -158,6 +172,40 @@ const int CIRCUIT_COUNT = sizeof(CIRCUITS) / sizeof(CIRCUITS[0]);
 // Modbus RTU mínimo (mestre) — mesmo núcleo do firmware hidráulico
 // ============================================================
 HardwareSerial RS485(1);
+#if BUS_VIA_GATEWAY
+WiFiClient gw;
+uint16_t mbTid = 0;              // número da transação Modbus TCP (confere a resposta certa)
+unsigned long gwRetryAt = 0, gwDownSince = 0;
+bool gwAlerted = false;
+
+// Conecta (ou reconecta) ao gateway; sem Wi-Fi ou logo após uma falha, não insiste.
+bool gwConnect() {
+  if (gw.connected()) return true;
+  if (WiFi.status() != WL_CONNECTED || millis() < gwRetryAt) return false;
+  gw.stop();
+  if (gw.connect(GATEWAY_IP, GATEWAY_PORT, 1500)) {
+    gw.setNoDelay(true);
+    Serial.printf("[gateway] conectado a %s:%d (%s)\n", GATEWAY_IP, GATEWAY_PORT, GATEWAY_MBAP ? "Modbus TCP" : "RTU sobre TCP");
+    return true;
+  }
+  gwRetryAt = millis() + 3000;
+  Serial.printf("[gateway] sem conexão com %s:%d\n", GATEWAY_IP, GATEWAY_PORT);
+  return false;
+}
+
+// Lê exatamente n bytes do gateway até o prazo; false se acabar o tempo ou cair a conexão.
+bool gwReadExact(uint8_t* buf, size_t n, unsigned long deadline) {
+  size_t got = 0;
+  while (got < n) {
+    if (!gw.connected()) return false;
+    int a = gw.available();
+    if (a > 0) got += gw.read(buf + got, n - got);
+    else if ((long)(millis() - deadline) >= 0) return false;
+    else delay(1);
+  }
+  return true;
+}
+#endif
 
 uint16_t mbCrc(const uint8_t* buf, size_t len) {
   uint16_t crc = 0xFFFF;
@@ -172,6 +220,22 @@ void mbSend(uint8_t* frame, size_t lenNoCrc) {
   uint16_t crc = mbCrc(frame, lenNoCrc);
   frame[lenNoCrc] = crc & 0xFF;
   frame[lenNoCrc + 1] = crc >> 8;
+#if BUS_VIA_GATEWAY
+  if (!gwConnect()) return;
+  while (gw.available()) gw.read();                    // descarta resposta atrasada de um pedido anterior
+  if (GATEWAY_MBAP) {
+    // Modbus TCP: cabeçalho MBAP (transação, protocolo 0, tamanho) + unidade + PDU, sem CRC
+    uint8_t out[7 + 256];
+    mbTid++;
+    out[0] = mbTid >> 8; out[1] = mbTid & 0xFF; out[2] = 0; out[3] = 0;
+    out[4] = lenNoCrc >> 8; out[5] = lenNoCrc & 0xFF;
+    memcpy(out + 6, frame, lenNoCrc);
+    gw.write(out, 6 + lenNoCrc);
+  } else {
+    gw.write(frame, lenNoCrc + 2);                     // modo transparente: o quadro RTU inteiro
+  }
+  return;
+#endif
   while (RS485.available()) RS485.read();
   if (RS485_DE_PIN >= 0) digitalWrite(RS485_DE_PIN, HIGH);
   RS485.write(frame, lenNoCrc + 2);
@@ -182,11 +246,41 @@ void mbSend(uint8_t* frame, size_t lenNoCrc) {
 
 // Lê `expect` bytes (ou a exceção, 5 bytes). >0 = ok · -1 sem resposta · -2 exceção · -3 CRC
 int mbReceive(uint8_t* resp, size_t expect, uint8_t slave, uint8_t func) {
+#if BUS_VIA_GATEWAY
+  if (!gw.connected()) return -1;
+  unsigned long deadline = millis() + MB_TIMEOUT_TCP_MS;
+  (void)deadline;
+  if (GATEWAY_MBAP) {
+    uint8_t h[6], pdu[260];
+    if (!gwReadExact(h, 6, deadline)) { gw.stop(); return -1; }
+    size_t len = ((size_t)h[4] << 8) | h[5];          // unidade + PDU
+    if (len < 3 || len > sizeof(pdu)) { gw.stop(); return -1; }
+    if (!gwReadExact(pdu, len, deadline)) { gw.stop(); return -1; }
+    if ((((uint16_t)h[0] << 8) | h[1]) != mbTid) return -1;            // resposta de outro pedido
+    if (slave != PZEM_GENERAL && pdu[0] != slave) return -1;
+    if (pdu[1] == (func | 0x80)) {
+      // 0x0A/0x0B: o próprio gateway avisa que o escravo não respondeu — é "sem resposta", não exceção
+      return (pdu[2] == 0x0A || pdu[2] == 0x0B) ? -1 : -2;
+    }
+    if (len != expect - 2) return -1;
+    memcpy(resp, pdu, len);                           // devolve no formato RTU (com CRC) para o resto do código
+    uint16_t crc = mbCrc(resp, len);
+    resp[len] = crc & 0xFF; resp[len + 1] = crc >> 8;
+    return (int)expect;
+  }
+#endif
   size_t n = 0;
   unsigned long t0 = millis();
-  while (millis() - t0 < MB_TIMEOUT_MS && n < expect) {
-    if (RS485.available()) {
-      resp[n++] = RS485.read();
+#if BUS_VIA_GATEWAY
+  Stream& bus = gw;                                    // RTU dentro do TCP (modo transparente)
+  const unsigned long tmo = MB_TIMEOUT_TCP_MS;
+#else
+  Stream& bus = RS485;
+  const unsigned long tmo = MB_TIMEOUT_MS;
+#endif
+  while (millis() - t0 < tmo && n < expect) {
+    if (bus.available()) {
+      resp[n++] = bus.read();
       if (n == 5 && resp[1] == (func | 0x80)) break;
     } else {
       delay(1);
@@ -257,6 +351,7 @@ bool mbWriteCoils(uint8_t slave, uint16_t addr, uint8_t count, uint32_t bits) {
 
 bool rs485Swapped = false;
 void rs485Begin() {
+  if (BUS_VIA_GATEWAY) return;                         // pela rede: a UART da placa não é usada
   int rx = rs485Swapped ? RS485_PIN_B : RS485_PIN_A;
   int tx = rs485Swapped ? RS485_PIN_A : RS485_PIN_B;
   RS485.end();
@@ -276,7 +371,7 @@ bool anySlaveAnswers() {
   return false;
 }
 void rs485AutoDetect() {
-  if (!RS485_AUTO_SWAP || anySlaveAnswers()) return;
+  if (BUS_VIA_GATEWAY || !RS485_AUTO_SWAP || anySlaveAnswers()) return;
   rs485Swapped = !rs485Swapped;
   rs485Begin();
   if (!anySlaveAnswers()) { rs485Swapped = !rs485Swapped; rs485Begin(); }
@@ -722,8 +817,14 @@ void telemetryTask(void*) {
 // Bancada (serial 115200)
 // ============================================================
 void printStatus() {
-  Serial.printf("RS485 %s · volta pelos medidores %.1f s · %d/%d medidores ok · total %.0f W · %.1f kWh · Wi-Fi %s\n",
-                rs485Swapped ? "invertido" : "normal", cycleMs / 1000.0f, metersOk, CIRCUIT_COUNT, totalW, totalKwh,
+  char bus[64];
+#if BUS_VIA_GATEWAY
+  snprintf(bus, sizeof(bus), "gateway %s:%d %s", GATEWAY_IP, GATEWAY_PORT, gw.connected() ? "conectado" : "SEM CONEXÃO");
+#else
+  snprintf(bus, sizeof(bus), "RS485 %s", rs485Swapped ? "invertido" : "normal");
+#endif
+  Serial.printf("%s · volta pelos medidores %.1f s · %d/%d medidores ok · total %.0f W · %.1f kWh · Wi-Fi %s\n",
+                bus, cycleMs / 1000.0f, metersOk, CIRCUIT_COUNT, totalW, totalKwh,
                 WiFi.status() == WL_CONNECTED ? "ok" : "fora");
   for (int b = 0; b < BOARD_COUNT; b++) Serial.printf("  relés %s (slave %u, %u canais): %s\n", BOARDS[b].name, BOARDS[b].slave, BOARDS[b].channels, boardOk[b] ? "ok" : "SEM RESPOSTA");
   for (int i = 0; i < CIRCUIT_COUNT; i++) {
@@ -811,6 +912,10 @@ void refreshScreen() {
   bool relays = true;
   for (int b = 0; b < BOARD_COUNT; b++) relays &= boardOk[b];
   uiState.relaysOk = relays;
+#if BUS_VIA_GATEWAY
+  uiState.viaGateway = true;
+  uiState.gatewayOk = gw.connected();
+#endif
   ui_update(uiState);
 }
 #endif
@@ -836,15 +941,17 @@ void setup() {
   prefs.begin("eletrica", false);
   memset(cs, 0, sizeof(cs));
   loadState();
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);   // não bloqueia: com RS-485 direto, a proteção roda sem Wi-Fi
+#if BUS_VIA_GATEWAY
+  for (int i = 0; i < 50 && WiFi.status() != WL_CONNECTED; i++) delay(200);   // pelo gateway: espera a rede até 10 s
+#endif
   if (RS485_DE_PIN >= 0) { pinMode(RS485_DE_PIN, OUTPUT); digitalWrite(RS485_DE_PIN, LOW); }
   rs485Begin();
   delay(800);                 // escravos terminam o boot
   rs485AutoDetect();
   applyRelays(true);
   lastRelayRefresh = millis();
-
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);   // não bloqueia: a proteção roda sem Wi-Fi
   xTaskCreatePinnedToCore(telemetryTask, "telemetria", 12288, nullptr, 1, nullptr, 0);
   Serial.printf("[boot] automação elétrica: %d circuitos, %d placas de relé — digite 'status'\n", CIRCUIT_COUNT, BOARD_COUNT);
 }
@@ -859,6 +966,15 @@ void loop() {
   refreshScreen();
 #endif
 
+#if BUS_VIA_GATEWAY
+  // gateway fora do ar: os medidores param de ser lidos e a proteção por software também — avisa
+  if (gw.connected()) { gwDownSince = 0; gwAlerted = false; }
+  else if (!gwDownSince) gwDownSince = millis();
+  else if (!gwAlerted && millis() - gwDownSince >= GATEWAY_ALERT_MS) {
+    gwAlerted = true;
+    raiseAlert("warning", "Gateway RS-485 (%s) sem conexão há 1 min: o quadro elétrico está sem leitura nem proteção por software", GATEWAY_IP);
+  }
+#endif
   static int silent = 0;       // barramento mudo por uma volta inteira: tenta a outra ordem RX/TX
   if (nextMeter == 0) {
     silent = metersOk == 0 ? silent + 1 : 0;
