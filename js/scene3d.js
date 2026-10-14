@@ -1711,8 +1711,20 @@ function updateLabels() {
 // Loop de renderização
 // ------------------------------------------------------------
 
+let editorOpen = false;
+let tabHidden = false;   // celular em outra aba que não a Casa: a planta não aparece
 let scenePaused = false;
-on('editor-open', (open) => { scenePaused = !!open; });
+on('editor-open', (open) => { editorOpen = !!open; scenePaused = editorOpen || tabHidden; });
+let lastMobileUI = null;
+on('mobile-tab', (tab) => {
+  tabHidden = tab !== 'casa'; scenePaused = editorOpen || tabHidden;
+  // trocou entre celular e desktop (janela redimensionada): os trilhos mudaram de lugar → reenquadra
+  const mobile = document.body.classList.contains('m-ui');
+  if (lastMobileUI !== null && mobile !== lastMobileUI && camera && controls) {
+    requestAnimationFrame(() => { applyViewOffset(); if (!selectedRoom) fitCamera(true); });
+  }
+  lastMobileUI = mobile;
+});
 // painel do cômodo abriu/fechou/minimizou: a faixa livre mudou → recentra
 on('room-panel', () => requestAnimationFrame(() => {
   if (!camera || !controls) return;

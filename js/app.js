@@ -20,6 +20,7 @@ import { initDevicesPanel } from './panels/devices.js';
 import { initRoomPanel } from './panels/room-panel.js';
 import { initScenesPanel, loadScenes, subscribeScenes } from './panels/scenes.js';
 import { initPwa } from './pwa.js';
+import { initMobileNav, isMobileUI, setTab } from './mobile-nav.js';
 import { loadDevicePins } from './device-pins-store.js';
 import { initMonitorPanel, loadInitialMonitorData, subscribeTelemetry, updateHealthBadge } from './panels/monitor.js';
 import { initAutomationsPanel, loadAutomations, subscribeAutomations } from './panels/automations.js';
@@ -53,6 +54,7 @@ function updateConnectionBadge() {
 async function boot() {
   startClock();
   wireCollapsiblePanels();
+  initMobileNav();
 
   // UI de login pronta imediatamente (fica sob o overlay de loading)
   const clientReady = createNexusClient();
@@ -177,7 +179,10 @@ async function enterApp(user) {
     // simulador de telemetria (somente no modo demo, e só após o login)
     if (state.mode === 'demo') {
       client.startSimulation?.();
-      toast('Modo Demonstração ativo', 'Configure js/config.js para conectar ao seu Supabase.', 'info');
+      const why = client.nexusDemoReason === 'no-config'
+        ? 'Dados simulados neste navegador.'
+        : 'Não foi possível falar com o servidor agora: mostrando dados simulados. Recarregue para tentar de novo.';
+      toast('Modo Demonstração ativo', why, client.nexusDemoReason === 'no-config' ? 'info' : 'warning');
     }
 
     updateHealthBadge();
@@ -199,6 +204,7 @@ function leaveApp() {
 
   document.body.classList.remove('authenticated');
   document.getElementById('user-chip')?.classList.add('hidden');
+  setTab('casa');
   showLogin();
   toast('Sessão encerrada', 'Você saiu do NexusHome OS.', 'info');
 }
@@ -269,7 +275,7 @@ function wireCollapsiblePanels() {
     const toggle = (ev) => {
       // cliques em controles dentro do cabeçalho (ex.: selo) não recolhem
       if (ev?.target?.closest?.('a, input, select, textarea') ) return;
-      if (!panel) return;
+      if (!panel || isMobileUI()) return;   // no celular cada aba mostra os painéis abertos
       setPanelCollapsed(panel, !panel.classList.contains('panel-collapsed'));
       savePanelState();
     };

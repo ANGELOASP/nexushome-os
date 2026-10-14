@@ -484,11 +484,36 @@ function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 // Fábrica: tenta Supabase real, cai para demo
 // ------------------------------------------------------------
 
-export async function createNexusClient() {
-  const cfg = window.NEXUSHOME_CONFIG || {};
-  const url = (localStorage.getItem('nh_supabase_url') || cfg.SUPABASE_URL || '').trim();
-  const key = (localStorage.getItem('nh_supabase_anon_key') || cfg.SUPABASE_ANON_KEY || '').trim();
+// Projeto de produção (NexusHome). URL e chave anon são PÚBLICAS por natureza: vão para
+// qualquer navegador que abre o site, e quem protege os dados é o RLS (migração 018).
+// Só valem no build (Vercel); `npm run dev` continua no Modo Demonstração.
+const PRODUCTION_CONFIG = {
+  SUPABASE_URL: 'https://gfjxcsvxhaojbtuixpjh.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdmanhjc3Z4aGFvamJ0dWl4cGpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEyMzU5NjYsImV4cCI6MjEwNjgxMTk2Nn0.gKx3hutXIkemUfVR_O7MFnibpUxY_tYslNSY1D1M4ds',
+};
 
+/**
+ * Credenciais por ordem de prioridade: localStorage → js/config.js → build de produção.
+ * `?demo=1` na URL força o Modo Demonstração (apresentações), mesmo em produção.
+ */
+export function resolveSupabaseConfig({ storage, cfg = {}, production = false, search = '' } = {}) {
+  if (/[?&]demo(=1|=true)?(&|$)/.test(search)) return { url: '', key: '' };
+  const get = (k) => { try { return storage?.getItem(k) || ''; } catch { return ''; } };
+  const fallback = production ? PRODUCTION_CONFIG : {};
+  const url = (get('nh_supabase_url') || cfg.SUPABASE_URL || fallback.SUPABASE_URL || '').trim();
+  const key = (get('nh_supabase_anon_key') || cfg.SUPABASE_ANON_KEY || fallback.SUPABASE_ANON_KEY || '').trim();
+  return { url, key };
+}
+
+export async function createNexusClient() {
+  const { url, key } = resolveSupabaseConfig({
+    storage: window.localStorage,
+    cfg: window.NEXUSHOME_CONFIG || {},
+    production: !!import.meta.env?.PROD,
+    search: window.location.search,
+  });
+
+  let reason = url && key ? 'offline' : 'no-config';
   if (url && key && window.supabase?.createClient) {
     try {
       // Sessão só na aba/janela (sessionStorage): fechar o navegador encerra o login.
@@ -504,6 +529,7 @@ export async function createNexusClient() {
         console.info('[NexusHome] Conectado ao Supabase:', url);
         return client;
       }
+      reason = 'error';
       console.warn('[NexusHome] Supabase respondeu com erro, entrando em demo:', error.message);
     } catch (err) {
       console.warn('[NexusHome] Falha ao conectar no Supabase, entrando em demo:', err?.message || err);
@@ -513,6 +539,7 @@ export async function createNexusClient() {
   }
 
   const mock = new MockSupabaseClient();
+  mock.nexusDemoReason = reason;   // 'no-config' | 'offline' | 'error' — o app explica no aviso
   return mock;
 }
 

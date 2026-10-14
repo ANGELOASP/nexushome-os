@@ -42,6 +42,7 @@ painel controla e mostra dispositivos sobre ela. Versão atual: ver `package.jso
 | `js/energy.js` | total de energia da casa (soma dos medidores; `in_total` nos circuitos do quadro elétrico) |
 | `js/device-actions.js` | ações por tipo (automações/cenas/cartão do cômodo) — espelha as ações do `run_automations` (024) |
 | `js/scene-devices-extra.js` | modelos 3D da biblioteca ampliada (v2.13: áudio, vídeo, computadores, eletrodomésticos...) |
+| `js/mobile-nav.js` | celular (< 900 px, v2.15): abas Casa/Aparelhos/Rotinas/Monitor/Mais; cada painel diz sua aba em `data-mtab`; `body.m-ui` liga o CSS |
 
 Convenções: medidas em **metros**; giro em graus, frente do objeto = `(-sin rot, cos rot)`; no 3D
 `rotation.y = -rot` e a escala é `METER = 1.9` unidades de cena por metro.
@@ -51,6 +52,7 @@ Convenções: medidas em **metros**; giro em graus, frente do objeto = `(-sin ro
 ```bash
 npm install
 npm run dev        # http://127.0.0.1:5173 — sem Supabase configurado entra no modo demonstração
+                   # (o build de produção já traz URL + chave anon do projeto; ?demo=1 força a demo)
 npm test           # node --test tests/*.test.mjs
 npm run build
 ```
