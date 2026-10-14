@@ -13,6 +13,7 @@
 import { state, on, emit, upsertAutomation, getDevice } from '../state.js';
 import { toast, escapeHtml } from '../toasts.js';
 import { compare } from '../rules.js';
+import { actionsFor, actionChoices, actionPatch, describeAction as describeDeviceAction } from '../device-actions.js';
 import { updateStatus } from './devices.js';
 import { getStDevices, getStDeviceInfo, isStConnected, executeStAutomationCommands } from './smartthings.js';
 
@@ -179,15 +180,7 @@ function describe(a) {
 }
 
 function describeAction(device, p) {
-  const name = device?.name || 'dispositivo removido';
-  switch (p.action) {
-    case 'power': return `${p.value ? 'ligar' : 'desligar'} ${name}`;
-    case 'valve': return `${p.value ? 'abrir' : 'fechar'} ${name}`;
-    case 'temp': return `ajustar ${name} para ${p.value}°C`;
-    case 'brightness': return `brilho de ${name} em ${p.value}%`;
-    case 'color': return `cor de ${name} para ${p.value}`;
-    default: return `acionar ${name}`;
-  }
+  return describeDeviceAction(device?.name || 'dispositivo removido', p.action, p.value);
 }
 
 const ST_MODE_LABEL = Object.fromEntries([['cool', 'Frio'], ['heat', 'Quente'], ['dry', 'Desumidificar'], ['wind', 'Ventilar'], ['auto', 'Automático']]);
@@ -317,23 +310,6 @@ function closeModal() {
   form.reset();
 }
 
-function actionsFor(dev) {
-  switch (dev?.type) {
-    case 'light': return [
-      { v: 'power', label: 'Ligar / desligar' },
-      { v: 'brightness', label: 'Definir brilho (%)' },
-      { v: 'color', label: 'Definir cor' },
-    ];
-    case 'ac': return [
-      { v: 'power', label: 'Ligar / desligar' },
-      { v: 'temp', label: 'Definir temperatura (°C)' },
-    ];
-    case 'valve': return [{ v: 'valve', label: 'Abrir / fechar' }];
-    // circuito do quadro elétrico com relé (v2.11) e outros aparelhos com "on"
-    default: return typeof dev?.status?.on === 'boolean' ? [{ v: 'power', label: 'Ligar / desligar' }] : [];
-  }
-}
-
 // ---- gatilho preso a um medidor (v2.11): com 33 circuitos, "Energia > 3000 W"
 //      sem filtro dispararia com qualquer circuito (o chuveiro sozinho passa disso)
 const SOURCE_TYPES = {
@@ -395,10 +371,11 @@ function refreshValueInput() {
 
   const dev = getDevice(selValue);
   let html = '';
-  if (action === 'power') {
-    html = `<select id="f-value" class="form-input"><option value="true">Ligar</option><option value="false">Desligar</option></select>`;
-  } else if (action === 'valve') {
-    html = `<select id="f-value" class="form-input"><option value="true">Abrir</option><option value="false">Fechar</option></select>`;
+  const choices = actionChoices(action, dev);   // ligar/desligar, abrir/fechar, armar, entrada... (device-actions.js)
+  if (choices) {
+    html = `<select id="f-value" class="form-input">${choices.map(([v, l]) => `<option value="${escapeHtml(v)}">${escapeHtml(l)}</option>`).join('')}</select>`;
+  } else if (action === 'volume') {
+    html = `<input id="f-value" type="number" min="0" max="100" value="30" class="form-input" required>`;
   } else if (action === 'brightness') {
     html = `<input id="f-value" type="number" min="1" max="100" value="80" class="form-input" required>`;
   } else if (action === 'temp') {
@@ -620,14 +597,7 @@ async function executeAutomation(a) {
   const device = getDevice(p.device_id);
   if (!device) return;
 
-  let patch = null;
-  switch (p.action) {
-    case 'power': patch = { on: !!p.value }; break;
-    case 'valve': patch = { open: !!p.value }; break;
-    case 'temp': patch = { temp: Number(p.value) }; break;
-    case 'brightness': patch = { brightness: Number(p.value) }; break;
-    case 'color': patch = { color: String(p.value) }; break;
-  }
+  const patch = actionPatch(p.action, p.value);   // o mesmo patch que o servidor aplica (migração 024)
   if (!patch) return;
 
   toast('Automação executada', `${a.name}: ${describeAction(device, p)}`, 'info');

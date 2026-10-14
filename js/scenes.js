@@ -18,9 +18,21 @@ export const SCENE_ICONS = {
 const ALLOWED = {
   light: ['on', 'brightness', 'color'],
   ac: ['on', 'temp'],
-  tv: ['on'],
+  tv: ['on', 'volume', 'source'],
   valve: ['open'],
+  // v2.13 — biblioteca ampliada: cena "Cinema" liga projetor, desce a tela, escolhe a entrada...
+  audio: ['on', 'volume', 'muted', 'source'],
+  projector: ['on', 'source'],
+  media: ['on', 'source'],
+  computer: ['on'], appliance: ['on'], fan: ['on'], plug: ['on'], switch: ['on'], speaker: ['on'],
+  curtain: ['open'],
+  gate: ['open'],
+  alarm: ['armed'],
+  vacuum: ['state'],
 };
+
+/** Estado "aberto" por tipo: válvula e cortina abertas por padrão; portão fechado. */
+const isOpen = (type, s) => (type === 'gate' ? s?.open === true : s?.open !== false);
 
 export function sceneableType(type) { return !!ALLOWED[type]; }
 
@@ -32,6 +44,11 @@ export function cleanPatch(type, patch = {}) {
   if (out.temp !== undefined) out.temp = Math.max(16, Math.min(30, Math.round(Number(out.temp) || 23)));
   if (out.on !== undefined) out.on = !!out.on;
   if (out.open !== undefined) out.open = !!out.open;
+  if (out.muted !== undefined) out.muted = !!out.muted;
+  if (out.volume !== undefined) out.volume = Math.max(0, Math.min(100, Math.round(Number(out.volume) || 0)));
+  if (out.source !== undefined) out.source = String(out.source);
+  if (out.armed !== undefined && !['off', 'home', 'away'].includes(out.armed)) delete out.armed;
+  if (out.state !== undefined && !['cleaning', 'docked'].includes(out.state)) delete out.state;
   return out;
 }
 
@@ -41,7 +58,7 @@ export function captureActions(devices, ids) {
     .filter((d) => ids.includes(d.id) && sceneableType(d.type))
     .map((d) => {
       const s = d.status || {};
-      const patch = d.type === 'valve' ? { open: s.open !== false } : { ...s, on: !!s.on };
+      const patch = { ...s, on: !!s.on, open: isOpen(d.type, s) };   // cleanPatch fica só com as chaves do tipo
       return { device_id: d.id, patch: cleanPatch(d.type, patch) };
     })
     .filter((a) => Object.keys(a.patch).length);
@@ -67,10 +84,11 @@ export function sceneMatches(scene, devices) {
     if (!d) return false;
     const s = d.status || {};
     return Object.entries(a.patch).every(([k, v]) => {
-      if (k === 'open') return (s.open !== false) === v;
+      if (k === 'open') return isOpen(d.type, s) === v;
+      if (k === 'muted') return !!s.muted === v;
       if (k === 'on') return !!s.on === v;
       if (a.patch.on === false) return true;            // desligado: brilho/temperatura não importam
-      if (k === 'brightness' || k === 'temp') return Number(s[k]) === Number(v);
+      if (k === 'brightness' || k === 'temp' || k === 'volume') return Number(s[k]) === Number(v);
       return String(s[k] ?? '').toLowerCase() === String(v).toLowerCase();
     });
   });

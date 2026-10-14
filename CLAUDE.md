@@ -40,6 +40,8 @@ painel controla e mostra dispositivos sobre ela. Versão atual: ver `package.jso
 | `js/floorplan.js` | Editor de Planta 2D (cômodos, polígonos, paredes, portas/janelas, móveis, dispositivos, importação DXF) |
 | `js/panels/*.js` | painéis: dispositivos, cenas, automações, cartão do cômodo, SmartThings, Tuya |
 | `js/energy.js` | total de energia da casa (soma dos medidores; `in_total` nos circuitos do quadro elétrico) |
+| `js/device-actions.js` | ações por tipo (automações/cenas/cartão do cômodo) — espelha as ações do `run_automations` (024) |
+| `js/scene-devices-extra.js` | modelos 3D da biblioteca ampliada (v2.13: áudio, vídeo, computadores, eletrodomésticos...) |
 
 Convenções: medidas em **metros**; giro em graus, frente do objeto = `(-sin rot, cos rot)`; no 3D
 `rotation.y = -rot` e a escala é `METER = 1.9` unidades de cena por metro.
@@ -69,6 +71,7 @@ Migrações **001 a 023 aplicadas** pelo usuário no Supabase, **incluindo a 018
 - Edge Functions publicadas pelo conector em 14/out/2026: `iot-gateway` v10 (comandos, fila offline, lote) e
   `notify-alert` v7 (Telegram + push). O push só sai com as chaves VAPID configuradas nos secrets.
 - Reinstalar o firmware com `scripts/instalar-arduino.ps1` para ativar a fila offline do ESP32.
+- v2.13 (biblioteca ampliada): rodar `024_device_library.sql` (tipos novos + ações volume/source/armed/open/vacuum).
 - v2.11 (automação elétrica): 023 e seed já rodados; falta gravar o firmware quando a 2ª placa 4.3B chegar
   (`instalar-arduino.ps1 -Firmware eletrica -Porta COMx`). A tabela de circuitos é provisória até o usuário
   mandar o quadro de cargas. Decisão: interruptores das luzes em paralelo (three-way)

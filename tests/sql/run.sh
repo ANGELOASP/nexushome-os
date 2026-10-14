@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Testa as migrações 007 (trigger de automações) e 023 (circuitos elétricos) num Postgres descartável.
+# Testa as migrações 007 (automações), 023 (circuitos elétricos) e 024 (biblioteca ampliada) num Postgres descartável.
 # Uso: DATABASE_URL=postgres://... tests/sql/run.sh   (use um banco VAZIO de teste,
 # NUNCA o de produção: o script cria tabelas e insere dados).
 set -euo pipefail
@@ -25,4 +25,11 @@ done
 $P -c "delete from alerts; update automations set is_active = false, last_met = null, last_fired_at = null"
 $P -f tests/sql/automations.test.sql
 $P -f tests/sql/eletrica.test.sql
+# 024 (biblioteca ampliada): tipos novos, ações novas e o "open" dos aparelhos com hw; as regras antigas seguem valendo
+for m in 024_device_library 024_device_library; do
+  $P -f "supabase/migrations/$m.sql" 2>&1 | grep -v NOTICE || true
+done
+$P -c "delete from alerts; update automations set is_active = false, last_met = null, last_fired_at = null"
+$P -f tests/sql/automations.test.sql
+$P -f tests/sql/biblioteca.test.sql
 echo "OK — testes SQL passaram"

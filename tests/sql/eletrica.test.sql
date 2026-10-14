@@ -4,7 +4,7 @@ $$ begin raise exception 'FALHOU: %', msg; end $$;
 
 delete from device_commands;
 delete from alerts;
-delete from automations;
+update automations set is_active = false;   -- as regras de exemplo voltam a ser usadas por outros testes
 insert into devices (id, name, type, room, status, hw) values
   ('b2000000-0000-4000-8000-000000000001', 'Chuveiro', 'meter', 'Banheiro 1', '{"on": true, "watts": 0}', 'esp32-eletrica'),
   ('b2000000-0000-4000-8000-000000000002', 'Tomadas',  'meter', 'Cozinha',    '{"on": true, "watts": 0}', 'esp32-eletrica')
