@@ -37,7 +37,7 @@ Controle Residencial via Modbus RTU e ESP32-S3* e a implementação no NexusHome
 ```
 
 - O NexusHome faz o papel que o memorial dá ao Home Assistant: histórico, painel, automações e alertas no celular.
-  O firmware não fala MQTT nesta versão (ver §8).
+  O firmware não fala MQTT nesta versão (ver §10).
 - A **proteção roda no ESP32**, não na nuvem: sobrecarga e gestão de demanda continuam funcionando sem Wi-Fi.
 - A cada 15 s o ESP32 manda **um POST** com o estado dos 34 dispositivos (33 circuitos + total). O histórico
   (`telemetry_logs`) é gravado a cada 5 min por circuito — ou antes, numa mudança ≥ 100 W e ≥ 25% (no máx. 1 por
@@ -67,7 +67,11 @@ Controle Residencial via Modbus RTU e ESP32-S3* e a implementação no NexusHome
 6. **Luz sem comando manual.** Se as luzes forem só pelos relés, uma pane (Wi-Fi, ESP32, fonte) deixa a casa sem
    como acender a luz. Mantenha os interruptores: o relé Waveshare tem COM/NO/NC e funciona como **three-way**
    (paralelo) com o interruptor da parede — qualquer um dos dois liga/desliga. Outra opção: pulsadores lidos por
-   um módulo de entradas Modbus. Os circuitos de iluminação estão na tabela **sem relé** até essa decisão.
+   um módulo de entradas Modbus. **Decisão do projeto (out/2026): interruptores mantidos, em paralelo
+   (three-way) com os relés.** Com o ESP32 parado, o relé fica em repouso e o interruptor continua mandando.
+   Os circuitos de iluminação seguem na tabela como **só medição**; os pontos de luz em three-way usarão os
+   canais livres (§5) e um comando de **alternar** (num three-way o relé não sabe se a luz está acesa — quem diz
+   é a corrente medida), ainda não implementado (§10).
 7. **Barramento RS-485 grande demais para um ramo só.** São 36 escravos + o mestre = 37 nós; o padrão RS-485
    garante 32 cargas unitárias por segmento, e os transceptores do PZEM não têm a carga publicada. Além disso, os
    3 quadros ficam em pontos diferentes da casa. Recomendação: um **hub/repetidor RS-485 isolado** no quadro do
@@ -185,11 +189,37 @@ um circuito: edite a tabela `CIRCUITS` no firmware **e** o nome/cômodo no app (
    - `supabase functions deploy iot-gateway` (envio em lote e alertas do firmware).
 9. **Firmware**: `powershell -ExecutionPolicy Bypass -File scripts\instalar-arduino.ps1 -Firmware eletrica -Porta COM6`
    — copia para `Documentos\Arduino\esp32s3_eletrica`, onde você preenche Wi-Fi e `DEVICE_SECRET`.
-   Compilado aqui com o core `esp32:esp32` 3.3.12 para a 4.3B: 1,03 MB (32% da partição de 3 MB), 16% da RAM.
+   Compilado aqui com o core `esp32:esp32` 3.3.12 + ESP32_Display_Panel 1.0.4 + lvgl 8.4.0 para a 4.3B, com a tela:
+   1,60 MB (50% da partição de 3 MB), 19% da RAM. Sem tela: `USE_DISPLAY 0` (1,03 MB).
 10. **Bancada (serial 115200)**: `status` mostra cada circuito (W, A, V, kWh, ligado/cortado); `desligar N` / `ligar N`
     devem estalar o relé e o contator; com uma carga conhecida (ex.: chuveiro), confira a potência.
 
-## 8. No app NexusHome
+## 8. Tela touch do quadro elétrico (ESP32-S3-Touch-LCD-4.3B, 800×480)
+
+Uma tela para a hidráulica e **outra para a elétrica** (placas e barramentos separados, §3.8). Arquivos: `ui.cpp` /
+`ui.h` (interface), `lvgl_v8_port.*`, `lv_conf.h`, `esp_panel_*_conf.h` (placa 4.3B já selecionada) e as fontes
+`nh_font_*.c` — as mesmas da tela da água, com a de 48 px acrescida das letras de "kW". `USE_DISPLAY 1` no `.ino`.
+
+| Situação normal | Toque num circuito | Sobrecarga | Rearmar |
+|---|---|---|---|
+| ![](img/tela-energia-normal.png) | ![](img/tela-energia-circuito.png) | ![](img/tela-energia-alarme.png) | ![](img/tela-energia-rearmar.png) |
+
+- **À esquerda, a casa inteira**: consumo agora (em W/kW), barra em relação ao limite de demanda (amarela a partir
+  de 85%, vermelha no limite), consumo por subquadro e o acumulado em kWh.
+- **À direita, uma aba por subquadro** (Íntimo · Social · Serviços) com um quadro por circuito: potência, estado e
+  uma barrinha de carga no disjuntor. Verde = ligado, cinza = desligado, vermelho = **sobrecarga** (travado),
+  âmbar = **cortado pela demanda**, "só medição" = sem relé. A lista rola com o dedo.
+- **Tocar num circuito** mostra tensão, corrente, fator de potência, kWh e a carga no disjuntor, com o botão de
+  **Desligar** / **Ligar** — nada muda sem esse segundo toque. Desarmado por sobrecarga: o botão vira **Rearmar**
+  (pela tela, sem a espera de 5 min do app — quem está no quadro vê a causa).
+- **Faixa do topo**: vermelha com sobrecarga, âmbar com corte de demanda; **tocar nela abre o circuito** (mesmo que
+  esteja em outra aba ou mais abaixo na lista). A aba que esconde o problema também muda de cor.
+- A tela só envia pedidos para a mesma fila do app e da serial; quem fala com o barramento é o loop principal.
+- Imagens geradas renderizando o `ui.cpp` real com LVGL 8.4 num simulador (sem a placa), com dados de exemplo.
+- Créditos: `lvgl_v8_port.*` e os `esp_panel_*_conf.h` vêm dos exemplos do ESP32_Display_Panel (Espressif,
+  Apache-2.0); as fontes `nh_font_*.c` foram geradas com lv_font_conv a partir da Montserrat (SIL OFL 1.1).
+
+## 9. No app NexusHome
 
 - Cada circuito aparece no cômodo dele como **medidor**: potência em destaque, **V · A · kWh · FP**, barra de
   carga em relação ao disjuntor e selos *desligado por sobrecarga*, *cortado pela demanda* ou *medidor sem
@@ -211,11 +241,10 @@ Supabase (500 MB), vale apagar o histórico antigo de vez em quando — por exem
 delete from public.telemetry_logs where created_at < now() - interval '90 days';
 ```
 
-## 9. Ainda não implementado
+## 10. Ainda não implementado
 
-- **Tela touch do quadro elétrico** (o memorial cita a tela central): esta versão usa o app + monitor serial.
 - **Home Assistant / MQTT**: dá para publicar com *MQTT discovery* a partir do mesmo firmware, se ainda quiser o HA
   junto com o NexusHome.
 - **Consumo por dia/mês e custo (tarifa)**: os kWh acumulados de cada PZEM já chegam; falta o relatório.
-- **Estado real das luzes em three-way**: com interruptor em paralelo, o app só sabe se a luz está acesa pela
-  corrente do circuito — falta essa leitura por ponto.
+- **Pontos de luz em three-way** (interruptores mantidos em paralelo, §3.6): falta o comando de *alternar* pelos
+  canais livres e saber se cada luz está acesa pela corrente do circuito.
