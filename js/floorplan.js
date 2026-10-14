@@ -44,7 +44,7 @@ import {
   OPENING_DEFAULTS, MIN_OPENING, layoutOpenings, projectOnWall,
 } from './geometry.js';
 import { initDxfImport } from './dxf-import.js';
-import { FURNITURE, FURNITURE_BY_KIND, furnitureCorners, furnitureHit, normalizeFurniture } from './furniture.js';
+import { FURNITURE, FURNITURE_BY_KIND, FURN_DIM_MIN, FURN_DIM_MAX, furnitureCorners, furnitureDims, furnitureHit, normalizeFurniture } from './furniture.js';
 import { pinStyle, isPlaced, pinFloor, roomAtPoint } from './device-pins.js';
 import { FLOOR_TYPES, FLOOR_BY_KEY, floorTypeOf } from './floors.js';
 import { saveDevicePin } from './device-pins-store.js';
@@ -853,7 +853,7 @@ function render() {
   drawGuides(w, h);
   drawMarquee();
   drawScaleBar(w, h);
-  syncZoomUi();
+  if (!animating) syncZoomUi();   // durante a animação do zoom não mexe no DOM a cada quadro
   syncWallPanel();
   syncOpeningPanel();
   syncFurnitureSel();
@@ -3134,7 +3134,7 @@ function duplicateFurniture() {
   const f = selectedFurniture();
   if (!f) return;
   pushHistory();
-  const def = FURNITURE_BY_KIND[f.kind];
+  const def = furnitureDims(f);
   const copy = { ...f, id: genUuid(), x: r4(f.x + Math.min(1, def.w * 0.6)), z: r4(f.z + 0.3), sort_order: (f.sort_order ?? 0) + 1 };
   furnDraft.push(copy);
   selFurn = copy.id;
@@ -3153,6 +3153,7 @@ function deleteFurniture(id) {
 function drawOneFurniture(f, mode = '') {
   const def = FURNITURE_BY_KIND[f.kind];
   if (!def) return;
+  const dm = furnitureDims(f);
   const pts = furnitureCorners(f).map(([x, z]) => [w2sx(x), w2sz(z)]);
   ctx.save();
   ctx.beginPath();
@@ -3172,7 +3173,7 @@ function drawOneFurniture(f, mode = '') {
   line(c3[0], c3[1], c4[0], c4[1]);
   // rótulo (só quando cabe)
   const cx = w2sx(f.x), cy = w2sz(f.z);
-  const minPx = Math.min(def.w, def.d) * view.scale;
+  const minPx = Math.min(dm.w, dm.d) * view.scale;
   if (minPx > 26 || mode === 'sel') {
     ctx.font = `600 ${minPx > 60 ? 12 : 10}px 'IBM Plex Sans', sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -3243,8 +3244,48 @@ function initFurniturePanel() {
     ang.value = String(f.rot);
     draw();
   });
+  // medidas do móvel (largura × profundidade × altura): campos em cm + botões −/+ (10%)
+  ['w', 'd', 'h'].forEach((k) => {
+    const el = document.getElementById(`fp-furn-${k}`);
+    el?.addEventListener('change', () => {
+      const f = selectedFurniture();
+      if (!f) return;
+      const v = Number(String(el.value).replace(',', '.')) / 100;
+      if (!Number.isFinite(v) || v <= 0) { furnSelKey = ''; syncFurnitureSel(); return; }
+      setFurnitureDims(f, { [k]: v });
+    });
+  });
+  document.getElementById('fp-furn-smaller')?.addEventListener('click', () => scaleFurniture(1 / 1.1));
+  document.getElementById('fp-furn-bigger')?.addEventListener('click', () => scaleFurniture(1.1));
+  document.getElementById('fp-furn-reset')?.addEventListener('click', () => {
+    const f = selectedFurniture();
+    if (!f || !furnitureDims(f).custom) return;
+    pushHistory();
+    f.w = null; f.d = null; f.h = null;
+    draw();
+  });
   document.getElementById('fp-furn-dup')?.addEventListener('click', duplicateFurniture);
   document.getElementById('fp-furn-del')?.addEventListener('click', () => { if (selFurn) deleteFurniture(selFurn); });
+}
+
+/** Grava medidas personalizadas (m); igual à do catálogo vira null (sem personalização). */
+function setFurnitureDims(f, patch, history = true) {
+  const def = FURNITURE_BY_KIND[f.kind];
+  if (!def) return;
+  if (history) pushHistory();
+  Object.entries(patch).forEach(([k, v]) => {
+    const m = Math.round(Math.min(FURN_DIM_MAX, Math.max(FURN_DIM_MIN, v)) * 100) / 100;   // cm
+    f[k] = Math.abs(m - def[k]) < 0.005 ? null : m;
+  });
+  draw();
+}
+
+/** Aumenta/diminui o móvel selecionado por igual nas três medidas. */
+function scaleFurniture(k) {
+  const f = selectedFurniture();
+  if (!f) return;
+  const dm = furnitureDims(f);
+  setFurnitureDims(f, { w: dm.w * k, d: dm.d * k, h: dm.h * k });
 }
 
 let furnSelKey = '';
@@ -3252,7 +3293,7 @@ function syncFurnitureSel() {
   const panel = document.getElementById('fp-furn-sel');
   if (!panel) return;
   const f = selectedFurniture();
-  const key = f ? `${f.id}:${f.kind}:${f.rot}` : '';
+  const key = f ? `${f.id}:${f.kind}:${f.rot}:${f.w}:${f.d}:${f.h}` : '';
   if (key === furnSelKey) return;
   furnSelKey = key;
   panel.classList.toggle('hidden', !f);
@@ -3260,6 +3301,13 @@ function syncFurnitureSel() {
     document.getElementById('fp-furn-title').textContent = FURNITURE_BY_KIND[f.kind]?.label || 'Móvel';
     const ang = document.getElementById('fp-furn-angle');
     if (ang && document.activeElement !== ang) ang.value = String(Math.round(f.rot || 0));
+    const dm = furnitureDims(f);
+    ['w', 'd', 'h'].forEach((k) => {
+      const el = document.getElementById(`fp-furn-${k}`);
+      if (el && document.activeElement !== el) el.value = String(Math.round(dm[k] * 100));
+    });
+    const rs = document.getElementById('fp-furn-reset');
+    if (rs) rs.disabled = !dm.custom;
   }
 }
 
@@ -3997,7 +4045,7 @@ async function savePlan() {
     }
 
     // móveis do layout (migração 014): remove os apagados e grava os demais; sem a tabela, avisa e segue
-    let furnSkipped = false, furnError = '';
+    let furnSkipped = false, furnError = '', furnDimsDropped = false;
     {
       const { data: existingF, error: ef } = await client.from('furniture').select('id');
       if (ef) {
@@ -4009,9 +4057,15 @@ async function savePlan() {
           const { error: e8 } = await client.from('furniture').delete().in('id', ids);
           if (e8) throw new Error(e8.message);
         }
-        const fRows = furnDraft.map((f) => ({ id: f.id, floor: f.floor ?? 0, kind: f.kind, x: f.x, z: f.z, rot: f.rot ?? 0, sort_order: f.sort_order ?? 0 }));
+        const fRows = furnDraft.map((f) => ({ id: f.id, floor: f.floor ?? 0, kind: f.kind, x: f.x, z: f.z, rot: f.rot ?? 0, sort_order: f.sort_order ?? 0, w: f.w ?? null, d: f.d ?? null, h: f.h ?? null }));
         for (const rows of chunk(fRows, 200)) {
-          const { error: e9 } = await client.from('furniture').upsert(rows);
+          let { error: e9 } = await client.from('furniture').upsert(rows);
+          // ex.: "Could not find the 'w' column of 'furniture' in the schema cache"
+          if (e9 && /['"](w|d|h)['"] column|column ['"]?(?:furniture\.)?(w|d|h)['"]? /i.test(e9.message || '')) {
+            // migração 022 ainda não aplicada: grava sem as medidas personalizadas e avisa
+            furnDimsDropped = furnDimsDropped || rows.some((r) => r.w != null || r.d != null || r.h != null);
+            ({ error: e9 } = await client.from('furniture').upsert(rows.map(({ w: _w, d: _d, h: _h, ...rest }) => rest)));
+          }
           if (e9) throw new Error(e9.message);
         }
       }
@@ -4020,6 +4074,7 @@ async function savePlan() {
       furnBaseline = furnLive.map((f) => ({ ...f }));
       furnDraft = furnBaseline.map((f) => ({ ...f }));
     }
+    if (furnDimsDropped) toast('Tamanho dos móveis não gravado', 'Execute a migração 022_furniture_size.sql no Supabase e salve de novo. O resto da planta foi salvo.', 'warning');
     if (furnSkipped) {
       toast('Móveis não foram gravados', `${furnError} — execute a migração 014_furniture.sql no Supabase e salve de novo. O resto da planta foi salvo.`, 'critical');
     }

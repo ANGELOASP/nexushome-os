@@ -181,6 +181,17 @@ function historyHtml(devices) {
   if (!devices.length) return '<p class="rp-empty">Sem dispositivos, sem histórico.</p>';
   if (history.room !== current || (history.loading && !history.rows.length)) return '<p class="rp-empty">Carregando histórico…</p>';
   if (history.error) return `<p class="rp-empty">Histórico indisponível: ${escapeHtml(history.error)}</p>`;
+  // o histórico só muda a cada carga (60 s); a telemetria re-renderiza o cartão a cada leitura,
+  // então o HTML dos gráficos (até 5000 leituras agrupadas) fica em cache
+  if (histCache.rows === history.rows && histCache.at === history.at) return histCache.html;
+  const html = historyChartsHtml();
+  histCache = { rows: history.rows, at: history.at, html };
+  return html;
+}
+
+let histCache = { rows: null, at: 0, html: '' };
+
+function historyChartsHtml() {
   const metrics = metricsIn(history.rows);
   if (!metrics.length) return '<p class="rp-empty">Nenhuma leitura nas últimas 24 h.</p>';
   const to = history.at || Date.now();

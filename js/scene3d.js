@@ -14,7 +14,7 @@
 
 import { state, on, emit, floorLabel, inferRoomKind } from './state.js';
 import { isPoly, polyCentroid, innerRect, wallPieces, pointInPoly } from './geometry.js';
-import { FURNITURE_BY_KIND } from './furniture.js';
+import { FURNITURE_BY_KIND, furnitureDims } from './furniture.js';
 import { buildFurnitureModel } from './scene-furniture.js';
 import { isPlaced, pinFloor, pinStyle, deviceActive, roomAtPoint } from './device-pins.js';
 import { buildDeviceModel } from './scene-devices.js';
@@ -77,6 +77,7 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.12;
   container.appendChild(renderer.domElement);
+  if (import.meta.env?.DEV) window.__three = { renderer, get scene() { return scene; } };
 
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.target.set(0, 0.8, 0);
@@ -90,7 +91,9 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   controls.panSpeed = 0.9;
   controls.zoomSpeed = 0.9;
   controls.autoRotateSpeed = 0.6;
-  controls.addEventListener('start', () => { lastInteraction = performance.now(); flight = null; userMoved = true; hideCamHint(); });
+  // o voo da câmera só é cancelado quando o usuário de fato arrasta ou usa a roda —
+  // um clique parado (ex.: o 2º clique do duplo clique) não pode congelar a câmera no meio do caminho
+  controls.addEventListener('start', () => { lastInteraction = performance.now(); hideCamHint(); });
   controls.addEventListener('end', () => { lastInteraction = performance.now(); });
 
   raycaster = new THREE.Raycaster();
@@ -104,7 +107,11 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
 
   // interação de clique (sem confundir arrasto de câmera com clique)
   renderer.domElement.addEventListener('pointerdown', (e) => { downPos = [e.clientX, e.clientY]; });
-  renderer.domElement.addEventListener('pointermove', onHoverMarker);
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    if (downPos && Math.hypot(e.clientX - downPos[0], e.clientY - downPos[1]) >= 6) { flight = null; userMoved = true; }
+    onHoverMarker(e);
+  });
+  renderer.domElement.addEventListener('wheel', () => { flight = null; userMoved = true; lastInteraction = performance.now(); }, { passive: true });
   renderer.domElement.addEventListener('pointerleave', () => showTip(null));
   renderer.domElement.addEventListener('pointerup', (e) => {
     if (!downPos) return;
@@ -283,7 +290,8 @@ function roomContains(row, x, z) {
 /** Monta um móvel do usuário (metros → cena) dentro de `parent`, com origem em (ox, oz) metros. */
 function addFurniture(THREE, parent, f, ox, oz, y0 = 0) {
   const { group, fx } = buildFurnitureModel(THREE, f.kind);
-  group.scale.set(METER, VSCALE, METER);
+  const dm = furnitureDims(f);                    // móvel aumentado/diminuído no editor: estica o modelo
+  group.scale.set(METER * (dm?.sx || 1), VSCALE * (dm?.sy || 1), METER * (dm?.sz || 1));
   group.position.set((f.x - ox) * METER, y0, (f.z - oz) * METER);
   group.rotation.y = -((Number(f.rot) || 0) * Math.PI) / 180;   // mesma convenção do editor 2D
   parent.add(group);
@@ -532,7 +540,7 @@ function furnishFx(THREE, g, room, userFx) {
     room.fx.lampShade = shadeMat;
     const pt = new THREE.PointLight(0xffd9a0, 0, Math.max(SX, SZ) * 1.6, 2);
     pt.position.set(0, WALL_H - 0.3, 0);
-    pt.castShadow = true;
+    pt.castShadow = false;  // sombra de luz pontual = 6 renderizações extras da cena por quadro, por cômodo
     g.add(pt);
     room.lights.lamp = pt;
   }
@@ -1031,7 +1039,7 @@ function furnishLiving(THREE, g, room) {
 
   const pt = new THREE.PointLight(0xffd9a0, 0, 9, 2);
   pt.position.set(lampX, 1.9, lampZ);
-  pt.castShadow = true;
+  pt.castShadow = false;  // idem: só o sol projeta sombra
   g.add(pt);
   room.lights.lamp = pt;
 
@@ -1642,7 +1650,11 @@ function wireCameraUI() {
   // no vazio = sai do cômodo / recentraliza a planta
   renderer.domElement.addEventListener('dblclick', (e) => {
     const name = roomAtPointer(e);
-    if (name) { if (selectedRoom !== name) selectRoom(name); return; }
+    if (name) {
+      if (selectedRoom !== name) selectRoom(name);
+      else { lockedRoom = true; focusRoom(name); syncCameraUI(); }   // já dentro: recentra e fixa
+      return;
+    }
     lockedRoom = false; if (selectedRoom) selectRoom(null); else fitCamera(true); syncCameraUI();
   });
 
