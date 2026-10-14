@@ -29,6 +29,7 @@ struct UiState {
   float limitW;                   // limite de demanda (0 = gestão desligada)
   int   metersOk;
   bool  wifiOk, relaysOk;
+  bool  viaGateway, gatewayOk;    // barramento pela rede (conversor RS485 TO WIFI/ETH) e se ele responde
 };
 
 enum UiRequestType : uint8_t { UI_REQ_SET = 1, UI_REQ_REARM = 2 };

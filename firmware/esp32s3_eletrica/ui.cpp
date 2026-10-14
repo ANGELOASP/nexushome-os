@@ -399,7 +399,8 @@ void ui_update(const UiState &s) {
   setText(chipWifi, s.wifiOk ? "Wi-Fi: ok" : "Wi-Fi: sem rede");
   lv_obj_set_style_text_color(chipWifi, s.wifiOk ? C_ON : C_WARN, 0);
   bool busOk = s.relaysOk && s.metersOk == s_n;
-  if (!s.relaysOk) snprintf(b, sizeof(b), "Relés: falha");
+  if (s.viaGateway && !s.gatewayOk) { busOk = false; snprintf(b, sizeof(b), "Gateway: sem conexão"); }
+  else if (!s.relaysOk) snprintf(b, sizeof(b), "Relés: falha");
   else snprintf(b, sizeof(b), "Medidores %d/%d", s.metersOk, s_n);
   setText(chipBus, b);
   lv_obj_set_style_text_color(chipBus, busOk ? C_ON : C_WARN, 0);
