@@ -103,6 +103,7 @@ A casa 3D é gerada a partir da tabela `rooms` (migrações 003 + 004) — posi�
 - **Cadastrar dispositivo pelo app** (v2.5): botão **+ Dispositivo** no painel Dispositivos (nome, tipo, cômodo); mostra o código (UUID) para colar no firmware.
 - **Válvulas comandadas pelo app** (v2.5): o botão da válvula vira um comando para o ESP32 (migração `013_device_commands.sql` + redeploy do `iot-gateway`).
 - **Tela touch da caixa d'água** (v2.5): interface LVGL para a ESP32-S3-Touch-LCD-4.3B — ver [`docs/automacao-hidraulica.md`](docs/automacao-hidraulica.md).
+- **Automação elétrica (ESP32-S3 + Modbus RTU)** (v2.11): firmware em `firmware/esp32s3_eletrica/` para o *Memorial de Automação de Energia* — 33 medidores **PZEM-016** (tensão, corrente, potência, kWh por circuito) e 3 placas de relé Waveshare (32 + 16 + 32 canais) nos 3 subquadros; corte por **sobrecarga** antes do disjuntor e **gestão de demanda** (desliga cargas não essenciais acima do limite da entrada), com alerta crítico/push. No app, cada circuito mostra V · A · kWh · fator de potência e a carga no disjuntor, com **liga/desliga** para os que têm relé; o card **Energia** passa a somar os medidores (antes mostrava a última leitura de qualquer um) e as automações podem ser **presas a um medidor** ("se o Chuveiro passar de 7 kW…"). O `iot-gateway` aceita envio **em lote** (`{"readings": [...]}`, um POST para 34 dispositivos). Rode `supabase/migrations/023_eletrica.sql`, depois `supabase/seeds/eletrica.sql`, e faça o deploy do `iot-gateway`. **Leia antes** a análise do memorial em [`docs/automacao-eletrica.md`](docs/automacao-eletrica.md): ele tem erros que mudam a montagem (o PZEM-016 é alimentado pela rede que mede, contatoras dos chuveiros, nós demais no RS-485, luzes sem comando manual).
 - **Automação hidráulica (ESP32-S3 + Modbus RTU)**: firmware em `firmware/esp32s3_hidraulica/` (C++/Arduino) — 7 medidores de vazão, sonda de nível, 8 válvulas e as regras de rompimento, vazamento externo e pânico. Montagem, correções do memorial e calibragem em [`docs/automacao-hidraulica.md`](docs/automacao-hidraulica.md).
 - **Altura da parede** (v2.4): selecione uma ou mais paredes e ajuste **Altura** no painel (0,3 a 3 m; padrão 2,5 m) — útil para muretas e guarda-corpos. Rode `supabase/migrations/012_wall_height.sql`; sem ela as paredes salvam sem a altura e o editor avisa.
 - **Portas e janelas** (v2.2): ferramentas **Porta (D)** e **Janela (J)** — clique numa parede para inserir; clique/arraste no modo Selecionar para mover (podem trocar de parede), setas ajustam 0,05 m, painel edita largura/altura/peitoril (e, nas portas, **abre para dentro/fora** e **dobradiça à esquerda/direita**, vistas por quem empurra a porta), Delete apaga. As aberturas recortam as paredes no 3D (vidro nas janelas, folha entreaberta nas portas). Rode `supabase/migrations/009_openings.sql` (e `010_door_swing.sql` para o sentido de abertura) para gravá-las; sem a migração o editor salva o resto da planta e avisa.
@@ -331,11 +332,11 @@ Sem o push configurado, o botão ainda funciona: alertas críticos viram notific
 
 ```bash
 npm test                      # regras, notificações, geometria e importação DXF — node:test, sem dependências
-DATABASE_URL=postgres://... tests/sql/run.sh   # trigger de automações (migração 007)
+DATABASE_URL=postgres://... tests/sql/run.sh   # trigger de automações (007) e circuitos elétricos (023)
 DATABASE_URL=postgres://... tests/sql/run_isolation.sh   # isolamento por usuário (migração 018)
 ```
 
-O teste SQL aplica as migrações 001, 005 e 007 e exercita o trigger (limiar, edge-trigger, cooldown, regra inativa, regra inválida, regras SmartThings). **Use um banco de teste VAZIO** — nunca o de produção: o script cria tabelas e insere dados.
+O teste SQL aplica as migrações 001, 005 e 007 e exercita o trigger (limiar, edge-trigger, cooldown, regra inativa, regra inválida, regras SmartThings); depois aplica 013, 021 e 023, repete os mesmos casos e testa os comandos de liga/desliga dos circuitos e o filtro de medidor. **Use um banco de teste VAZIO** — nunca o de produção: o script cria tabelas e insere dados.
 
 ## Licença
 

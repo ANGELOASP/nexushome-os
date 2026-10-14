@@ -1,0 +1,221 @@
+# Automação elétrica — ESP32-S3 Modbus RTU (PZEM-016 + relés Waveshare)
+
+Análise do *Memorial Descritivo & Projeto de Automação — Sistema Industrial de Monitoramento Energético e
+Controle Residencial via Modbus RTU e ESP32-S3* e a implementação no NexusHome OS (v2.11).
+
+| Peça | Onde |
+|---|---|
+| Firmware do mestre Modbus (C++ / Arduino, ESP32-S3) | [`firmware/esp32s3_eletrica/esp32s3_eletrica.ino`](../firmware/esp32s3_eletrica/esp32s3_eletrica.ino) |
+| Migração (comandos dos circuitos + automação por medidor) | [`supabase/migrations/023_eletrica.sql`](../supabase/migrations/023_eletrica.sql) |
+| Dispositivos com UUID fixo (34) | [`supabase/seeds/eletrica.sql`](../supabase/seeds/eletrica.sql) |
+| Envio em lote + alertas do firmware | [`supabase/functions/iot-gateway`](../supabase/functions/iot-gateway/index.ts) |
+| App: total da casa, cartão do circuito, automação por medidor | `js/energy.js`, `js/panels/monitor.js`, `js/panels/devices.js`, `js/panels/automations.js` |
+
+## 1. O que o memorial pede
+
+- **Mestre**: ESP32-S3 HMI Touch 4.3" (SpotPear) com RS-485 nativo, interrogando todos os escravos em ciclo.
+- **3 subquadros** em trilho DIN, ligados por um único barramento RS-485 em cascata (*daisy-chain*):
+
+| Subquadro | Áreas | Relés | Medidores PZEM-016 |
+|---|---|---|---|
+| 1 — Íntimo | suítes, home office, banheiros, corredor | Waveshare 32 canais | 10 (ACs, chuveiros, tomadas 10 A, iluminação) |
+| 2 — Social | salas de TV/estar, copa, corredor social | Waveshare 16 canais | 5 (tomadas 10 A, iluminação) |
+| 3 — Serviços/Oficina | cozinha, área externa/serviço, oficina | Waveshare 32 canais + contatoras | 18 (cargas pesadas, 20 A, 10 A, luz) |
+
+- **Medição**: 33 × Peacefair PZEM-016 com TC de 100 A → tensão, corrente, potência e kWh por circuito.
+- **Atuação**: chuveiros de 7800 W e tomadas de 20 A da oficina via contatoras acionadas pelos relés.
+- **Alimentação**: fonte 12 V / 150 W em trilho DIN.
+- **Integração**: Home Assistant via MQTT.
+
+## 2. Arquitetura no NexusHome
+
+```
+ Subquadro 1 ─┐   PZEM-016 ×33  (função 04, 9600 8N1)
+ Subquadro 2 ─┼─ RS-485 ─ ESP32-S3 (mestre) ── Wi-Fi ── iot-gateway ── Supabase ── app (planta 3D)
+ Subquadro 3 ─┘   relés ×3      (funções 01/05/0F)      POST em lote       │  realtime
+                                                        GET /commands  ◄───┘  liga/desliga, automações
+```
+
+- O NexusHome faz o papel que o memorial dá ao Home Assistant: histórico, painel, automações e alertas no celular.
+  O firmware não fala MQTT nesta versão (ver §8).
+- A **proteção roda no ESP32**, não na nuvem: sobrecarga e gestão de demanda continuam funcionando sem Wi-Fi.
+- A cada 15 s o ESP32 manda **um POST** com o estado dos 34 dispositivos (33 circuitos + total). O histórico
+  (`telemetry_logs`) é gravado a cada 5 min por circuito — ou antes, numa mudança ≥ 100 W e ≥ 25% (no máx. 1 por
+  minuto) — e a cada 1 min para o total.
+
+## 3. ⚠️ Correções e lacunas do memorial (revise antes de comprar/montar)
+
+1. **O PZEM-016 não usa os 12 V.** Ele é alimentado pela própria rede que mede (entrada de 80–260 V CA) e tira
+   dali a alimentação isolada do RS-485. O passo 2 do memorial ("conecte a fonte 12 V a cada medidor PZEM") está
+   errado: **cada PZEM precisa dos bornes de tensão ligados ao circuito que mede**, e a fonte de 12 V alimenta só
+   as placas de relé (e o ESP32, se for o caso).
+2. **Tensão certa em cada PZEM.** Na rede 127/220 V, o chuveiro de 7800 W é carga **fase-fase (220 V)**: os bornes
+   de tensão desse PZEM vão em F-F, e o TC abraça **uma** das fases. Ligado em F-N (127 V), a potência medida sai
+   com ~58% do valor real. Tomadas e luz de 127 V: F-N. O TC sempre num condutor só — nunca fase e neutro juntos
+   (o memorial acerta nisso).
+3. **Contatoras dos chuveiros.** 7800 W / 220 V = **35,5 A**: a faixa "25 a 50 A" do memorial inclui valores
+   que não servem. Use contator modular de **40 A AC-1** (2 polos, para cortar as duas fases), cabo de 6 mm²,
+   disjuntor de 40 A e **DR de 30 mA** — obrigatório em banheiros pela NBR 5410. "Contator auxiliar" é peça de
+   comando; para a carga, contator **de potência**. Tomadas de 20 A da oficina: contator de 25 A.
+4. **Nenhum circuito de tomadas direto no relé.** Os relés das placas Waveshare são de ~10 A (confira a etiqueta);
+   circuito de tomadas com disjuntor de 16–20 A passa por **contator**, mesmo os "10 A". Direto no relé, só
+   iluminação. Coloque **supressor RC** (snubber) na bobina de cada contator.
+5. **Falha segura.** O memorial não diz o que acontece quando o ESP32, a fonte ou o barramento falham. O firmware
+   assume **relé energizado = carga cortada**: a bobina do contator é alimentada pelo contato **NC** do relé, então
+   com o sistema desligado a casa continua com energia (`RELAY_ENERGIZED_CUTS true`). Se ligar no NO, inverta a
+   constante — mas aí qualquer falha apaga a casa.
+6. **Luz sem comando manual.** Se as luzes forem só pelos relés, uma pane (Wi-Fi, ESP32, fonte) deixa a casa sem
+   como acender a luz. Mantenha os interruptores: o relé Waveshare tem COM/NO/NC e funciona como **three-way**
+   (paralelo) com o interruptor da parede — qualquer um dos dois liga/desliga. Outra opção: pulsadores lidos por
+   um módulo de entradas Modbus. Os circuitos de iluminação estão na tabela **sem relé** até essa decisão.
+7. **Barramento RS-485 grande demais para um ramo só.** São 36 escravos + o mestre = 37 nós; o padrão RS-485
+   garante 32 cargas unitárias por segmento, e os transceptores do PZEM não têm a carga publicada. Além disso, os
+   3 quadros ficam em pontos diferentes da casa. Recomendação: um **hub/repetidor RS-485 isolado** no quadro do
+   mestre, com **um ramo por subquadro** (isola surtos e diferenças de terra entre quadros e divide a carga);
+   cada ramo com 120 Ω nas **duas** pontas (o ESP32-S3 tem o jumper "120R" ao lado do conector), par trançado
+   blindado com A, B **e o GND de referência**, blindagem aterrada num ponto só, e longe dos cabos de 220 V (ou
+   com isolação para a maior tensão, NBR 5410).
+8. **O PZEM-016 só fala 9600 baud** → uma volta pelos 33 medidores leva ~2,5–3,5 s. Por isso o elétrico deve ficar
+   **numa placa e num barramento separados da hidráulica**, cuja segurança lê tudo a cada 1 s. Os endereços foram
+   escolhidos sem conflito (1–4 são da hidráulica) caso um dia queira juntar.
+9. **Fonte de 12 V.** 150 W sobra muito (uma placa de 32 relés com tudo energizado consome algo da ordem de
+   15–20 W — confira a tabela de consumo da Waveshare), mas
+   levar 12 V de um quadro aos outros dá queda de tensão e junta as falhas. Melhor uma fonte pequena por
+   subquadro (as placas Waveshare aceitam 7–36 V).
+10. **Ar-condicionado inverter** não deve ter a alimentação cortada no dia a dia com o compressor rodando: o
+    firmware só corta os ACs por **sobrecarga** ou **gestão de demanda** (prioridade 2). Para ligar/desligar,
+    use o controle do aparelho (a integração SmartThings já faz isso).
+11. **Software não é proteção.** O corte por sobrecarga atua *antes* do disjuntor para evitar ficar sem o
+    circuito, mas disjuntores, DR e DPS continuam obrigatórios e dimensionados por projeto elétrico (com ART).
+12. **TC de 100 A em circuito de iluminação** (0,2–2 A) mede com pouca resolução. Para luz e tomadas, o
+    **PZEM-016 de 10 A** (shunt interno, sem TC) é mais preciso e mais barato; deixe o de 100 A para chuveiros,
+    ACs e cargas pesadas.
+13. **Falta o quadro de cargas.** O memorial não lista os circuitos (nome, disjuntor, cômodo, canal). A tabela do
+    §5 é **provisória** e segue só a contagem de medidores por subquadro. Também cita cômodos que não existem na
+    planta importada (suítes, home office, copa, corredor, oficina): o seed usa os cômodos da planta onde dá.
+
+## 4. Endereços (Slave ID) — 9600 8N1 em todos
+
+| Endereço | Equipamento |
+|---|---|
+| 1–4 | reservados à automação hidráulica (contadoras, sonda, relés das válvulas) |
+| 5 | relés Waveshare 32 ch — Subquadro 1 (Íntimo) — exemplo do próprio memorial |
+| 6 | relés Waveshare 16 ch — Subquadro 2 (Social) |
+| 7–16 | PZEM-016 do Subquadro 1 — exemplo do próprio memorial |
+| 17–21 | PZEM-016 do Subquadro 2 |
+| 22 | relés Waveshare 32 ch — Subquadro 3 (Serviços/Oficina) |
+| 23–40 | PZEM-016 do Subquadro 3 |
+
+Todos saem de fábrica com endereço **1**. Grave um por vez, **com só aquele aparelho no barramento**, pelo
+monitor serial do próprio firmware (não precisa do software do fabricante):
+
+- `pzemaddr 7` — grava 7 no PZEM ligado (usa o endereço geral 0xF8, registrador 0x0002);
+- `reladdr 5` — grava 5 na placa de relés que ainda está com o endereço 1 (registrador 0x4000);
+- `scan` — lista quem responde de 1 a 60.
+
+## 5. Circuitos (provisório — ajuste ao quadro de cargas)
+
+Prioridade de corte por demanda: 1 = corta primeiro · 2 = depois · 3 = por último · — = nunca.
+
+| # | Circuito | PZEM | Relé (placa/canal) | Disjuntor | Corte |
+|---|---|---|---|---|---|
+| 1 | Chuveiro — Banheiro 1 | 7 | 5 / 1 → contator 40 A | 40 A | 3 |
+| 2 | Chuveiro — Banheiro 2 | 8 | 5 / 2 → contator 40 A | 40 A | 3 |
+| 3 | Ar-condicionado — Quarto Principal | 9 | 5 / 3 → contator | 16 A | 2 |
+| 4 | Ar-condicionado — Quarto 2 | 10 | 5 / 4 → contator | 16 A | 2 |
+| 5 | Ar-condicionado — Quarto 3 (Home Office) | 11 | 5 / 5 → contator | 16 A | 2 |
+| 6 | Tomadas 10 A — Quarto Principal | 12 | 5 / 6 → contator | 16 A | — |
+| 7 | Tomadas 10 A — Quartos 2 e 3 | 13 | 5 / 7 → contator | 16 A | — |
+| 8 | Tomadas 10 A — Banheiros | 14 | 5 / 8 → contator | 16 A | — |
+| 9 | Iluminação — Quartos | 15 | — | 10 A | — |
+| 10 | Iluminação — Banheiros e Corredor | 16 | — | 10 A | — |
+| 11 | Tomadas 10 A — Sala de Estar | 17 | 6 / 1 → contator | 16 A | — |
+| 12 | Tomadas 10 A — Sala de TV | 18 | 6 / 2 → contator | 16 A | — |
+| 13 | Tomadas 10 A — Copa | 19 | 6 / 3 → contator | 16 A | — |
+| 14 | Iluminação — Salas | 20 | — | 10 A | — |
+| 15 | Iluminação — Copa e Corredor Social | 21 | — | 10 A | — |
+| 16 | Tomadas 20 A — Cozinha (forno/micro-ondas) | 23 | 22 / 1 → contator 25 A | 25 A | 1 |
+| 17 | Tomadas 10 A — Cozinha (bancada) | 24 | 22 / 2 → contator | 16 A | — |
+| 18 | Geladeira | 25 | — (nunca cortar) | 16 A | — |
+| 19 | Lava-louças | 26 | 22 / 3 → contator | 16 A | 1 |
+| 20 | Iluminação — Cozinha | 27 | — | 10 A | — |
+| 21 | Máquina de lavar — Lavanderia | 28 | 22 / 4 → contator | 16 A | 1 |
+| 22 | Tomadas 10 A — Lavanderia | 29 | 22 / 5 → contator | 16 A | — |
+| 23 | Iluminação — Lavanderia | 30 | — | 10 A | — |
+| 24 | Tomadas — Área Externa | 31 | 22 / 6 → contator | 16 A | — |
+| 25 | Iluminação — Área Externa | 32 | 22 / 7 (direto) | 10 A | — |
+| 26 | Portão eletrônico | 33 | — | 10 A | — |
+| 27 | Bomba / pressurizador | 34 | 22 / 8 → contator | 16 A | 1 |
+| 28 | Tomadas 20 A — Oficina (bancada 1) | 35 | 22 / 9 → contator 25 A | 25 A | 1 |
+| 29 | Tomadas 20 A — Oficina (bancada 2) | 36 | 22 / 10 → contator 25 A | 25 A | 1 |
+| 30 | Compressor — Oficina | 37 | 22 / 11 → contator 25 A | 25 A | 1 |
+| 31 | Tomadas 10 A — Oficina | 38 | 22 / 12 → contator | 16 A | — |
+| 32 | Iluminação — Oficina | 39 | 22 / 13 (direto) | 10 A | — |
+| 33 | Circuito reserva — Subquadro 3 | 40 | — | 16 A | — |
+
+Os canais livres (5 / 9–32, 6 / 4–16, 22 / 14–32) ficam para os pontos de luz em three-way (§3.6). Para mudar
+um circuito: edite a tabela `CIRCUITS` no firmware **e** o nome/cômodo no app (menu ⋯) — os UUIDs não mudam.
+
+## 6. Proteção no firmware
+
+| Função | Regra | Ação |
+|---|---|---|
+| Sobrecarga | corrente ≥ 95% do disjuntor por 30 s | circuito com relé: **corta e trava** + alerta crítico (push). Sem relé: alerta de atenção |
+| Religar após sobrecarga | pelo app: só depois de 5 min · pela serial: `rearmar N` a qualquer momento | — |
+| Gestão de demanda | soma > `DEMAND_LIMIT_W` por 10 s | corta o circuito ligado de menor prioridade (o de maior consumo entre os de mesma prioridade), um a cada 10 s, + alerta |
+| Volta da demanda | o último cortado cabe com folga de 1 kW por 2 min | religa, um por vez |
+
+- `DEMAND_LIMIT_W` vem **desligado (0)**: configure com o limite da sua entrada (ex.: bifásico 220 V com
+  disjuntor geral de 63 A ≈ 13,8 kW → use ~12000). Com ele ligado, o card Energia do app passa a avisar em 85%
+  e 100% desse limite; desligado, o app não gera alerta de consumo (cada chuveiro passa de 4,5 kW).
+- Liga/desliga e desarmes ficam gravados na flash: um reinício não religa o que o usuário desligou.
+- A placa de relés que reiniciar volta com tudo desenergizado (= tudo ligado): o firmware reenvia o estado a cada 30 s.
+
+## 7. Instalação e operação (ordem revisada)
+
+1. **Projeto elétrico**: quadro de cargas, disjuntores, DRs e DPS (com ART). Preencha o §5 com os circuitos reais.
+2. **Trilhos DIN**: placa de relés, PZEMs e contatores em cada subquadro; hub RS-485 isolado e o ESP32-S3 no quadro do mestre.
+3. **Força dos PZEM**: bornes de tensão de cada PZEM no circuito que ele mede (F-N ou F-F, §3.2).
+4. **Comando**: fonte 12 V (uma por subquadro) nas placas de relé; bobinas dos contatores pelo contato **NC** dos relés, com RC.
+5. **TCs**: um condutor de fase por TC, seta no sentido da carga.
+6. **Endereços**: um aparelho por vez no barramento, `pzemaddr` / `reladdr` (§4).
+7. **RS-485**: ramos em cascata a partir do hub, 120 Ω nas pontas; `scan` deve listar 5, 6, 7–21, 22, 23–40.
+8. **NexusHome** (feito pelo dono do projeto):
+   - SQL Editor: `supabase/migrations/023_eletrica.sql` e depois `supabase/seeds/eletrica.sql`;
+   - `supabase functions deploy iot-gateway` (envio em lote e alertas do firmware).
+9. **Firmware**: `powershell -ExecutionPolicy Bypass -File scripts\instalar-arduino.ps1 -Firmware eletrica -Porta COM6`
+   — copia para `Documentos\Arduino\esp32s3_eletrica`, onde você preenche Wi-Fi e `DEVICE_SECRET`.
+   Compilado aqui com o core `esp32:esp32` 3.3.12 para a 4.3B: 1,03 MB (32% da partição de 3 MB), 16% da RAM.
+10. **Bancada (serial 115200)**: `status` mostra cada circuito (W, A, V, kWh, ligado/cortado); `desligar N` / `ligar N`
+    devem estalar o relé e o contator; com uma carga conhecida (ex.: chuveiro), confira a potência.
+
+## 8. No app NexusHome
+
+- Cada circuito aparece no cômodo dele como **medidor**: potência em destaque, **V · A · kWh · FP**, barra de
+  carga em relação ao disjuntor e selos *desligado por sobrecarga*, *cortado pela demanda* ou *medidor sem
+  resposta*. Circuitos com relé ganham o **liga/desliga** — o banco transforma em comando para o ESP32
+  (migração 023), que o busca em até 5 s.
+- O card **Energia** soma a última leitura de cada medidor; com o "Quadro elétrico — consumo total" reportando,
+  os circuitos não entram de novo na conta.
+- **Automações por medidor**: no gatilho, "Leitura de" escolhe um medidor (o total do quadro aparece primeiro).
+  Ex.: *se Chuveiro — Banheiro 1 > 7000 W → desligar Lava-louças*. Sem a 023, o servidor ignora o filtro — o app
+  avisa ao salvar. Circuitos com relé também podem ser **alvo** de automações (ligar/desligar).
+- Alertas do firmware (sobrecarga, demanda) entram na lista de alertas; os críticos vão por push/Telegram.
+
+### Volume de dados
+
+~10–15 mil linhas por dia em `telemetry_logs` para o elétrico (a hidráulica grava ~50 mil). No plano gratuito do
+Supabase (500 MB), vale apagar o histórico antigo de vez em quando — por exemplo, no SQL Editor:
+
+```sql
+delete from public.telemetry_logs where created_at < now() - interval '90 days';
+```
+
+## 9. Ainda não implementado
+
+- **Tela touch do quadro elétrico** (o memorial cita a tela central): esta versão usa o app + monitor serial.
+- **Home Assistant / MQTT**: dá para publicar com *MQTT discovery* a partir do mesmo firmware, se ainda quiser o HA
+  junto com o NexusHome.
+- **Consumo por dia/mês e custo (tarifa)**: os kWh acumulados de cada PZEM já chegam; falta o relatório.
+- **Estado real das luzes em three-way**: com interruptor em paralelo, o app só sabe se a luz está acesa pela
+  corrente do circuito — falta essa leitura por ponto.

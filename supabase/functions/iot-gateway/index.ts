@@ -13,9 +13,16 @@
 //               "replayed": true                   //   reenviada da fila offline (não mexe no status)
 //             }
 //
+// POST /iot-gateway  { "readings": [ {device_id, metric_type?, value?, status?, ts?, replayed?}, ... ] }
+//        (v2.11) EM LOTE — até 100 itens num POST só; item só com status atualiza o
+//        painel sem gravar histórico. Usado pelo ESP32 elétrico (33 circuitos). Resposta:
+//        { ok, rows, statuses, alerts, errors: [{index, error}] }  (itens inválidos não derrubam o lote)
+//        "alerts": [{severity: info|warning|critical, message}] (opcional, até 10) → tabela alerts
+//
 // GET  /iot-gateway/health    → status simples
 // GET  /iot-gateway/commands  → comandos pendentes para o ESP32 (x-device-key; migração 013)
-//        resposta: { commands: [{ id, device_id, command: { open: true|false } }] }
+//        resposta: { commands: [{ id, device_id, command: { open: true|false } | { on: true|false } }] }
+//        ("on": circuitos com devices.hw — migração 023)
 //        cada comando é entregue uma única vez (vira "delivered")
 //
 // Variáveis de ambiente (configuradas via `supabase secrets set`):
@@ -36,9 +43,8 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { parseReadingTs } from "./ts.ts";
+import { ALLOWED_METRICS, parseAlerts, splitBatch } from "./batch.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const ALLOWED_METRICS = new Set(["energy_watts", "water_flow_lph", "temperature", "humidity", "water_level_pct"]);  // water_level_pct: migração 005
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -121,6 +127,8 @@ serve(async (req: Request) => {
     return json({ error: "JSON inválido" }, 400);
   }
 
+  if (Array.isArray(body.readings)) return await handleBatch(supabase, body.readings, body.alerts);
+
   const deviceId = String(body.device_id ?? "");
   const metricType = String(body.metric_type ?? "");
   const value = Number(body.value);
@@ -168,3 +176,35 @@ serve(async (req: Request) => {
 
   return json({ ok: true, device_id: deviceId, metric_type: metricType, value });
 });
+
+// ---- envio em lote (v2.11) -------------------------------------------------
+// deno-lint-ignore no-explicit-any
+async function handleBatch(supabase: any, readings: unknown[], alerts?: unknown): Promise<Response> {
+  const { rows, statuses, errors } = splitBatch(readings);
+  if (errors.length && errors[0].index === -1) return json({ error: errors[0].error }, 400);
+
+  if (rows.length) {
+    const { error } = await supabase.from("telemetry_logs").insert(rows);
+    if (error?.code === "23503") {
+      // algum device_id não existe (seed não rodado / aparelho excluído): grava os demais um a um
+      for (const row of rows) {
+        const { error: e1 } = await supabase.from("telemetry_logs").insert(row);
+        if (e1) errors.push({ index: -1, error: `telemetria de ${row.device_id}: ${e1.message}` });
+      }
+    } else if (error) {
+      return json({ error: `Falha ao gravar telemetria: ${error.message}`, errors }, 500);
+    }
+  }
+  // status em paralelo; device_report_status (013) não gera comando de volta (eco)
+  const results = await Promise.all(statuses.map((s) =>
+    supabase.rpc("device_report_status", { p_device: s.device_id, p_patch: s.status })));
+  results.forEach((r: { error?: { message: string } | null }, i: number) => {
+    if (r.error) errors.push({ index: -1, error: `status de ${statuses[i].device_id}: ${r.error.message}` });
+  });
+  const alertRows = parseAlerts(alerts);
+  if (alertRows.length) {
+    const { error } = await supabase.from("alerts").insert(alertRows);
+    if (error) errors.push({ index: -1, error: `alertas: ${error.message}` });
+  }
+  return json({ ok: true, rows: rows.length, statuses: statuses.length, alerts: alertRows.length, errors }, errors.length ? 207 : 200);
+}

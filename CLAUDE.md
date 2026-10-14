@@ -22,7 +22,9 @@ painel controla e mostra dispositivos sobre ela. Versão atual: ver `package.jso
 - **Supabase**: Postgres + RLS + Realtime + Edge Functions (`supabase/functions`: `iot-gateway`,
   `notify-alert`, `smartthings-proxy`, `tuya-proxy`).
 - **Vercel**: deploy automático de `main` (preview por PR). Produção: https://nexushome-os.vercel.app
-- **Firmware ESP32-S3** em `firmware/` (Arduino); instalador em `scripts/instalar-arduino.ps1`.
+- **Firmware ESP32-S3** em `firmware/` (Arduino): `esp32s3_hidraulica` (válvulas/vazão/nível) e `esp32s3_eletrica`
+  (33 PZEM-016 + relés dos subquadros, v2.11 — ver `docs/automacao-eletrica.md`); instalador em
+  `scripts/instalar-arduino.ps1` (`-Firmware eletrica`).
 - PWA (`public/sw.js`, manifest) com notificações push de alertas críticos.
 
 ## Mapa do código
@@ -37,6 +39,7 @@ painel controla e mostra dispositivos sobre ela. Versão atual: ver `package.jso
 | `js/scene-devices.js` / `js/device-catalog.js` / `js/device-mount.js` | modelos 3D dos aparelhos / biblioteca de dispositivos / fixação automática (parede, acima da janela, sobre móvel, porta...) |
 | `js/floorplan.js` | Editor de Planta 2D (cômodos, polígonos, paredes, portas/janelas, móveis, dispositivos, importação DXF) |
 | `js/panels/*.js` | painéis: dispositivos, cenas, automações, cartão do cômodo, SmartThings, Tuya |
+| `js/energy.js` | total de energia da casa (soma dos medidores; `in_total` nos circuitos do quadro elétrico) |
 
 Convenções: medidas em **metros**; giro em graus, frente do objeto = `(-sin rot, cos rot)`; no 3D
 `rotation.y = -rot` e a escala é `METER = 1.9` unidades de cena por metro.
@@ -65,6 +68,8 @@ confirme com ele se já rodou antes de depender dela).
 
 - Redeploy das Edge Functions `iot-gateway` / `notify-alert` com as chaves VAPID para o push funcionar.
 - Reinstalar o firmware com `scripts/instalar-arduino.ps1` para ativar a fila offline do ESP32.
+- v2.11 (automação elétrica): rodar `023_eletrica.sql` + `supabase/seeds/eletrica.sql` e redeploy do `iot-gateway`
+  (envio em lote). A tabela de circuitos é provisória até o usuário mandar o quadro de cargas.
 
 ## Desempenho (lições)
 

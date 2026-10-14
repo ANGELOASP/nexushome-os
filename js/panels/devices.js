@@ -44,7 +44,7 @@ export function initDevicesPanel(nexusClient) {
   listEl = document.getElementById('devices-list');
   render();
 
-  on('devices-changed', render);
+  on('devices-changed', scheduleRender);   // o quadro elétrico manda ~34 atualizações juntas: um redesenho por quadro
   on('rooms-changed', render); // planta editada → reagrupa os dispositivos
   on('room-selected', (room) => highlightRoom(room));
   initAddForm();
@@ -110,6 +110,14 @@ function initAddForm() {
       submit.disabled = false;
     }
   });
+}
+
+let renderQueued = false;
+function scheduleRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  const run = () => { renderQueued = false; render(); };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run); else setTimeout(run, 16);
 }
 
 function render() {
@@ -183,11 +191,7 @@ function renderDevice(d) {
         ${open ? 'ABERTA — fluxo liberado' : 'FECHADA — fluxo bloqueado'}
       </button>`;
   } else if (d.type === 'meter') {
-    controls = `
-      <div class="mt-2 flex items-end justify-between">
-        <span class="text-[10px] uppercase tracking-widest text-slate-500">Consumo atual</span>
-        <span class="text-lg font-bold text-cyan-300 tabular-nums" data-lbl="watts">${Math.round(s.watts || 0)} W</span>
-      </div>`;
+    controls = meterControls(s);
   } else if (d.type === 'sensor') {
     controls = `
       <div class="mt-2 grid grid-cols-2 gap-2 text-center">
@@ -224,6 +228,38 @@ function renderDevice(d) {
   }
   wireControls(card, d);
   return card;
+}
+
+// Medidor (v2.11): circuito do quadro elétrico (PZEM-016) mostra tensão, corrente, kWh e,
+// se tiver relé ("on" no status), o liga/desliga — o banco vira comando para o ESP32 (migração 023).
+function meterControls(s) {
+  const fmt = (v, dec, unit) => (Number.isFinite(Number(v)) ? `${Number(v).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec })} ${unit}` : '—');
+  const badges = [];
+  if (s.trip) badges.push('<span class="meter-badge meter-badge-crit" title="Corrente acima do disjuntor por 30 s: o ESP32 cortou o circuito. Para religar pelo app, desligue e ligue de novo (aceito 5 min após o desarme) ou use rearmar N na serial.">desligado por sobrecarga</span>');
+  if (s.shed) badges.push('<span class="meter-badge meter-badge-warn" title="Consumo da casa acima do limite de demanda: este circuito volta sozinho quando houver folga.">cortado pela demanda</span>');
+  if (s.meter_ok === false) badges.push('<span class="meter-badge" title="O PZEM-016 deste circuito não respondeu no barramento RS-485.">medidor sem resposta</span>');
+  const details = [];
+  if (s.volts != null) details.push(fmt(s.volts, 1, 'V'));
+  if (s.amps != null) details.push(fmt(s.amps, 2, 'A'));
+  if (s.kwh != null) details.push(fmt(s.kwh, 1, 'kWh'));
+  if (s.pf != null) details.push(`FP ${fmt(s.pf, 2, '').trim()}`);
+  if (s.meters != null) details.push(`${s.meters_ok ?? 0}/${s.meters} medidores`);
+  if (Number(s.limit_w) > 0) details.push(`limite ${fmt(s.limit_w / 1000, 1, 'kW')}`);
+  const load = Number(s.load_pct);
+  const loadBar = Number.isFinite(load) && s.amps != null
+    ? `<div class="meter-load mt-1.5" title="Corrente em relação ao disjuntor do circuito"><span style="width:${Math.min(100, Math.max(0, load))}%" class="${load >= 95 ? 'meter-load-crit' : load >= 80 ? 'meter-load-warn' : ''}"></span></div>`
+    : '';
+  const hasSwitch = typeof s.on === 'boolean';
+  return `
+      <div class="mt-2 flex items-end justify-between gap-3">
+        ${hasSwitch
+          ? `<label class="switch" title="Liga/desliga o circuito no quadro"><input type="checkbox" data-ctl="power" ${s.on ? 'checked' : ''}><span class="slider-ui"></span></label>`
+          : '<span class="text-[10px] uppercase tracking-widest text-slate-500">Consumo atual</span>'}
+        <span class="text-lg font-bold text-cyan-300 tabular-nums" data-lbl="watts">${Math.round(s.watts || 0)} W</span>
+      </div>
+      ${details.length ? `<p class="mt-1 text-[10px] text-slate-400 tabular-nums">${details.join(' · ')}</p>` : ''}
+      ${loadBar}
+      ${badges.length ? `<div class="mt-1.5 flex flex-wrap gap-1">${badges.join('')}</div>` : ''}`;
 }
 
 function wireControls(card, d) {
@@ -303,7 +339,9 @@ export async function updateStatus(device, patch, toastMsg, toastType = 'success
   const merged = { ...(current.status || {}), ...patch };
   upsertDevice({ ...current, status: merged });   // otimista: UI + 3D reagem já
   try {
-    const { error } = await client.from('devices').update({ status: patch }).eq('id', device.id);
+    // grava o status MESCLADO: update({status: patch}) substituía a coluna inteira no Supabase
+    // (perdia brilho/cor, as leituras do quadro elétrico e a marca in_total do total da casa)
+    const { error } = await client.from('devices').update({ status: merged }).eq('id', device.id);
     if (error) throw new Error(error.message);
     if (toastMsg) toast(toastMsg, device.name, toastType);
   } catch (err) {

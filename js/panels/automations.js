@@ -44,7 +44,7 @@ export function initAutomationsPanel(nexusClient) {
 
   renderList();
   on('automations-changed', renderList);
-  on('telemetry', ({ metric, value }) => evaluate(metric, value));
+  on('telemetry', ({ metric, value, deviceId }) => evaluate(metric, value, deviceId));
   on('st-readings', (readings) => { evaluateStReadings(readings); syncEnergyRulesButton(); });   // gatilhos Samsung (v1.5.0)
   on('st-connection-changed', renderList);                         // badge "SmartThings offline"
   // um dispositivo excluído deixa regras sem alvo: redesenha só quando o conjunto de regras quebradas muda
@@ -56,6 +56,7 @@ export function initAutomationsPanel(nexusClient) {
   document.getElementById('btn-cancel-automation')?.addEventListener('click', closeModal);
   modal?.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
   document.getElementById('f-device')?.addEventListener('change', refreshActionOptions);
+  document.getElementById('f-metric')?.addEventListener('change', refreshSourceOptions);
   document.getElementById('f-action')?.addEventListener('change', refreshValueInput);
   form?.addEventListener('submit', onCreate);
   document.getElementById('automations-list')?.addEventListener('click', onListClick);
@@ -130,9 +131,11 @@ function syncEnergyRulesButton() {
 async function createEnergyRules() {
   const missing = getStDevices().filter((d) => d.kind === 'ac' && !energyRuleFor(d.id));
   if (!missing.length) return;
+  // com o quadro elétrico (v2.11), compara com o consumo TOTAL — não com cada circuito
+  const total = state.devices.find((x) => x.type === 'meter' && x.status?.in_total === false);
   const rows = missing.map((d) => ({
     name: `Desligar ${d.name} em pico de energia`,
-    trigger_condition: { metric: 'energy_watts', operator: '>', threshold: ENERGY_LIMIT_W },
+    trigger_condition: { metric: 'energy_watts', operator: '>', threshold: ENERGY_LIMIT_W, ...(total ? { device_id: total.id } : {}) },
     action_payload: { type: 'smartthings', stDeviceId: d.id, commands: [{ component: 'main', capability: 'switch', command: 'off', arguments: [] }] },
     is_active: true,
   }));
@@ -171,7 +174,8 @@ function describe(a) {
   const m = METRICS[t.metric]?.label || t.metric || '?';
   const op = OPERATORS[t.operator] || t.operator || '?';
   const dev = getDevice(p.device_id);
-  return `Se ${m} ${op} ${t.threshold} ${METRICS[t.metric]?.unit || ''} → ${p.type === 'smartthings' ? describeStAction(p) : describeAction(dev, p)}`;
+  const src = t.device_id ? ` de ${getDevice(t.device_id)?.name || 'medidor removido'}` : '';
+  return `Se ${m}${src} ${op} ${t.threshold} ${METRICS[t.metric]?.unit || ''} → ${p.type === 'smartthings' ? describeStAction(p) : describeAction(dev, p)}`;
 }
 
 function describeAction(device, p) {
@@ -270,6 +274,7 @@ function openModal() {
   // (optgroup no seletor de métrica) e os aparelhos como alvo de ação
   injectSmartThingsOptions();
 
+  refreshSourceOptions();
   refreshActionOptions();
   modal.classList.add('modal-open');
   document.getElementById('f-name')?.focus();
@@ -312,8 +317,8 @@ function closeModal() {
   form.reset();
 }
 
-function actionsFor(type) {
-  switch (type) {
+function actionsFor(dev) {
+  switch (dev?.type) {
     case 'light': return [
       { v: 'power', label: 'Ligar / desligar' },
       { v: 'brightness', label: 'Definir brilho (%)' },
@@ -324,8 +329,41 @@ function actionsFor(type) {
       { v: 'temp', label: 'Definir temperatura (°C)' },
     ];
     case 'valve': return [{ v: 'valve', label: 'Abrir / fechar' }];
-    default: return [];
+    // circuito do quadro elétrico com relé (v2.11) e outros aparelhos com "on"
+    default: return typeof dev?.status?.on === 'boolean' ? [{ v: 'power', label: 'Ligar / desligar' }] : [];
   }
+}
+
+// ---- gatilho preso a um medidor (v2.11): com 33 circuitos, "Energia > 3000 W"
+//      sem filtro dispararia com qualquer circuito (o chuveiro sozinho passa disso)
+const SOURCE_TYPES = {
+  energy_watts: ['meter', 'solar'],
+  water_flow_lph: ['valve', 'sensor'],
+  temperature: ['sensor', 'ac'],
+  humidity: ['sensor'],
+};
+
+function refreshSourceOptions() {
+  const metric = document.getElementById('f-metric')?.value || '';
+  const wrap = document.getElementById('f-source-wrap');
+  const sel = document.getElementById('f-source');
+  if (!wrap || !sel) return;
+  const types = SOURCE_TYPES[metric] || [];
+  const devs = state.devices.filter((d) => !d.virtual && types.includes(d.type));
+  wrap.classList.toggle('hidden', metric.startsWith('st|') || !devs.length);
+  // o total do quadro elétrico primeiro: é o que normalmente se quer comparar com um limite
+  devs.sort((a, b) => (a.status?.in_total === false ? -1 : 0) - (b.status?.in_total === false ? -1 : 0));
+  sel.innerHTML = '<option value="">Qualquer dispositivo (cada leitura)</option>'
+    + devs.map((d) => `<option value="${d.id}">${escapeHtml(d.name)} — ${escapeHtml(d.room)}</option>`).join('');
+}
+
+// O filtro de medidor só vale no servidor com a migração 023 (sem ela, a regra dispara com qualquer leitura)
+let migration023 = null;
+async function hasMigration023() {
+  if (migration023 !== null || state.mode !== 'live') return migration023 ?? true;
+  const { error } = await client.from('devices').select('hw').limit(1);
+  migration023 = !error;
+  return migration023;
 }
 
 function refreshActionOptions() {
@@ -338,7 +376,7 @@ function refreshActionOptions() {
     return;
   }
   const dev = getDevice(selValue);
-  const actions = actionsFor(dev?.type);
+  const actions = actionsFor(dev);
   actSel.innerHTML = actions.length
     ? actions.map((a) => `<option value="${a.v}">${a.label}</option>`).join('')
     : '<option value="">(sem ações para este tipo)</option>';
@@ -447,6 +485,8 @@ async function onCreate(e) {
     trigger_condition = { source: 'smartthings', stDeviceId, metric, op: operator, value: threshold };
   } else {
     trigger_condition = { metric: metricRaw, operator, threshold };
+    const source = document.getElementById('f-source')?.value;
+    if (source && !document.getElementById('f-source-wrap')?.classList.contains('hidden')) trigger_condition.device_id = source;
   }
 
   // ---- ação: dispositivo nativo OU comandos SmartThings ------------------
@@ -474,6 +514,9 @@ async function onCreate(e) {
     if (data?.[0]) upsertAutomation(data[0]);
     toast('Automação criada e ativada', name, 'success');
     closeModal();
+    if (trigger_condition.device_id && !(await hasMigration023())) {
+      toast('Execute a migração 023', 'Sem supabase/migrations/023_eletrica.sql o servidor ignora o filtro de medidor: a regra dispara com a leitura de qualquer dispositivo.', 'warning');
+    }
   } catch (err) {
     toast('Falha ao criar automação', err.message, 'critical');
   }
@@ -483,7 +526,7 @@ async function onCreate(e) {
 // Avaliador de regras (client-side, edge-trigger + cooldown)
 // ------------------------------------------------------------
 
-function evaluate(metric, value) {
+function evaluate(metric, value, deviceId) {
   // Live: as regras de métricas nativas rodam no servidor (migração 007,
   // trigger em telemetry_logs) — avaliar aqui também executaria em dobro.
   // No Modo Demonstração não há servidor, então o navegador segue avaliando.
@@ -494,11 +537,12 @@ function evaluate(metric, value) {
     const t = a.trigger_condition || {};
     if (t.source === 'smartthings') continue; // avaliado em evaluateStReadings
     if (t.metric !== metric) continue;
+    if (t.device_id && t.device_id !== deviceId) continue;   // regra presa a um medidor (v2.11)
     const th = Number(t.threshold);
     if (!compare(value, t.operator, th)) continue;
 
     // dispara apenas na transição (valor anterior não satisfazia)
-    const prev = lastMetricValue[metric];
+    const prev = lastMetricValue[t.device_id ? `${metric}|${deviceId}` : metric];
     if (prev !== undefined && compare(prev, t.operator, th)) continue;
 
     // cooldown por automação
@@ -508,6 +552,7 @@ function evaluate(metric, value) {
     executeAutomation(a);
   }
   lastMetricValue[metric] = value;
+  if (deviceId) lastMetricValue[`${metric}|${deviceId}`] = value;
 }
 
 // ------------------------------------------------------------
