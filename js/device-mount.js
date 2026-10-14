@@ -12,7 +12,7 @@
 // ============================================================
 
 import { projectOnWall, layoutOpenings } from './geometry.js';
-import { FURNITURE_BY_KIND } from './furniture.js';
+import { FURNITURE_BY_KIND, furnitureDims } from './furniture.js';
 
 const SNAP_WALL = 0.9;       // m: distância máxima até a parede
 const SNAP_FURN = 0.5;       // m: folga ao redor do móvel
@@ -76,8 +76,8 @@ function nearestFurniture(furniture, kinds, x, z) {
   let best = null;
   for (const f of furniture || []) {
     if (!kinds.includes(f.kind)) continue;
-    const def = FURNITURE_BY_KIND[f.kind];
-    if (!def) continue;
+    if (!FURNITURE_BY_KIND[f.kind]) continue;
+    const def = { ...FURNITURE_BY_KIND[f.kind], ...furnitureDims(f) };   // medidas personalizadas do móvel
     const a = ((Number(f.rot) || 0) * Math.PI) / 180;
     const c = Math.cos(a), s = Math.sin(a);
     const dx = x - f.x, dz = z - f.z;

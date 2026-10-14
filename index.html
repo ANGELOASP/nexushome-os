@@ -606,6 +606,15 @@
             <strong id="fp-furn-title">Móvel</strong>
             <button id="fp-furn-rot" type="button" class="fp-icon-btn" title="Girar 90° (R)">Girar 90°</button>
             <label class="fp-furn-angle" title="Ângulo livre (Shift+R gira 15°)"><input id="fp-furn-angle" type="number" min="0" max="359" step="1" class="fp-input" />°</label>
+            <span class="fp-furn-size" role="group" aria-label="Tamanho do móvel">
+              <button id="fp-furn-smaller" type="button" class="fp-icon-btn" title="Diminuir 10%" aria-label="Diminuir móvel">−</button>
+              <label title="Largura (cm)">L <input id="fp-furn-w" type="number" min="10" max="800" step="1" class="fp-input" /></label>
+              <label title="Profundidade (cm)">P <input id="fp-furn-d" type="number" min="10" max="800" step="1" class="fp-input" /></label>
+              <label title="Altura (cm)">A <input id="fp-furn-h" type="number" min="10" max="800" step="1" class="fp-input" /></label>
+              <span class="fp-furn-unit">cm</span>
+              <button id="fp-furn-bigger" type="button" class="fp-icon-btn" title="Aumentar 10%" aria-label="Aumentar móvel">+</button>
+              <button id="fp-furn-reset" type="button" class="fp-icon-btn" title="Voltar ao tamanho padrão do catálogo">Padrão</button>
+            </span>
             <button id="fp-furn-dup" type="button" class="fp-icon-btn" title="Duplicar (Ctrl+D)">Duplicar</button>
             <button id="fp-furn-del" type="button" class="fp-icon-btn" title="Apagar (Delete)">Apagar</button>
           </div>

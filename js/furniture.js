@@ -11,7 +11,7 @@ export const FURNITURE = [
   { kind: 'sofa',          label: 'Sofá',               group: 'Sala',      w: 2.0,  d: 0.9,  h: 0.85 },
   { kind: 'poltrona',      label: 'Poltrona',           group: 'Sala',      w: 0.85, d: 0.85, h: 0.85 },
   { kind: 'mesa_centro',   label: 'Mesa de centro',     group: 'Sala',      w: 1.0,  d: 0.6,  h: 0.4 },
-  { kind: 'rack_tv',       label: 'Rack com TV',        group: 'Sala',      w: 1.8,  d: 0.45, h: 1.4 },
+  { kind: 'rack_tv',       label: 'Rack de TV',         group: 'Sala',      w: 1.8,  d: 0.45, h: 0.5 },
   { kind: 'estante',       label: 'Estante',            group: 'Sala',      w: 0.9,  d: 0.35, h: 1.8 },
   { kind: 'luminaria',     label: 'Luminária de piso',  group: 'Sala',      w: 0.4,  d: 0.4,  h: 1.6 },
   { kind: 'planta',        label: 'Planta',             group: 'Sala',      w: 0.45, d: 0.45, h: 1.1 },
@@ -20,7 +20,7 @@ export const FURNITURE = [
   { kind: 'puff',          label: 'Puff',               group: 'Sala',      w: 0.5,  d: 0.5,  h: 0.42 },
   { kind: 'mesa_lateral',  label: 'Mesa lateral',       group: 'Sala',      w: 0.45, d: 0.45, h: 0.55 },
   { kind: 'aparador',      label: 'Aparador',           group: 'Sala',      w: 1.2,  d: 0.4,  h: 0.8 },
-  { kind: 'painel_tv',     label: 'Painel com TV',      group: 'Sala',      w: 2.0,  d: 0.35, h: 2.0 },
+  { kind: 'painel_tv',     label: 'Painel de TV',       group: 'Sala',      w: 2.0,  d: 0.35, h: 2.0 },
   { kind: 'cristaleira',   label: 'Cristaleira',        group: 'Sala',      w: 1.0,  d: 0.45, h: 1.9 },
   { kind: 'tapete',        label: 'Tapete',             group: 'Sala',      w: 2.0,  d: 1.4,  h: 0.02 },
   // quarto
@@ -82,9 +82,29 @@ export const FURNITURE = [
 
 export const FURNITURE_BY_KIND = Object.fromEntries(FURNITURE.map((f) => [f.kind, f]));
 
+/** Limites das medidas personalizadas de um móvel (metros). */
+export const FURN_DIM_MIN = 0.1;
+export const FURN_DIM_MAX = 8;
+
+function dimOr(v, fallback) {
+  const n = Number(v);
+  return v != null && v !== '' && Number.isFinite(n) && n > 0 ? Math.min(FURN_DIM_MAX, Math.max(FURN_DIM_MIN, n)) : fallback;
+}
+
+/**
+ * Medidas reais do móvel: as personalizadas (colunas w/d/h, migração 022) ou as do catálogo.
+ * Também devolve a escala em relação ao modelo do catálogo (a cena 3D estica o modelo).
+ */
+export function furnitureDims(item) {
+  const def = FURNITURE_BY_KIND[item?.kind];
+  if (!def) return null;
+  const w = dimOr(item.w, def.w), d = dimOr(item.d, def.d), h = dimOr(item.h, def.h);
+  return { w, d, h, sx: w / def.w, sz: d / def.d, sy: h / def.h, custom: w !== def.w || d !== def.d || h !== def.h };
+}
+
 /** Pegada (4 cantos, metros, coordenadas absolutas) de um móvel { kind, x, z, rot } (rot em graus). */
 export function furnitureCorners(item) {
-  const def = FURNITURE_BY_KIND[item.kind];
+  const def = furnitureDims(item);
   if (!def) return [];
   const a = ((Number(item.rot) || 0) * Math.PI) / 180;
   const c = Math.cos(a), s = Math.sin(a);
@@ -97,7 +117,7 @@ export function furnitureCorners(item) {
 
 /** O ponto (x, z) está sobre o móvel? (inverte a rotação e testa o retângulo local) */
 export function furnitureHit(item, x, z, pad = 0) {
-  const def = FURNITURE_BY_KIND[item.kind];
+  const def = furnitureDims(item);
   if (!def) return false;
   const a = ((Number(item.rot) || 0) * Math.PI) / 180;
   const dx = x - item.x, dz = z - item.z;
@@ -112,5 +132,7 @@ export function normalizeFurniture(row) {
   return {
     id: row.id, floor: Math.max(0, Math.trunc(Number(row.floor) || 0)), kind: String(row.kind || ''),
     x: Number(row.x) || 0, z: Number(row.z) || 0, rot, sort_order: row.sort_order ?? 0,
+    // medidas personalizadas (null = as do catálogo)
+    w: dimOr(row.w, null), d: dimOr(row.d, null), h: dimOr(row.h, null),
   };
 }

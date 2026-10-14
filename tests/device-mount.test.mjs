@@ -48,7 +48,7 @@ test('Smart TV: no painel e sobre o rack', () => {
   assert.equal(p.y, 0.85);
   const r = mountDevice(CATALOG_BY_MODEL.smart_tv, 3, 3, ctx);
   assert.match(r.note, /sobre rack/);
-  assert.equal(r.y, 1.4);
+  assert.equal(r.y, 0.5);   // tampo do rack (a TV embutida saiu do móvel na v2.10)
 });
 
 test('fechadura: lado oposto à dobradiça; cortina: sobre a janela', () => {

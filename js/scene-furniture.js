@@ -134,10 +134,7 @@ export function buildFurnitureModel(THREE, kind) {
     case 'rack_tv': {
       B(1.8, 0.45, 0.45, C.woodDark, 0, 0.05, 0);
       B(0.05, 0.05, 0.05, C.black, -0.8, 0, 0); B(0.05, 0.05, 0.05, C.black, 0.8, 0, 0);
-      B(0.08, 0.12, 0.08, C.black, 0, 0.5, -0.05);                          // pé da TV
-      const screen = mat(C.black, { roughness: 0.3, metalness: 0.2, emissive: 0x1d4ed8, emissiveIntensity: 0.12 });
-      B(1.3, 0.76, 0.05, screen, 0, 0.62, -0.05);
-      fx.tvScreen = screen;
+      // sem TV embutida: a TV é um dispositivo da biblioteca, posicionado sobre o rack
       break;
     }
     case 'estante': {
@@ -156,8 +153,7 @@ export function buildFurnitureModel(THREE, kind) {
       shade.position.set(0, 1.5, 0);
       g.add(shade);
       const pt = new THREE.PointLight(0xffd9a0, 0, 6, 2);
-      pt.position.set(0, 1.45, 0);
-      pt.castShadow = true;
+      pt.position.set(0, 1.45, 0);   // sem sombra: luz pontual com sombra custa 6 renderizações por quadro
       g.add(pt);
       fx.lampShade = shadeMat; fx.lamp = pt;
       break;
@@ -203,9 +199,6 @@ export function buildFurnitureModel(THREE, kind) {
     case 'escrivaninha': {
       B(1.2, 0.04, 0.6, C.woodLight, 0, 0.71, 0);
       B(0.04, 0.71, 0.56, C.woodDark, -0.56, 0, 0); B(0.04, 0.71, 0.56, C.woodDark, 0.56, 0, 0);
-      const scr = mat(C.black, { emissive: 0x38bdf8, emissiveIntensity: 0.3, roughness: 0.3 });
-      B(0.6, 0.36, 0.03, scr, 0, 0.88, -0.2);
-      B(0.05, 0.13, 0.05, C.dark, 0, 0.75, -0.2);
       break;
     }
     case 'mesa_jantar': {
@@ -353,9 +346,7 @@ export function buildFurnitureModel(THREE, kind) {
     case 'painel_tv': {
       B(2.0, 2.0, 0.04, C.wood, 0, 0, -0.155);
       B(1.8, 0.35, 0.33, C.woodDark, 0, 0.3, 0);
-      const screen = mat(C.black, { roughness: 0.3, metalness: 0.2, emissive: 0x1d4ed8, emissiveIntensity: 0.12 });
-      B(1.45, 0.82, 0.04, screen, 0, 1.0, -0.12);
-      fx.tvScreen = screen;
+      // sem TV embutida: a Smart TV da biblioteca se fixa no painel
       break;
     }
     case 'cristaleira': {
@@ -421,9 +412,6 @@ export function buildFurnitureModel(THREE, kind) {
       B(0.04, 0.71, 0.56, C.dark, -0.76, 0, -0.4);
       B(0.56, 0.71, 0.04, C.dark, 0.5, 0, 0.68);
       B(0.45, 0.6, 0.5, C.white, 0.5, 0.05, -0.38);
-      const scr = mat(C.black, { emissive: 0x38bdf8, emissiveIntensity: 0.3, roughness: 0.3 });
-      B(0.6, 0.36, 0.03, scr, -0.3, 0.88, -0.6);
-      B(0.05, 0.13, 0.05, C.dark, -0.3, 0.75, -0.6);
       break;
     }
     case 'cadeira_escritorio':

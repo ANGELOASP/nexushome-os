@@ -1122,3 +1122,9 @@ input.sc-mini { width: 3.4rem; padding: 0.3rem 0.4rem; }
 .fp-lib-on { border-color: #f2b24a; background: rgba(242, 178, 74, 0.16); color: #fbe3b3; }
 .fp-dev-mount { font-size: 0.64rem; color: var(--muted); }
 .fp-dev-mount b { color: #fbe3b3; font-weight: 600; }
+/* tamanho do móvel (v2.10): − L P A + Padrão */
+.fp-furn-size { display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; font-size: 0.7rem; color: var(--muted); }
+.fp-furn-size label { display: inline-flex; align-items: center; gap: 0.15rem; }
+.fp-furn-size input { width: 3.4rem; padding: 0.25rem 0.35rem; border-radius: 0.45rem; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: #e2e8f0; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+.fp-furn-size .fp-icon-btn[disabled] { opacity: 0.4; cursor: default; }
+.fp-furn-unit { font-size: 0.62rem; }
