@@ -61,16 +61,17 @@ npm run build
 
 ## Estado do banco (out/2026)
 
-Migrações **001 a 022 aplicadas** pelo usuário no Supabase (a 018 — isolamento por dono — é opcional;
-confirme com ele se já rodou antes de depender dela).
+Migrações **001 a 023 aplicadas** pelo usuário no Supabase, **incluindo a 018** (isolamento por dono: tabelas com
+`owner_id`). Seeds rodados: `supabase/seeds/eletrica.sql` (34 dispositivos `b2000000-…`, out/2026).
 
 ## Pendências conhecidas (do lado do usuário)
 
 - Edge Functions publicadas pelo conector em 14/out/2026: `iot-gateway` v10 (comandos, fila offline, lote) e
   `notify-alert` v7 (Telegram + push). O push só sai com as chaves VAPID configuradas nos secrets.
 - Reinstalar o firmware com `scripts/instalar-arduino.ps1` para ativar a fila offline do ESP32.
-- v2.11 (automação elétrica): rodar `023_eletrica.sql` + `supabase/seeds/eletrica.sql`. A tabela de circuitos é
-  provisória até o usuário mandar o quadro de cargas. Decisão: interruptores das luzes em paralelo (three-way)
+- v2.11 (automação elétrica): 023 e seed já rodados; falta gravar o firmware quando a 2ª placa 4.3B chegar
+  (`instalar-arduino.ps1 -Firmware eletrica -Porta COMx`). A tabela de circuitos é provisória até o usuário
+  mandar o quadro de cargas. Decisão: interruptores das luzes em paralelo (three-way)
   com os relés; v2.12 trouxe a tela touch elétrica (uma placa 4.3B para a água, outra para a energia).
 
 ## Desempenho (lições)
