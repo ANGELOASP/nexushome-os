@@ -66,10 +66,12 @@ confirme com ele se já rodou antes de depender dela).
 
 ## Pendências conhecidas (do lado do usuário)
 
-- Redeploy das Edge Functions `iot-gateway` / `notify-alert` com as chaves VAPID para o push funcionar.
+- Edge Functions publicadas pelo conector em 14/out/2026: `iot-gateway` v10 (comandos, fila offline, lote) e
+  `notify-alert` v7 (Telegram + push). O push só sai com as chaves VAPID configuradas nos secrets.
 - Reinstalar o firmware com `scripts/instalar-arduino.ps1` para ativar a fila offline do ESP32.
-- v2.11 (automação elétrica): rodar `023_eletrica.sql` + `supabase/seeds/eletrica.sql` e redeploy do `iot-gateway`
-  (envio em lote). A tabela de circuitos é provisória até o usuário mandar o quadro de cargas.
+- v2.11 (automação elétrica): rodar `023_eletrica.sql` + `supabase/seeds/eletrica.sql`. A tabela de circuitos é
+  provisória até o usuário mandar o quadro de cargas. Decisão: interruptores das luzes em paralelo (three-way)
+  com os relés; v2.12 trouxe a tela touch elétrica (uma placa 4.3B para a água, outra para a energia).
 
 ## Desempenho (lições)
 

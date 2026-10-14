@@ -14,8 +14,10 @@
 //   · recebe os liga/desliga do app (GET /iot-gateway/commands)
 //
 // Linguagem: C++ (framework Arduino para ESP32, core 3.x). Placa: "ESP32S3 Dev Module".
-// Sem bibliotecas externas: Modbus RTU (CRC16, funções 01/03/04/05/06/0F) implementado aqui.
-// Esta primeira versão NÃO usa a tela (a interface é o app NexusHome + monitor serial).
+// Modbus RTU (CRC16, funções 01/03/04/05/06/0F) implementado aqui, sem biblioteca; a tela usa
+// ESP32_Display_Panel 1.0.4 + lvgl 8.4.0 (as mesmas da tela da caixa d'água).
+// Tela touch (v2.12): ui.cpp mostra o consumo da casa, os subquadros e cada circuito, com
+// ligar/desligar/rearmar pelo toque (USE_DISPLAY 1). Sem tela: USE_DISPLAY 0.
 //
 // ⚠️ ANTES DE LIGAR, leia docs/automacao-eletrica.md — o memorial tem erros que mudam
 //    a montagem (alimentação do PZEM-016, contatoras dos chuveiros, quantidade de nós no
@@ -31,6 +33,13 @@
 #include <HTTPClient.h>
 #include <Preferences.h>
 #include <math.h>
+#include "ui.h"
+
+// ---------------- Tela touch (SpotPear/Waveshare ESP32-S3-Touch-LCD-4.3B) ----------------
+// 1 = mostra a interface do quadro elétrico (ui.cpp). 0 = sem tela (outra placa ESP32-S3).
+// Bibliotecas (Library Manager): ESP32_Display_Panel 1.0.4 e lvgl 8.4.0 — o script
+// scripts/instalar-arduino.ps1 instala as duas.
+#define USE_DISPLAY 1
 
 // ---------------- Wi-Fi e NexusHome ----------------
 #define WIFI_SSID        "SUA_REDE_WIFI"          // só 2.4 GHz
@@ -100,51 +109,50 @@ const int BOARD_COUNT = sizeof(BOARDS) / sizeof(BOARDS[0]);
 // meter = endereço do PZEM-016 · board = índice em BOARDS (-1 = sem relé) · ch = canal 1..N
 // breakerA = disjuntor do circuito · shed = prioridade no corte de demanda (0 = nunca corta;
 // 1 corta primeiro, 2 depois, 3 por último)
-struct Circuit { const char* uuid; const char* name; uint8_t meter; int8_t board; uint8_t ch; float breakerA; uint8_t shed; };
+// group = subquadro (índice em GROUP_NAMES) — vira uma aba na tela
+const char* const GROUP_NAMES[] = { "Íntimo", "Social", "Serviços" };
+const int GROUP_COUNT = sizeof(GROUP_NAMES) / sizeof(GROUP_NAMES[0]);
+struct Circuit { const char* uuid; const char* name; uint8_t meter; int8_t board; uint8_t ch; float breakerA; uint8_t shed; uint8_t group; };
 Circuit CIRCUITS[] = {
   // ---- Subquadro 1 (Íntimo) · relés slave 5 · PZEM 7–16 ----
-  { "b2000000-0000-4000-8000-000000000001", "Chuveiro — Banheiro 1",            7, 0,  1, 40, 3 },
-  { "b2000000-0000-4000-8000-000000000002", "Chuveiro — Banheiro 2",            8, 0,  2, 40, 3 },
-  { "b2000000-0000-4000-8000-000000000003", "Ar-condicionado — Quarto Principal", 9, 0,  3, 16, 2 },
-  { "b2000000-0000-4000-8000-000000000004", "Ar-condicionado — Quarto 2",      10, 0,  4, 16, 2 },
-  { "b2000000-0000-4000-8000-000000000005", "Ar-condicionado — Quarto 3 (Home Office)", 11, 0, 5, 16, 2 },
-  { "b2000000-0000-4000-8000-000000000006", "Tomadas 10 A — Quarto Principal", 12, 0,  6, 16, 0 },
-  { "b2000000-0000-4000-8000-000000000007", "Tomadas 10 A — Quartos 2 e 3",    13, 0,  7, 16, 0 },
-  { "b2000000-0000-4000-8000-000000000008", "Tomadas 10 A — Banheiros",        14, 0,  8, 16, 0 },
-  { "b2000000-0000-4000-8000-000000000009", "Iluminação — Quartos",            15, -1, 0, 10, 0 },
-  { "b2000000-0000-4000-8000-000000000010", "Iluminação — Banheiros e Corredor", 16, -1, 0, 10, 0 },
+  { "b2000000-0000-4000-8000-000000000001", "Chuveiro — Banheiro 1",            7, 0,  1, 40, 3, 0 },
+  { "b2000000-0000-4000-8000-000000000002", "Chuveiro — Banheiro 2",            8, 0,  2, 40, 3, 0 },
+  { "b2000000-0000-4000-8000-000000000003", "Ar-condicionado — Quarto Principal", 9, 0,  3, 16, 2, 0 },
+  { "b2000000-0000-4000-8000-000000000004", "Ar-condicionado — Quarto 2",      10, 0,  4, 16, 2, 0 },
+  { "b2000000-0000-4000-8000-000000000005", "Ar-condicionado — Quarto 3 (Home Office)", 11, 0, 5, 16, 2, 0 },
+  { "b2000000-0000-4000-8000-000000000006", "Tomadas 10 A — Quarto Principal", 12, 0,  6, 16, 0, 0 },
+  { "b2000000-0000-4000-8000-000000000007", "Tomadas 10 A — Quartos 2 e 3",    13, 0,  7, 16, 0, 0 },
+  { "b2000000-0000-4000-8000-000000000008", "Tomadas 10 A — Banheiros",        14, 0,  8, 16, 0, 0 },
+  { "b2000000-0000-4000-8000-000000000009", "Iluminação — Quartos",            15, -1, 0, 10, 0, 0 },
+  { "b2000000-0000-4000-8000-000000000010", "Iluminação — Banheiros e Corredor", 16, -1, 0, 10, 0, 0 },
   // ---- Subquadro 2 (Social) · relés slave 6 · PZEM 17–21 ----
-  { "b2000000-0000-4000-8000-000000000011", "Tomadas 10 A — Sala de Estar",    17, 1,  1, 16, 0 },
-  { "b2000000-0000-4000-8000-000000000012", "Tomadas 10 A — Sala de TV",       18, 1,  2, 16, 0 },
-  { "b2000000-0000-4000-8000-000000000013", "Tomadas 10 A — Copa",             19, 1,  3, 16, 0 },
-  { "b2000000-0000-4000-8000-000000000014", "Iluminação — Salas",              20, -1, 0, 10, 0 },
-  { "b2000000-0000-4000-8000-000000000015", "Iluminação — Copa e Corredor Social", 21, -1, 0, 10, 0 },
+  { "b2000000-0000-4000-8000-000000000011", "Tomadas 10 A — Sala de Estar",    17, 1,  1, 16, 0, 1 },
+  { "b2000000-0000-4000-8000-000000000012", "Tomadas 10 A — Sala de TV",       18, 1,  2, 16, 0, 1 },
+  { "b2000000-0000-4000-8000-000000000013", "Tomadas 10 A — Copa",             19, 1,  3, 16, 0, 1 },
+  { "b2000000-0000-4000-8000-000000000014", "Iluminação — Salas",              20, -1, 0, 10, 0, 1 },
+  { "b2000000-0000-4000-8000-000000000015", "Iluminação — Copa e Corredor Social", 21, -1, 0, 10, 0, 1 },
   // ---- Subquadro 3 (Serviços/Oficina) · relés slave 22 · PZEM 23–40 ----
-  { "b2000000-0000-4000-8000-000000000016", "Tomadas 20 A — Cozinha (forno/micro-ondas)", 23, 2, 1, 25, 1 },
-  { "b2000000-0000-4000-8000-000000000017", "Tomadas 10 A — Cozinha (bancada)", 24, 2,  2, 16, 0 },
-  { "b2000000-0000-4000-8000-000000000018", "Geladeira",                       25, -1, 0, 16, 0 },
-  { "b2000000-0000-4000-8000-000000000019", "Lava-louças",                     26, 2,  3, 16, 1 },
-  { "b2000000-0000-4000-8000-000000000020", "Iluminação — Cozinha",            27, -1, 0, 10, 0 },
-  { "b2000000-0000-4000-8000-000000000021", "Máquina de lavar — Lavanderia",   28, 2,  4, 16, 1 },
-  { "b2000000-0000-4000-8000-000000000022", "Tomadas 10 A — Lavanderia",       29, 2,  5, 16, 0 },
-  { "b2000000-0000-4000-8000-000000000023", "Iluminação — Lavanderia",         30, -1, 0, 10, 0 },
-  { "b2000000-0000-4000-8000-000000000024", "Tomadas — Área Externa",          31, 2,  6, 16, 0 },
-  { "b2000000-0000-4000-8000-000000000025", "Iluminação — Área Externa",       32, 2,  7, 10, 0 },
-  { "b2000000-0000-4000-8000-000000000026", "Portão eletrônico",               33, -1, 0, 10, 0 },
-  { "b2000000-0000-4000-8000-000000000027", "Bomba / pressurizador",           34, 2,  8, 16, 1 },
-  { "b2000000-0000-4000-8000-000000000028", "Tomadas 20 A — Oficina (bancada 1)", 35, 2, 9, 25, 1 },
-  { "b2000000-0000-4000-8000-000000000029", "Tomadas 20 A — Oficina (bancada 2)", 36, 2, 10, 25, 1 },
-  { "b2000000-0000-4000-8000-000000000030", "Compressor — Oficina",            37, 2, 11, 25, 1 },
-  { "b2000000-0000-4000-8000-000000000031", "Tomadas 10 A — Oficina",          38, 2, 12, 16, 0 },
-  { "b2000000-0000-4000-8000-000000000032", "Iluminação — Oficina",            39, 2, 13, 10, 0 },
-  { "b2000000-0000-4000-8000-000000000033", "Circuito reserva — Subquadro 3",  40, -1, 0, 16, 0 },
+  { "b2000000-0000-4000-8000-000000000016", "Tomadas 20 A — Cozinha (forno/micro-ondas)", 23, 2, 1, 25, 1, 2 },
+  { "b2000000-0000-4000-8000-000000000017", "Tomadas 10 A — Cozinha (bancada)", 24, 2,  2, 16, 0, 2 },
+  { "b2000000-0000-4000-8000-000000000018", "Geladeira",                       25, -1, 0, 16, 0, 2 },
+  { "b2000000-0000-4000-8000-000000000019", "Lava-louças",                     26, 2,  3, 16, 1, 2 },
+  { "b2000000-0000-4000-8000-000000000020", "Iluminação — Cozinha",            27, -1, 0, 10, 0, 2 },
+  { "b2000000-0000-4000-8000-000000000021", "Máquina de lavar — Lavanderia",   28, 2,  4, 16, 1, 2 },
+  { "b2000000-0000-4000-8000-000000000022", "Tomadas 10 A — Lavanderia",       29, 2,  5, 16, 0, 2 },
+  { "b2000000-0000-4000-8000-000000000023", "Iluminação — Lavanderia",         30, -1, 0, 10, 0, 2 },
+  { "b2000000-0000-4000-8000-000000000024", "Tomadas — Área Externa",          31, 2,  6, 16, 0, 2 },
+  { "b2000000-0000-4000-8000-000000000025", "Iluminação — Área Externa",       32, 2,  7, 10, 0, 2 },
+  { "b2000000-0000-4000-8000-000000000026", "Portão eletrônico",               33, -1, 0, 10, 0, 2 },
+  { "b2000000-0000-4000-8000-000000000027", "Bomba / pressurizador",           34, 2,  8, 16, 1, 2 },
+  { "b2000000-0000-4000-8000-000000000028", "Tomadas 20 A — Oficina (bancada 1)", 35, 2, 9, 25, 1, 2 },
+  { "b2000000-0000-4000-8000-000000000029", "Tomadas 20 A — Oficina (bancada 2)", 36, 2, 10, 25, 1, 2 },
+  { "b2000000-0000-4000-8000-000000000030", "Compressor — Oficina",            37, 2, 11, 25, 1, 2 },
+  { "b2000000-0000-4000-8000-000000000031", "Tomadas 10 A — Oficina",          38, 2, 12, 16, 0, 2 },
+  { "b2000000-0000-4000-8000-000000000032", "Iluminação — Oficina",            39, 2, 13, 10, 0, 2 },
+  { "b2000000-0000-4000-8000-000000000033", "Circuito reserva — Subquadro 3",  40, -1, 0, 16, 0, 2 },
 };
 const int CIRCUIT_COUNT = sizeof(CIRCUITS) / sizeof(CIRCUITS[0]);
 #define MAX_CIRCUITS 64
-
-// Pedido de liga/desliga/rearme (aqui no topo: o Arduino gera os protótipos antes do resto)
-enum ReqType : uint8_t { REQ_SET = 1, REQ_REARM = 2 };
-struct Request { uint8_t type; int16_t idx; bool on; bool remote; };
 
 // ============================================================
 // Modbus RTU mínimo (mestre) — mesmo núcleo do firmware hidráulico
@@ -392,17 +400,17 @@ void rearm(int i, const char* why) {
 // Pedidos do app e da serial chegam por esta fila e são executados no loop
 // (o barramento Modbus só é usado por uma tarefa).
 QueueHandle_t requestQueue;
-void submitRequest(const Request& r) { if (requestQueue) xQueueSend(requestQueue, &r, 0); }
+void submitRequest(const UiRequest& r) { if (requestQueue) xQueueSend(requestQueue, &r, 0); }
 
 void processRequests() {
-  Request r;
+  UiRequest r;
   while (requestQueue && xQueueReceive(requestQueue, &r, 0) == pdTRUE) {
     int i = r.idx;
     if (i < 0 || i >= CIRCUIT_COUNT) continue;
-    const char* origem = r.remote ? "app" : "serial";
-    if (r.type == REQ_REARM) { rearm(i, origem); continue; }
+    const char* origem = r.remote ? "app" : "tela/serial";
+    if (r.type == UI_REQ_REARM) { rearm(i, origem); continue; }
     if (r.on && cs[i].trip) {
-      // desarmado por sobrecarga: o app só religa depois do tempo de espera (a serial religa já)
+      // desarmado por sobrecarga: o app só religa depois do tempo de espera (tela e serial religam já)
       if (r.remote && cs[i].tripAt && millis() - cs[i].tripAt < TRIP_REARM_MS) {
         Serial.printf("[circuito %d] religar pelo app recusado: desarmou há %lus (espera %lus)\n", i + 1,
                       (millis() - cs[i].tripAt) / 1000, TRIP_REARM_MS / 1000);
@@ -410,7 +418,7 @@ void processRequests() {
       }
       rearm(i, origem);
     }
-    setWanted(i, r.on, r.remote ? "comando do app" : "comando serial");
+    setWanted(i, r.on, r.remote ? "comando do app" : "tela/serial");
   }
 }
 
@@ -693,7 +701,7 @@ void pollCommands() {
     if (i < 0) continue;
     bool on = body.startsWith("true", o + 5);
     Serial.printf("[cmd] app pediu %s → %s\n", CIRCUITS[i].name, on ? "ligar" : "desligar");
-    submitRequest(Request{ REQ_SET, (int16_t)i, on, true });
+    submitRequest(UiRequest{ UI_REQ_SET, (int16_t)i, on, true });
   }
 }
 
@@ -765,9 +773,9 @@ void handleSerial() {
     char c = Serial.read();
     if (c != '\n' && c != '\r') { line += c; continue; }
     line.trim(); line.toLowerCase();
-    if (line.startsWith("ligar ")) submitRequest(Request{ REQ_SET, (int16_t)(line.substring(6).toInt() - 1), true, false });
-    else if (line.startsWith("desligar ")) submitRequest(Request{ REQ_SET, (int16_t)(line.substring(9).toInt() - 1), false, false });
-    else if (line.startsWith("rearmar ")) submitRequest(Request{ REQ_REARM, (int16_t)(line.substring(8).toInt() - 1), false, false });
+    if (line.startsWith("ligar ")) submitRequest(UiRequest{ UI_REQ_SET, (int16_t)(line.substring(6).toInt() - 1), true, false });
+    else if (line.startsWith("desligar ")) submitRequest(UiRequest{ UI_REQ_SET, (int16_t)(line.substring(9).toInt() - 1), false, false });
+    else if (line.startsWith("rearmar ")) submitRequest(UiRequest{ UI_REQ_REARM, (int16_t)(line.substring(8).toInt() - 1), false, false });
     else if (line.startsWith("dump ")) mbDump((uint8_t)line.substring(5).toInt());
     else if (line.startsWith("pzemaddr ")) pzemSetAddress((uint8_t)line.substring(9).toInt());
     else if (line.startsWith("reladdr ")) relaySetAddress((uint8_t)line.substring(8).toInt());
@@ -777,6 +785,35 @@ void handleSerial() {
     line = "";
   }
 }
+
+// ============================================================
+// Tela
+// ============================================================
+#if USE_DISPLAY
+UiCircuit uiCircuits[UI_MAX_CIRCUITS];
+UiState uiState;   // global: ~1,4 KB, fora da pilha do loop
+
+void refreshScreen() {
+  static unsigned long last = 0;
+  if (millis() - last < 400) return;
+  last = millis();
+  int n = CIRCUIT_COUNT < UI_MAX_CIRCUITS ? CIRCUIT_COUNT : UI_MAX_CIRCUITS;
+  portENTER_CRITICAL(&stateMux);
+  for (int i = 0; i < n; i++) {
+    uiState.watts[i] = cs[i].watts; uiState.amps[i] = cs[i].amps; uiState.volts[i] = cs[i].volts;
+    uiState.kwh[i] = cs[i].kwh; uiState.pf[i] = cs[i].pf; uiState.meterOk[i] = cs[i].meterOk;
+    uiState.on[i] = cs[i].wantOn; uiState.shed[i] = cs[i].shed; uiState.trip[i] = cs[i].trip;
+  }
+  uiState.totalW = totalW; uiState.totalKwh = totalKwh; uiState.metersOk = metersOk;
+  portEXIT_CRITICAL(&stateMux);
+  uiState.limitW = DEMAND_LIMIT_W;
+  uiState.wifiOk = WiFi.status() == WL_CONNECTED;
+  bool relays = true;
+  for (int b = 0; b < BOARD_COUNT; b++) relays &= boardOk[b];
+  uiState.relaysOk = relays;
+  ui_update(uiState);
+}
+#endif
 
 // ============================================================
 // Setup / Loop
@@ -789,7 +826,13 @@ void setup() {
       Serial.printf("[boot] circuito %d: canal %u não existe na placa %s — sem relé\n", i + 1, CIRCUITS[i].ch, BOARDS[CIRCUITS[i].board].name);
       CIRCUITS[i].board = -1;
     }
-  requestQueue = xQueueCreate(32, sizeof(Request));
+  requestQueue = xQueueCreate(32, sizeof(UiRequest));
+#if USE_DISPLAY
+  for (int i = 0; i < CIRCUIT_COUNT && i < UI_MAX_CIRCUITS; i++)
+    uiCircuits[i] = UiCircuit{ CIRCUITS[i].name, CIRCUITS[i].group, hasRelay(i), CIRCUITS[i].breakerA };
+  if (!ui_begin(uiCircuits, CIRCUIT_COUNT, GROUP_NAMES, GROUP_COUNT, submitRequest))
+    Serial.println("[tela] falha ao iniciar o display — o controle continua sem tela");
+#endif
   prefs.begin("eletrica", false);
   memset(cs, 0, sizeof(cs));
   loadState();
@@ -812,6 +855,9 @@ void loop() {
   applyRelays(false);
   if (millis() - lastRelayRefresh >= RELAY_REFRESH_MS) { lastRelayRefresh = millis(); applyRelays(true); }
   pollOneMeter();              // um medidor por volta do loop (~60–100 ms cada)
+#if USE_DISPLAY
+  refreshScreen();
+#endif
 
   static int silent = 0;       // barramento mudo por uma volta inteira: tenta a outra ordem RX/TX
   if (nextMeter == 0) {
