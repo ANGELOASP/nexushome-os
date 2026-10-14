@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" content="NexusHome OS — sistema operacional de casa inteligente em tempo real. Projeto sem fins lucrativos." />
   <title>NexusHome OS — Central de Controle</title>
 
@@ -107,10 +107,35 @@
 
 
 
+
+  <!-- ======================= CELULAR: RESUMO DA CASA (v2.15) ======================= -->
+  <!-- só no celular, na aba Casa: um toque leva à aba Energia (estilo "badges" do Home Assistant) -->
+  <div id="m-summary" class="m-summary" role="group" aria-label="Resumo da casa">
+    <button type="button" class="m-chip m-chip-status" data-goto="energia" data-m-health>
+      <span class="m-chip-dot"></span><span data-m-health-label>Seguro</span>
+    </button>
+    <button type="button" class="m-chip" data-goto="energia" aria-label="Energia agora">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="m-ico-energy"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      <span data-m-mirror="stat-energy">0 W</span>
+    </button>
+    <button type="button" class="m-chip" data-goto="energia" aria-label="Água agora">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="m-ico-water"><path d="M12 2.7s6.5 7 6.5 11.3a6.5 6.5 0 0 1-13 0C5.5 9.7 12 2.7 12 2.7z"/></svg>
+      <span data-m-mirror="stat-water">0 L/h</span>
+    </button>
+    <button type="button" class="m-chip" data-goto="energia" aria-label="Temperatura">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.8V4a2 2 0 0 0-4 0v10.8a4 4 0 1 0 4 0z"/></svg>
+      <span data-m-mirror="stat-temp">—</span>
+    </button>
+    <button type="button" class="m-chip" data-goto="energia" aria-label="Umidade">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16.3c2.2 0 4-1.8 4-4.1 0-1.2-.6-2.3-1.8-3.3S7.2 6.4 7 5.3c-.2 1.1-1 2.4-2.2 3.6S3 11 3 12.2c0 2.3 1.8 4.1 4 4.1z"/><path d="M12.6 6.6A11 11 0 0 0 14 4c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a6.98 6.98 0 0 1-11.9 5"/></svg>
+      <span data-m-mirror="stat-hum">—</span>
+    </button>
+  </div>
+
   <!-- ======================= TRILHO ESQUERDO ======================= -->
   <div id="rail-left" class="rail rail-left">
   <!-- ======================= PAINEL ESQUERDO: DISPOSITIVOS ======================= -->
-  <aside id="panel-devices" class="panel card">
+  <aside id="panel-devices" data-mtab="dispositivos" class="panel card">
     <div class="glass card-surface">
       <div class="panel-header">
         <div class="flex items-center gap-2">
@@ -175,7 +200,7 @@
     </div>
   </aside>
   <!-- ======================= PAINEL INFERIOR ESQ.: AUTOMAÇÕES ======================= -->
-  <aside id="panel-scenes" class="panel card">
+  <aside id="panel-scenes" data-mtab="rotinas" class="panel card">
     <div class="glass card-surface">
       <div class="panel-header">
         <div class="flex items-center gap-2">
@@ -195,7 +220,7 @@
       </div>
     </div>
   </aside>
-  <aside id="panel-automations" class="panel card">
+  <aside id="panel-automations" data-mtab="rotinas" class="panel card">
     <div class="glass card-surface">
       <div class="panel-header">
         <div class="flex items-center gap-2">
@@ -221,7 +246,7 @@
   <!-- ======================= TRILHO DIREITO ======================= -->
   <div id="rail-right" class="rail rail-right">
   <!-- ======================= PAINEL DIREITO: MONITOR ======================= -->
-  <aside id="panel-monitor" class="panel card">
+  <aside id="panel-monitor" data-mtab="energia" class="panel card">
     <div class="glass card-surface">
       <div class="panel-header">
         <div class="flex items-center gap-2">
@@ -289,8 +314,37 @@
       </div>
     </div>
   </aside>
+  <!-- ======================= CELULAR: ABA "MAIS" (v2.15) ======================= -->
+  <aside id="panel-more" data-mtab="mais" class="panel card m-only">
+    <div class="glass card-surface">
+      <div class="panel-body m-more">
+        <div class="m-account">
+          <span class="user-avatar" data-m-avatar>U</span>
+          <div class="min-w-0 flex-1">
+            <p class="m-account-email" data-m-email>—</p>
+            <p class="m-account-conn" data-m-conn>Conectando…</p>
+          </div>
+        </div>
+        <div class="m-list">
+          <button type="button" class="m-row" data-m-action="floorplan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 8.5V21h14V8.5"/><path d="M9 21v-5h6v5"/></svg>
+            <span><strong>Editor de Planta</strong><small>Cômodos, paredes, móveis e aparelhos</small></span>
+          </button>
+          <button type="button" class="m-row hidden" data-m-action="install">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+            <span><strong>Instalar o app</strong><small>Ícone na tela inicial e alertas com o app fechado</small></span>
+          </button>
+          <button type="button" class="m-row m-row-danger" data-m-action="logout">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <span><strong>Sair</strong><small>Encerrar a sessão neste aparelho</small></span>
+          </button>
+        </div>
+        <p class="m-section">Integrações</p>
+      </div>
+    </div>
+  </aside>
   <!-- ======================= PAINEL DIREITO INF.: SAMSUNG SMARTTHINGS ======================= -->
-  <aside id="panel-smartthings" class="panel card">
+  <aside id="panel-smartthings" data-mtab="mais" class="panel card">
     <div class="glass card-surface">
       <div class="panel-header">
         <div class="flex items-center gap-2">
@@ -342,7 +396,7 @@
   <!-- v1.7.0: válvulas/medidor ultrassônico, nível ME201W e vazamento via Tuya Cloud.
        Fica no mesmo slot do SmartThings (canto inferior direito): começa recolhido
        e, quando expandido, oculta o SmartThings via CSS — só um ocupa o slot. -->
-  <aside id="panel-tuya" class="panel card panel-collapsed">
+  <aside id="panel-tuya" data-mtab="mais" class="panel card panel-collapsed">
     <div class="glass card-surface">
       <div class="panel-header">
         <div class="flex items-center gap-2">
@@ -398,6 +452,31 @@
     </div>
   </aside>
   </div>
+
+  <!-- ======================= CELULAR: BARRA DE ABAS (v2.15) ======================= -->
+  <nav id="m-tabbar" class="m-tabbar" aria-label="Seções">
+    <button type="button" class="m-tab" data-tab="casa" aria-current="page">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/></svg>
+      <span>Casa</span>
+    </button>
+    <button type="button" class="m-tab" data-tab="dispositivos">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/></svg>
+      <span>Aparelhos</span>
+    </button>
+    <button type="button" class="m-tab" data-tab="rotinas">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.9 4.8L19 9l-4 3.4L16.2 18 12 15.3 7.8 18 9 12.4 5 9l5.1-1.2z"/></svg>
+      <span>Rotinas</span>
+    </button>
+    <button type="button" class="m-tab" data-tab="energia">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <span>Monitor</span>
+      <i class="m-tab-dot" aria-hidden="true"></i>
+    </button>
+    <button type="button" class="m-tab" data-tab="mais">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg>
+      <span>Mais</span>
+    </button>
+  </nav>
 
   <!-- ======================= BARRA DE CÂMERA 3D ======================= -->
   <div id="cam-toolbar" class="cam-toolbar" role="toolbar" aria-label="Navegação da planta 3D">
