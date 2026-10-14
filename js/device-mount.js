@@ -140,6 +140,8 @@ export function mountDevice(entry, x, z, ctx = {}) {
           const w = nearestWall(walls, x, z);
           if (w) return { ...base, ...onWall(w, 1.0), note: 'na parede (sem móvel por perto)' };
         }
+        // geladeira, lava-louças, NAS, roteador...: sem o móvel, ficam no piso (modelo 3D completo)
+        if (entry.onFloor) return { ...base, y: 0, note: 'no piso' };
         return { ...base, ok: false, note: 'sem móvel compatível por perto' };
       }
       const { f, def } = hit;
@@ -149,6 +151,12 @@ export function mountDevice(entry, x, z, ctx = {}) {
       if (f.kind === 'painel_tv' && entry.type === 'tv') {
         // TV presa no painel (face do painel fica a 0,13 m atrás do centro)
         return { ...base, x: r3(f.x - fx * 0.12), z: r3(f.z - fz * 0.12), y: 0.85, rot, note: 'fixada no painel' };
+      }
+      if (entry.type === 'appliance' && f.kind === entry.furniture?.[0] && !entry.y) {
+        // eletrodoméstico desenhado como móvel (geladeira, máquina de lavar...): o aparelho
+        // inteligente vira o painel na frente dele, no alto
+        return { ...base, x: r3(f.x + fx * def.d / 2), z: r3(f.z + fz * def.d / 2), y: r3(Math.max(0.3, def.h - 0.22)), rot,
+          note: `painel na frente de ${def.label.toLowerCase()}` };
       }
       const backish = entry.type === 'tv' ? -def.d / 2 + 0.12 : 0;    // TV mais para o fundo do móvel
       return { ...base, x: r3(f.x + fx * backish), z: r3(f.z + fz * backish), y: def.h, rot, note: `sobre ${def.label.toLowerCase()}` };

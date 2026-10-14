@@ -13,6 +13,8 @@ import { selectRoom } from '../scene3d.js';
 import { scenesForRoom, sceneMatches } from '../scenes.js';
 import { runScene, sceneIcon, openSceneModal } from './scenes.js';
 import { METRIC_INFO, bucketSeries, summarize, sparkPath, metricsIn } from '../history.js';
+import { TYPE_LABELS } from '../device-catalog.js';
+import { isSwitchable, isActive, togglePatch } from '../device-actions.js';
 
 let panel = null;
 let current = null;
@@ -22,8 +24,8 @@ let historyTimer = 0;
 const HISTORY_MS = 24 * 3600 * 1000;
 let lastHtml = '';   // a telemetria dispara devices-changed a cada leitura: só redesenha se mudou
 
-const TYPE_LABEL = { light: 'Luz', ac: 'Ar-condicionado', tv: 'TV', valve: 'Válvula', meter: 'Medidor', sensor: 'Sensor' };
-const SWITCHABLE = new Set(['light', 'ac', 'tv', 'valve']);
+const TYPE_LABEL = TYPE_LABELS;
+const SWITCHABLE = { has: (d) => isSwitchable(d) };   // por dispositivo: luz, áudio, portão, circuito com relé...
 
 export function initRoomPanel(nexusClient) {
   client = nexusClient;
@@ -53,22 +55,20 @@ function roomDevices(room) {
   return state.devices.filter((d) => d.room === room);   // nativos + integrados (Samsung, Tuya...)
 }
 
-function isOn(d) {
-  return d.type === 'valve' ? d.status?.open !== false : !!d.status?.on;
-}
+function isOn(d) { return isActive(d); }
 
 function render() {
   if (!panel) return;
   if (!current) { panel.classList.remove('room-panel-open'); panel.setAttribute('aria-hidden', 'true'); document.body.classList.remove('room-open'); emit('room-panel', false); return; }
   const devices = roomDevices(current);
   const rules = automationsForRoom(current);
-  const active = devices.filter((d) => SWITCHABLE.has(d.type) && isOn(d)).length;
+  const active = devices.filter((d) => SWITCHABLE.has(d) && isOn(d)).length;
 
   const devHtml = devices.length
     ? devices.map((d) => {
-      const sw = SWITCHABLE.has(d.type) && !d.virtual;   // integrados: comando pelo painel da integração
+      const sw = SWITCHABLE.has(d) && !d.virtual;   // integrados: comando pelo painel da integração
       const onNow = isOn(d);
-      const label = d.type === 'valve' ? (onNow ? 'Aberta' : 'Fechada') : (onNow ? 'Ligado' : 'Desligado');
+      const label = d.type === 'valve' || d.type === 'gate' ? (onNow ? 'Aberto' : 'Fechado') : (onNow ? 'Ligado' : 'Desligado');
       return `<li class="rp-dev" data-row="${escapeHtml(d.id)}">
         <span class="rp-dev-dot ${onNow ? 'rp-on' : ''}"></span>
         <span class="rp-dev-name">${escapeHtml(d.name)}<small>${d.vendor ? `${d.vendor === 'smartthings' ? 'Samsung' : d.vendor === 'tuya' ? 'Tuya' : 'Integrado'} · ` : ''}${escapeHtml(TYPE_LABEL[d.type] || d.type)}${sw ? ` · ${label}` : ''}</small></span>
@@ -91,7 +91,7 @@ function render() {
   const sceneHtml = scenes.map((sc) => `<button type="button" class="rp-scene ${sceneMatches(sc, state.devices) ? 'rp-scene-on' : ''}" data-scene="${escapeHtml(sc.id)}" title="Ativar cena">${sceneIcon(sc.icon)}${escapeHtml(sc.name)}</button>`).join('')
     + '<button type="button" class="rp-scene" data-act="new-scene" title="Criar cena para este cômodo">+ Cena</button>';
 
-  const firstDev = devices.find((d) => SWITCHABLE.has(d.type)) || devices[0];
+  const firstDev = devices.find((d) => SWITCHABLE.has(d)) || devices[0];
   const html = `
     <div class="rp-head">
       <div class="min-w-0">
@@ -143,7 +143,8 @@ function onClick(e) {
     if (!d) return;
     const next = !isOn(d);
     if (d.type === 'valve') updateStatus(d, { open: next }, next ? 'Válvula aberta' : 'Válvula fechada', next ? 'info' : 'warning');
-    else updateStatus(d, { on: next }, `${d.name} ${next ? 'ligado' : 'desligado'}`);
+    else if (d.type === 'gate') updateStatus(d, togglePatch(d), `${d.name}: ${next ? 'abrindo' : 'fechando'}`, next ? 'warning' : 'info');
+    else updateStatus(d, togglePatch(d), `${d.name} ${next ? 'ligado' : 'desligado'}`);
   }
 }
 

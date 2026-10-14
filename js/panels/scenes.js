@@ -5,6 +5,8 @@
 // só nesta sessão. O cartão do cômodo também lista as cenas dele.
 // ============================================================
 
+import { TYPE_LABELS, SOURCES } from '../device-catalog.js';
+import { ARMED_LABEL, VACUUM_LABEL } from '../device-actions.js';
 import { state, on, emit, getRoomNames } from '../state.js';
 import { toast, escapeHtml } from '../toasts.js';
 import { updateStatus } from './devices.js';
@@ -17,7 +19,7 @@ let editing = null;          // cena em edição (null = nova)
 let tableOk = true;
 let draftActions = new Map(); // device_id -> patch (formulário)
 
-const TYPE_LABEL = { light: 'Luz', ac: 'Ar-condicionado', tv: 'TV', valve: 'Válvula' };
+const TYPE_LABEL = TYPE_LABELS;
 
 export function initScenesPanel(nexusClient) {
   client = nexusClient;
@@ -138,18 +140,26 @@ function renderIcons(selected) {
 function renderDeviceRows() {
   const el = document.getElementById('sc-devices');
   const devs = state.devices.filter((d) => !d.virtual && sceneableType(d.type));
-  if (!devs.length) { el.innerHTML = '<p class="text-xs text-slate-500">Nenhum dispositivo que aceite cena (luz, AC, TV, válvula).</p>'; return; }
+  if (!devs.length) { el.innerHTML = '<p class="text-xs text-slate-500">Nenhum dispositivo que aceite cena (luz, AC, TV, áudio, projetor, válvula, cortina, portão...).</p>'; return; }
   el.innerHTML = devs.map((d) => {
     const p = draftActions.get(d.id);
     const inc = !!p;
-    const v = p || cleanPatch(d.type, d.type === 'valve' ? { open: d.status?.open !== false } : { ...d.status, on: !!d.status?.on });
+    const st = d.status || {};
+    const v = p || cleanPatch(d.type, { ...st, on: !!st.on, open: d.type === 'gate' ? st.open === true : st.open !== false });
+    const opt = (k, pairs, cur) => `<select class="form-input sc-mini" data-k="${k}">${pairs.map(([val, l]) => `<option value="${escapeHtml(val)}" ${String(cur) === String(val) ? 'selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>`;
     let ctl = '';
-    if (d.type === 'valve') {
+    if (d.type === 'valve' || d.type === 'curtain' || d.type === 'gate') {
       ctl = `<select class="form-input sc-mini" data-k="open"><option value="1" ${v.open ? 'selected' : ''}>Abrir</option><option value="0" ${!v.open ? 'selected' : ''}>Fechar</option></select>`;
+    } else if (d.type === 'alarm') {
+      ctl = opt('armed', Object.entries(ARMED_LABEL), v.armed || 'off');
+    } else if (d.type === 'vacuum') {
+      ctl = opt('state', Object.entries(VACUUM_LABEL), v.state || 'docked');
     } else {
       ctl = `<select class="form-input sc-mini" data-k="on"><option value="1" ${v.on ? 'selected' : ''}>Ligar</option><option value="0" ${!v.on ? 'selected' : ''}>Desligar</option></select>`;
       if (d.type === 'light') ctl += `<label class="sc-num">Brilho <input type="number" min="1" max="100" data-k="brightness" value="${v.brightness ?? 70}" class="form-input sc-mini">%</label>`;
       if (d.type === 'ac') ctl += `<label class="sc-num">Temp. <input type="number" min="16" max="30" data-k="temp" value="${v.temp ?? 23}" class="form-input sc-mini">°C</label>`;
+      if (d.type === 'tv' || d.type === 'audio') ctl += `<label class="sc-num">Vol. <input type="number" min="0" max="100" data-k="volume" value="${v.volume ?? 30}" class="form-input sc-mini">%</label>`;
+      if (SOURCES[d.type]) ctl += opt('source', [...new Set([v.source, ...SOURCES[d.type]].filter(Boolean))].map((x) => [x, x]), v.source || SOURCES[d.type][0]);
     }
     return `<div class="sc-dev ${inc ? '' : 'sc-dev-off'}" data-dev="${escapeHtml(d.id)}">
       <label class="sc-dev-name"><input type="checkbox" data-k="include" ${inc ? 'checked' : ''}> <span>${escapeHtml(d.name)}<small>${escapeHtml(TYPE_LABEL[d.type] || d.type)} · ${escapeHtml(d.room || '')}</small></span></label>
@@ -166,6 +176,7 @@ function readRow(row) {
     const k = el.dataset.k;
     if (k === 'include') return;
     if (k === 'on' || k === 'open') patch[k] = el.value === '1';
+    else if (k === 'source' || k === 'armed' || k === 'state') patch[k] = el.value;
     else patch[k] = Number(el.value);
   });
   return cleanPatch(d.type, patch);

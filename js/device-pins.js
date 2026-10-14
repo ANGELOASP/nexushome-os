@@ -24,6 +24,17 @@ export const PIN_STYLE = {
   curtain: { color: '#fb923c', letter: 'R', label: 'Cortina' },
   speaker: { color: '#60a5fa', letter: 'A', label: 'Assistente' },
   hub:    { color: '#94a3b8', letter: 'H', label: 'Hub' },
+  // v2.13 — biblioteca ampliada
+  audio:     { color: '#38bdf8', letter: '♪', label: 'Áudio' },
+  projector: { color: '#a78bfa', letter: 'J', label: 'Projetor' },
+  media:     { color: '#818cf8', letter: 'M', label: 'Mídia' },
+  computer:  { color: '#93c5fd', letter: 'PC', label: 'Computador' },
+  tablet:    { color: '#67e8f9', letter: 'T', label: 'Tablet' },
+  network:   { color: '#5eead4', letter: 'W', label: 'Rede' },
+  appliance: { color: '#fdba74', letter: 'E', label: 'Eletrodoméstico' },
+  vacuum:    { color: '#86efac', letter: 'R', label: 'Robô aspirador' },
+  alarm:     { color: '#f87171', letter: '!', label: 'Alarme' },
+  gate:      { color: '#fbbf24', letter: 'G', label: 'Portão' },
 };
 export const PIN_DEFAULT = { color: '#94a3b8', letter: '•', label: 'Dispositivo' };
 
@@ -60,6 +71,10 @@ export function roomAtPoint(rooms, floor, x, z) {
 /** O dispositivo está "ligado" (luz/AC/TV acesos, válvula aberta)? */
 export function deviceActive(d) {
   if (!d) return false;
-  if (d.type === 'valve') return d.status?.open !== false;
-  return !!d.status?.on;
+  const s = d.status || {};
+  if (d.type === 'valve') return s.open !== false;
+  if (d.type === 'gate') return s.open === true;
+  if (d.type === 'alarm') return !!s.armed && s.armed !== 'off';
+  if (d.type === 'vacuum') return s.state === 'cleaning';
+  return !!s.on;
 }

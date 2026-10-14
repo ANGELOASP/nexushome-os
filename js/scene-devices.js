@@ -12,6 +12,7 @@
 // ============================================================
 
 import { catalogFor } from './device-catalog.js';
+import { buildExtraModel, buildExtraLight } from './scene-devices-extra.js';
 
 const lin = (THREE, hex) => new THREE.Color(hex).convertSRGBToLinear();
 
@@ -93,10 +94,14 @@ export function buildDeviceModel(THREE, d) {
       update = (dev, t = 0) => { rotor.rotation.y = dev.status?.on && dev.is_online !== false ? t * 6 : 0; };
       break;
     }
-    case 'plafon': case 'pendant': case 'lamp': case 'led_strip': {
+    case 'plafon': case 'pendant': case 'lamp': case 'led_strip':
+    case 'spot': case 'sconce': case 'floor_lamp': case 'outdoor_light': case 'garden_light': {
       const bulb = M(0xfff7e0, { emissive: 0xffd9a0, emissiveIntensity: 0 });
-      let lightY = -0.3;
-      if (entry.model === 'plafon') {
+      let lightY = -0.3, lightZ = entry.model === 'led_strip' ? 0.2 : 0;
+      const extra = buildExtraLight({ THREE, g, M, B, C }, entry.model, bulb);   // luzes da v2.13
+      if (extra) {
+        lightY = extra.lightY; orb = extra.orb; lightZ = extra.offsetZ;
+      } else if (entry.model === 'plafon') {
         const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.06, 32), bulb);
         disc.position.y = -0.03; g.add(disc);
         lightY = -0.25; orb = -0.25;
@@ -119,7 +124,7 @@ export function buildDeviceModel(THREE, d) {
         lightY = 0.0; orb = 0.25;
       }
       const pt = new THREE.PointLight(0xffd9a0, 0, 7, 2);
-      pt.position.set(0, lightY, entry.model === 'led_strip' ? 0.2 : 0); g.add(pt);
+      pt.position.set(0, lightY, lightZ); g.add(pt);
       update = (dev) => {
         const s = dev.status || {};
         const on = !!s.on && dev.is_online !== false;
@@ -131,7 +136,7 @@ export function buildDeviceModel(THREE, d) {
       };
       break;
     }
-    case 'switch': case 'plug': {
+    case 'switch': case 'plug': case 'dimmer': {
       B(0.09, 0.12, 0.012, M(0xf8fafc, { roughness: 0.4 }), 0, 0, 0, true);
       const led = ledMat(0x22c55e, 0.2);
       B(0.012, 0.012, 0.004, led, 0, entry.model === 'plug' ? 0.1 : 0.09, 0.014);
@@ -270,6 +275,9 @@ export function buildDeviceModel(THREE, d) {
       break;
     }
     default: {
+      // biblioteca ampliada (v2.13): computadores, áudio, vídeo, eletrodomésticos, segurança...
+      const extra = buildExtraModel({ THREE, g, M, B, C, ledMat, isOn, lin }, entry, d);
+      if (extra) { orb = extra.orb; update = extra.update; break; }
       B(0.1, 0.1, 0.035, M(0xf8fafc, { roughness: 0.4 }), 0, 0, 0, true);
       const led = ledMat(0x2dd4bf, 0.8);
       B(0.01, 0.01, 0.005, led, 0.03, 0.07, 0.037);

@@ -48,7 +48,7 @@ import { FURNITURE, FURNITURE_BY_KIND, FURN_DIM_MIN, FURN_DIM_MAX, furnitureCorn
 import { pinStyle, isPlaced, pinFloor, roomAtPoint } from './device-pins.js';
 import { FLOOR_TYPES, FLOOR_BY_KEY, floorTypeOf } from './floors.js';
 import { saveDevicePin } from './device-pins-store.js';
-import { DEVICE_CATALOG, CATALOG_BY_MODEL, catalogFor } from './device-catalog.js';
+import { DEVICE_CATALOG, CATALOG_BY_MODEL, catalogFor, LEGACY_TYPES, TYPE_LABELS, defaultStatus } from './device-catalog.js';
 import { mountDevice } from './device-mount.js';
 import { getStDevices, linkStDevice } from './panels/smartthings.js';
 import { getTuyaDevices, linkTuyaDevice } from './panels/tuya.js';
@@ -3456,6 +3456,26 @@ function originOptions(type) {
   ].join('');
 }
 
+// texto de busca da biblioteca (v2.13): nome + grupo + tipo, sem acentos
+const fold = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const libKey = (c) => fold(`${c.label} ${c.group} ${TYPE_LABELS[c.type] || ''} ${c.model.replace(/_/g, ' ')}`);
+
+let libQuery = '';   // busca da biblioteca: sobrevive à reconstrução do painel ao escolher um item
+
+function filterLibrary(el, q) {
+  libQuery = q;
+  const words = fold(q).split(/\s+/).filter(Boolean);
+  el.querySelectorAll('.fp-lib-group').forEach((g) => {
+    let any = false;
+    g.querySelectorAll('.fp-lib-btn').forEach((b) => {
+      const ok = words.every((w) => b.dataset.q.includes(w));
+      b.classList.toggle('hidden', !ok);
+      any ||= ok;
+    });
+    g.classList.toggle('hidden', !any);
+  });
+}
+
 function buildDevPanel() {
   const el = document.getElementById('fp-dev-panel');
   if (!el) return;
@@ -3468,13 +3488,20 @@ function buildDevPanel() {
     </div>
     <form class="fp-dev-form hidden" data-form="new">
       <p class="fp-furn-group">1 · Escolha na biblioteca</p>
-      <div class="fp-lib">${groups.map((g) => `<div class="fp-lib-group"><span>${g}</span><div class="fp-lib-grid">${DEVICE_CATALOG.filter((c) => c.group === g).map((c) => `<button type="button" class="fp-lib-btn ${c.model === entry.model ? 'fp-lib-on' : ''}" data-model="${c.model}" title="${escapeHtml(c.label)}"><i class="fp-dev-dot" style="background:${pinStyle(c.type).color}"></i>${escapeHtml(c.label)}</button>`).join('')}</div></div>`).join('')}</div>
+      <input type="search" class="form-input fp-lib-search" placeholder="Buscar: projetor, tablet, alarme, soundbar..." aria-label="Buscar na biblioteca de dispositivos" />
+      <div class="fp-lib">${groups.map((g) => `<div class="fp-lib-group"><span>${g}</span><div class="fp-lib-grid">${DEVICE_CATALOG.filter((c) => c.group === g).map((c) => `<button type="button" class="fp-lib-btn ${c.model === entry.model ? 'fp-lib-on' : ''}" data-model="${c.model}" data-q="${escapeHtml(libKey(c))}" title="${escapeHtml(c.label)}"><i class="fp-dev-dot" style="background:${pinStyle(c.type).color}"></i>${escapeHtml(c.label)}</button>`).join('')}</div></div>`).join('')}</div>
       <p class="fp-dev-mount">Fixação: <b>${mountLabel(entry)}</b></p>
       <p class="fp-furn-group">2 · Vincule e dê um nome</p>
       <select class="form-input" name="origin">${originOptions(entry.type)}</select>
       <input class="form-input" name="name" maxlength="40" placeholder="Nome (ex.: ${escapeHtml(entry.label)} do quarto)" />
       <button type="submit" class="fp-dev-new fp-dev-new-go">Cadastrar e posicionar na planta</button>
     </form>`;
+  const search = el.querySelector('.fp-lib-search');
+  if (search) {
+    search.value = libQuery;
+    if (libQuery) filterLibrary(el, libQuery);
+    search.addEventListener('input', (e) => filterLibrary(el, e.target.value));
+  }
   el.querySelector('[data-act="new"]').addEventListener('click', () => {
     const f = el.querySelector('[data-form="new"]');
     f.classList.toggle('hidden');
@@ -3561,10 +3588,15 @@ async function createDeviceFromEditor(form) {
   const btn = form.querySelector('button[type="submit"]');
   btn.disabled = true;
   try {
-    const row0 = { name, type: entry.type, room, status: entry.type === 'valve' ? { open: true } : {}, is_online: false, model: entry.model };
+    const row0 = { name, type: entry.type, room, status: defaultStatus(entry.type), is_online: false, model: entry.model };
     let { data, error } = await client.from('devices').insert(row0).select();
     if (error && /model/.test(error.message || '')) {
       ({ data, error } = await client.from('devices').insert({ ...row0, model: undefined }).select());
+    }
+    if (error && /devices_type_check/.test(error.message || '') && !LEGACY_TYPES.includes(entry.type)) {
+      // tipo novo da v2.13 sem a migração 024: grava como "hub" (o modelo 3D e a fixação continuam) e avisa
+      ({ data, error } = await client.from('devices').insert({ ...row0, type: 'hub' }).select());
+      if (!error) toast('Execute a migração 024', `“${name}” foi gravado como Hub: o banco ainda não aceita o tipo “${entry.type}” (supabase/migrations/024_device_library.sql).`, 'warning');
     }
     if (error && /devices_type_check/.test(error.message || '')) {
       throw new Error('o banco ainda não aceita este tipo de dispositivo — execute a migração 021_device_catalog.sql no Supabase e tente de novo');
