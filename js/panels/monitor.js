@@ -4,19 +4,19 @@
 // detecção de vazamento e botão de emergência da válvula geral.
 // ============================================================
 
-import { state, on, emit, upsertDevice, prependAlert, allDevicesOff } from '../state.js';
+import { state, on, emit, upsertDevice, prependAlert, allDevicesOff, getDevice } from '../state.js';
 import { toast, escapeHtml } from '../toasts.js';
 import { Sparkline, animateNumber } from '../charts.js';
 import { updateStatus } from './devices.js';
+import { houseWatts, energyBands, energyBand } from '../energy.js';
 
-const ENERGY_WARNING = 3000;
-const ENERGY_CRITICAL = 4500;
 const LEAK_WINDOW_MS = 30000;
 
 let client = null;
 let sparkEnergy, sparkWater;
-let energyBand = 'ok';            // 'ok' | 'warn' | 'crit'
+let currentBand = 'ok';           // 'ok' | 'warn' | 'crit'
 let flowHistory = [];             // [{t, v}] para detecção de vazamento
+const energyLatest = new Map();   // deviceId -> {w, t}: o painel mostra a SOMA dos medidores (v2.11)
 let leakAlertActive = false;
 
 export function initMonitorPanel(nexusClient) {
@@ -30,17 +30,23 @@ export function initMonitorPanel(nexusClient) {
 
   on('alerts-changed', renderAlerts);
   on('device-changed', (d) => { if (d?.type === 'valve') syncEmergencyButton(d.status?.open !== false); });
-  on('telemetry', ({ metric, value }) => handleTelemetry(metric, value));
+  on('telemetry', ({ metric, value, deviceId }) => handleTelemetry(metric, value, deviceId));
 }
 
 // ------------------------------------------------------------
 // Telemetria recebida (via realtime / mock)
 // ------------------------------------------------------------
 
-function handleTelemetry(metric, value) {
+function handleTelemetry(metric, value, deviceId) {
   state.lastTelemetry[metric] = value;
 
   if (metric === 'energy_watts') {
+    // vários medidores (quadro elétrico): soma da última leitura de cada um
+    if (deviceId) {
+      energyLatest.set(deviceId, { w: value, t: Date.now() });
+      value = houseWatts(energyLatest, getDevice);
+      state.lastTelemetry.energy_watts = value;
+    }
     sparkEnergy.push(value);
     animateNumber(document.getElementById('stat-energy'), value, { suffix: ' W' });
     checkEnergyThresholds(value);
@@ -57,14 +63,16 @@ function handleTelemetry(metric, value) {
 }
 
 function checkEnergyThresholds(watts) {
-  const band = watts > ENERGY_CRITICAL ? 'crit' : watts > ENERGY_WARNING ? 'warn' : 'ok';
-  if (band !== energyBand) {
+  // faixas: 3000/4500 W com um medidor só; com o quadro elétrico, o limite de demanda do firmware
+  const bands = energyBands(state.devices);
+  const band = energyBand(watts, bands);
+  if (band !== currentBand) {
     if (band === 'warn') {
-      insertAlert('warning', `Consumo de energia elevado: ${Math.round(watts)} W (acima de ${ENERGY_WARNING} W)`, 'telemetria');
+      insertAlert('warning', `Consumo de energia elevado: ${Math.round(watts)} W (acima de ${bands.warning} W)`, 'telemetria');
     } else if (band === 'crit') {
-      insertAlert('critical', `Consumo de energia CRÍTICO: ${Math.round(watts)} W (acima de ${ENERGY_CRITICAL} W)`, 'telemetria');
+      insertAlert('critical', `Consumo de energia CRÍTICO: ${Math.round(watts)} W (acima de ${bands.critical} W)`, 'telemetria');
     }
-    energyBand = band;
+    currentBand = band;
   }
 }
 
@@ -90,9 +98,9 @@ function checkLeak(flow) {
 
 function computeHealth() {
   if (state.alerts.some((a) => !a.resolved && a.severity === 'critical')) return 'critical';
-  const w = state.lastTelemetry.energy_watts || 0;
-  if (w > ENERGY_CRITICAL) return 'critical';
-  if (w > ENERGY_WARNING) return 'warning';
+  const band = energyBand(state.lastTelemetry.energy_watts || 0, energyBands(state.devices));
+  if (band === 'crit') return 'critical';
+  if (band === 'warn') return 'warning';
   if (state.alerts.some((a) => !a.resolved && a.severity === 'warning')) return 'warning';
   return 'safe';
 }
@@ -215,9 +223,14 @@ export async function loadInitialMonitorData() {
 
   const { data: logs } = await client.from('telemetry_logs').select('*').order('created_at', { ascending: false }).limit(120);
   (logs || []).reverse().forEach((l) => {
-    if (l.metric_type === 'energy_watts') sparkEnergy.push(Number(l.value));
-    if (l.metric_type === 'water_flow_lph') sparkWater.push(Number(l.value));
     state.lastTelemetry[l.metric_type] = Number(l.value);
+    if (l.metric_type === 'energy_watts') {
+      energyLatest.set(l.device_id, { w: Number(l.value), t: Date.parse(l.created_at) || Date.now() });
+      const total = houseWatts(energyLatest, getDevice);
+      state.lastTelemetry.energy_watts = total;
+      sparkEnergy.push(total);
+    }
+    if (l.metric_type === 'water_flow_lph') sparkWater.push(Number(l.value));
   });
   const lt = state.lastTelemetry;
   if (lt.energy_watts) animateNumber(document.getElementById('stat-energy'), lt.energy_watts, { suffix: ' W' });

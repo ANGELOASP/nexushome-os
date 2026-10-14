@@ -245,6 +245,16 @@ body {
 .valve-open { background: rgba(34, 197, 94, 0.12); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
 .valve-open:hover { background: rgba(34, 197, 94, 0.2); }
 .valve-closed { background: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+
+/* circuito do quadro elétrico (v2.11): carga no disjuntor e avisos */
+.meter-load { height: 4px; border-radius: 999px; background: rgba(100, 116, 139, 0.25); overflow: hidden; }
+.meter-load span { display: block; height: 100%; border-radius: 999px; background: #22d3ee; transition: width 0.4s; }
+.meter-load .meter-load-warn { background: #f59e0b; }
+.meter-load .meter-load-crit { background: #ef4444; }
+.meter-badge { font-size: 10px; line-height: 1; padding: 3px 6px; border-radius: 999px; color: #cbd5e1;
+  background: rgba(100, 116, 139, 0.2); border: 1px solid rgba(148, 163, 184, 0.25); }
+.meter-badge-warn { color: #fbbf24; background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.3); }
+.meter-badge-crit { color: #f87171; background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.3); }
 .valve-closed:hover { background: rgba(239, 68, 68, 0.2); }
 
 /* ---------- monitor ---------- */
