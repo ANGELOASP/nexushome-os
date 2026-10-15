@@ -26,7 +26,8 @@ painel controla e mostra dispositivos sobre ela. Versão atual: ver `package.jso
   cada uma mestre do seu RS-485 — `esp32s3_hidraulica` (C), `esp32s3_eletrica` (A), `esp32s3_seguranca` (B: luzes
   three-way, gás, fumaça, alarme) e `esp32s3_nobreak` (D: banco/inversor) — e o painel de parede `nexus_painel`
   (ESP32-P4 10,1" do corredor e 7" dos cômodos, cliente do `/iot-gateway/panel`). **Projeto e endereços:
-  `docs/projeto-unificado.md`** (a fonte da verdade do hardware). Scripts PowerShell em `scripts/` (ver `scripts/LEIA-ME.md`).
+  `docs/projeto-unificado.md`** (a fonte da verdade do hardware; PDF visual em `docs/projeto-unificado.pdf`,
+  refeito com `node docs/pdf/gerar-pdf.mjs` sempre que o memorial ou um desenho mudar). Scripts PowerShell em `scripts/` (ver `scripts/LEIA-ME.md`).
 - PWA (`public/sw.js`, manifest) com notificações push de alertas críticos.
 
 ## Mapa do código
