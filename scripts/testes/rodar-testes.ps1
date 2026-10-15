@@ -287,6 +287,27 @@ Caso 'painel' {
   Ok ((Get-NexusPortaDica 'Dispositivo Serial USB JTAG/serial debug unit (COM5)') -match 'ESP32') 'dica de porta: ESP32'
   Ok ((Get-NexusPortaDica 'USB-SERIAL CH340 (COM3)') -match 'RS-485') 'dica de porta: CH340'
 }
+Caso 'http' {
+  # Invoke-WebRequest falso: guarda os parâmetros. No Windows PowerShell 5.1 um GET com Body/ContentType
+  # falha ("Não é possível enviar um conteúdo com este tipo de verbo") — o PowerShell 7 aceita e esconderia o erro.
+  $script:pedido = $null
+  function global:Invoke-WebRequest {
+    [CmdletBinding()] param($Uri, $Method, $Headers, [switch]$UseBasicParsing, $TimeoutSec, $Body, $ContentType)
+    $script:pedido = @{} + $PSBoundParameters
+    throw 'sem rede (falso)'
+  }
+  try {
+    $null = Invoke-NexusHttp -Url 'https://exemplo.invalid/health'
+    Ok (-not $script:pedido.ContainsKey('Body') -and -not $script:pedido.ContainsKey('ContentType')) 'Invoke-NexusHttp: GET sem corpo (Windows PowerShell 5.1)' ($script:pedido.Keys -join ', ')
+    $null = Invoke-NexusHttp -Url 'https://exemplo.invalid/panel' -Chave 'k'
+    Ok (-not $script:pedido.ContainsKey('Body') -and $script:pedido.Headers['x-device-key'] -eq 'k') 'Invoke-NexusHttp: GET com chave, sem corpo' ($script:pedido.Keys -join ', ')
+    $r = Invoke-NexusHttp -Metodo POST -Url 'https://exemplo.invalid/panel/command' -CorpoJson '{"a":"ç"}'
+    Ok ($script:pedido.ContainsKey('Body') -and $script:pedido.ContentType -match 'utf-8' -and $script:pedido.Body.Length -eq 10) 'Invoke-NexusHttp: POST com corpo UTF-8' ($script:pedido.Keys -join ', ')
+    Igual 0 $r.Status 'Invoke-NexusHttp: sem rede = Status 0'
+  } finally {
+    Remove-Item function:global:Invoke-WebRequest -ErrorAction SilentlyContinue
+  }
+}
 
 # ==================================================================
 Secao 'Integração: scripts que só rodam no Windows'

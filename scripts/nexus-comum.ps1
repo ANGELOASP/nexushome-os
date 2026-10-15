@@ -687,7 +687,9 @@ function Invoke-NexusHttp {
   $cab = @{}
   if ($Chave) { $cab['x-device-key'] = $Chave }
   $args1 = @{ Uri = $Url; Method = $Metodo; Headers = $cab; UseBasicParsing = $true; TimeoutSec = $TimeoutSec; ErrorAction = 'Stop' }
-  if ($null -ne $CorpoJson) {
+  # [string] transforma $null em '': testar "vazio", não "nulo". GET nunca leva corpo
+  # (o Windows PowerShell 5.1 recusa: "Não é possível enviar um conteúdo com este tipo de verbo").
+  if ($Metodo -eq 'POST' -and -not [string]::IsNullOrEmpty($CorpoJson)) {
     $args1['Body'] = [System.Text.Encoding]::UTF8.GetBytes($CorpoJson)
     $args1['ContentType'] = 'application/json; charset=utf-8'
   }
