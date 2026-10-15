@@ -23,6 +23,7 @@
 //        resposta avisa "execute a migração 025" (o histórico novo fica de fora)
 //
 // GET  /iot-gateway/panel?room=&limit=   (v2.16) → resumo para as telas de parede (P4 10,1" e 7")
+// GET  /iot-gateway/panel/plan?floor=0     (v2.16) → a planta do app (cômodos, paredes, aparelhos) para o P4
 // POST /iot-gateway/panel/command          (v2.16) → {device_id, action, value} — aciona um aparelho
 //        (aparelhos com hw: o gatilho da 013/024/025 enfileira o comando para a tela do quadro)
 // GET  /iot-gateway/health    → status simples
@@ -44,13 +45,14 @@
 //     x-device-key (segredo compartilhado, definido em IOT_DEVICE_SECRET).
 //     Não use a anon key no ESP32: o fluxo do firmware não muda.
 //
-// Deploy:  supabase functions deploy iot-gateway
+// Deploy:  supabase functions deploy iot-gateway --no-verify-jwt   (ou scripts/publicar-funcoes.ps1)
 // ============================================================
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { parseReadingTs } from "./ts.ts";
 import { ALLOWED_METRICS, METRICS_025, alertSource, parseAlerts, splitBatch } from "./batch.ts";
 import { buildSnapshot, validateCommand, type Device } from "./panel.ts";
+import { buildPlan } from "./plan.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -81,11 +83,12 @@ serve(async (req: Request) => {
   const url = new URL(req.url);
   const wantsCommands = req.method === "GET" && url.pathname.endsWith("/commands");
   const wantsPanel = req.method === "GET" && url.pathname.endsWith("/panel");
+  const wantsPlan = req.method === "GET" && url.pathname.endsWith("/panel/plan");
   const wantsPanelCommand = req.method === "POST" && url.pathname.endsWith("/panel/command");
-  if (req.method === "GET" && !wantsCommands && !wantsPanel) {
+  if (req.method === "GET" && !wantsCommands && !wantsPanel && !wantsPlan) {
     return json({ ok: true, service: "nexushome-iot-gateway", version: 11, path: url.pathname });
   }
-  if (req.method !== "POST" && !wantsCommands && !wantsPanel) return json({ error: "Método não suportado" }, 405);
+  if (req.method !== "POST" && !wantsCommands && !wantsPanel && !wantsPlan) return json({ error: "Método não suportado" }, 405);
 
   // --- autenticação simples por segredo compartilhado ---------
   // Fail-closed: sem IOT_DEVICE_SECRET configurado a função recusa tudo,
@@ -106,6 +109,7 @@ serve(async (req: Request) => {
 
   // --- telas de parede (v2.16): resumo da casa e comandos ---------
   if (wantsPanel) return await handlePanel(supabase, url);
+  if (wantsPlan) return await handlePlan(supabase, url);
   if (wantsPanelCommand) return await handlePanelCommand(supabase, req);
 
   // --- comandos pendentes para o ESP32 (app → válvulas) ---------
@@ -237,14 +241,43 @@ async function handleBatch(supabase: any, readings: unknown[], alerts?: unknown,
 async function handlePanel(supabase: any, url: URL): Promise<Response> {
   const room = url.searchParams.get("room") ?? "";
   const limit = Number(url.searchParams.get("limit") ?? "80");
-  const [devs, alerts] = await Promise.all([
-    supabase.from("devices").select("id, name, type, room, status, is_online"),
+  // ?plan=0 (painel do corredor): junta a assinatura da planta do andar → o painel
+  // baixa a planta de novo assim que ela muda no Editor de Planta do app
+  const planFloor = url.searchParams.has("plan") ? Number(url.searchParams.get("plan") || "0") : null;
+  const [devs, alerts, plan] = await Promise.all([
+    supabase.from("devices").select(planFloor === null ? "id, name, type, room, status, is_online" : "*"),
     supabase.from("alerts").select("severity, message, created_at, resolved")
       .eq("resolved", false).gte("created_at", new Date(Date.now() - 86400000).toISOString())
       .order("created_at", { ascending: false }).limit(20),
+    planFloor === null ? null : loadPlanRows(supabase),
   ]);
   if (devs.error) return json({ error: `Falha ao ler dispositivos: ${devs.error.message}` }, 500);
-  return json(buildSnapshot(devs.data ?? [], alerts.data ?? [], { room, limit: Number.isFinite(limit) ? limit : 80 }));
+  const snap = buildSnapshot(devs.data ?? [], alerts.data ?? [], { room, limit: Number.isFinite(limit) ? limit : 80 });
+  if (plan && !plan.rooms.error) {
+    const f = Number.isFinite(planFloor) ? planFloor! : 0;
+    return json({ ...snap, ps: buildPlan(plan.rooms.data ?? [], plan.walls.error ? [] : plan.walls.data ?? [], devs.data ?? [], f).sig });
+  }
+  return json(snap);
+}
+
+// deno-lint-ignore no-explicit-any
+function loadPlanRows(supabase: any) {
+  return Promise.all([
+    supabase.from("rooms").select("*"),
+    supabase.from("walls").select("floor, x1, z1, x2, z2"),
+  ]).then(([rooms, walls]) => ({ rooms, walls }));
+}
+
+// deno-lint-ignore no-explicit-any
+async function handlePlan(supabase: any, url: URL): Promise<Response> {
+  const floor = Number(url.searchParams.get("floor") ?? "0");
+  const [{ rooms, walls }, devs] = await Promise.all([
+    loadPlanRows(supabase),
+    supabase.from("devices").select("*"),
+  ]);
+  if (rooms.error) return json({ error: `Falha ao ler a planta: ${rooms.error.message}` }, 500);
+  // sem a 006 (paredes) a planta sai só com os cômodos
+  return json(buildPlan(rooms.data ?? [], walls.error ? [] : walls.data ?? [], devs.data ?? [], Number.isFinite(floor) ? floor : 0));
 }
 
 // deno-lint-ignore no-explicit-any

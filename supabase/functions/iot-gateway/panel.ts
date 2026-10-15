@@ -16,7 +16,7 @@ export type Alert = { severity: string; message: string; created_at: string; res
 export type PanelDevice = {
   id: string; n: string; r: string; t: string; ok: boolean;
   on?: boolean; open?: boolean; w?: number; lvl?: number; soc?: number; temp?: number; bri?: number;
-  arm?: string; alarm?: boolean; lock?: boolean; act: string[];
+  arm?: string; alarm?: boolean; lock?: boolean; gas?: number; act: string[];
 };
 
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
@@ -58,7 +58,7 @@ export function panelPatch(action: string, value: unknown): Record<string, unkno
 
 /** Algum alarme ativo no status do aparelho (rompimento, pânico, sobrecarga, alarme disparado...). */
 export function deviceAlarm(s: Record<string, unknown>): boolean {
-  return ["alarm_burst", "alarm_external", "panic", "trip", "triggered", "leak", "smoke", "gas", "grid_fail"]
+  return ["alarm_burst", "alarm_external", "panic", "trip", "triggered", "leak", "smoke", "heat", "gas", "gas_al2", "grid_fail"]
     .some((k) => s[k] === true);
 }
 
@@ -75,6 +75,7 @@ export function toPanelDevice(d: Device): PanelDevice {
   const soc = round(num(s.soc)); if (soc !== undefined) out.soc = soc;
   const temp = round(num(s.temp) ?? num(s.temperature), 1); if (temp !== undefined) out.temp = temp;
   const bri = round(num(s.brightness)); if (bri !== undefined) out.bri = bri;
+  const gas = round(num(s.gas_lel)); if (gas !== undefined) out.gas = gas;
   if (typeof s.armed === "string") out.arm = s.armed;
   if (deviceAlarm(s)) out.alarm = true;
   if (s.trip === true || s.alarm_burst === true || s.panic === true) out.lock = true;

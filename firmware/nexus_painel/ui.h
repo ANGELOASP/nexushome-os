@@ -22,5 +22,6 @@ struct UiConn {
 // modoComodo = tela de 7" de um cômodo (nome em `comodo`); senão, corredor (casa toda)
 bool ui_begin(bool modoComodo, const char *comodo, UiCmdFn onCmd);
 void ui_set_model(const PModel &m);    // chamada pela tarefa de rede (copia; thread-safe)
+void ui_set_plan(const PPlan &p);      // planta do app (corredor): copia; thread-safe
 void ui_set_conn(const UiConn &c);     // idem
 void ui_set_brightness(int pct);       // luz de fundo (P4: PWM; 7": liga/desliga)

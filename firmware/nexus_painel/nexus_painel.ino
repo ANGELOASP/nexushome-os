@@ -34,6 +34,9 @@
 #define GATEWAY_BASE    "https://gfjxcsvxhaojbtuixpjh.supabase.co/functions/v1/iot-gateway"
 #define POLL_MS         3000UL      // consulta ao servidor
 #define POLL_FAIL_MS    10000UL     // depois de uma falha, espera mais
+#define PLAN_MS         1800000UL   // planta do app: ao ligar, sempre que ela muda no app (assinatura
+                                    // `ps` do /panel, vista a cada consulta) e, por garantia, a cada 30 min
+#define PLAN_RETRY_MS   30000UL     // depois de uma falha ao baixar a planta
 #define TZ_BRASIL       "<-03>3"     // horário de Brasília (sem horário de verão)
 #define BRILHO_DIA      100          // % da luz de fundo
 #define BRILHO_NOITE    25           // 22h–6h
@@ -41,6 +44,7 @@
 
 static QueueHandle_t cmdQ;
 static PModel netModel;              // grande: fica fora da pilha da tarefa
+static PPlan netPlan;                // planta do app (só no corredor)
 static char *httpBuf = nullptr;      // resposta do /panel
 static const size_t HTTP_BUF = 48 * 1024;
 
@@ -73,7 +77,7 @@ static int fetchPanel() {
     pm_urlencode(room, sizeof(room), PAINEL_COMODO);
     snprintf(url, sizeof(url), GATEWAY_BASE "/panel?limit=%d&room=%s", PANEL_MAX_DEVS, room);
   } else {
-    snprintf(url, sizeof(url), GATEWAY_BASE "/panel?limit=%d", PANEL_MAX_DEVS);
+    snprintf(url, sizeof(url), GATEWAY_BASE "/panel?limit=%d&plan=0", PANEL_MAX_DEVS);   // + assinatura da planta
   }
   HTTPClient http;
   http.begin(url);
@@ -97,6 +101,22 @@ static int fetchPanel() {
   httpBuf[n] = 0;
   http.end();
   return (int)n;
+}
+
+// GET /panel/plan → a mesma planta do app (cômodos, paredes e posição dos aparelhos)
+static bool fetchPlan() {
+  HTTPClient http;
+  http.begin(GATEWAY_BASE "/panel/plan?floor=0");
+  http.addHeader("x-device-key", DEVICE_SECRET);
+  http.setTimeout(8000);
+  int code = http.GET();
+  if (code != 200) { Serial.printf("[planta] HTTP %d\n", code); http.end(); return false; }
+  String body = http.getString();
+  http.end();
+  bool ok = pm_parse_plan(body.c_str(), body.length(), netPlan);
+  Serial.printf("[planta] %s: %d cômodos, %d paredes, %d aparelhos\n", ok ? "ok" : "inválida",
+                netPlan.nRooms, netPlan.nWalls, netPlan.nDevs);
+  return ok;
 }
 
 // ---------------- relógio e brilho ----------------
@@ -124,7 +144,7 @@ static int brightnessNow() {
 
 // ---------------- tarefa de rede ----------------
 static void netTask(void *) {
-  unsigned long lastOk = 0, nextPoll = 0;
+  unsigned long lastOk = 0, nextPoll = 0, nextPlan = 0, planFailAt = 0;
   bool ntp = false, online = false;
   int lastBright = -1;
   for (;;) {
@@ -144,6 +164,14 @@ static void netTask(void *) {
       postCommand(cmd);
       nextPoll = 0;                                // mostra o resultado logo
     }
+    if (PAINEL_MODO == PAINEL_MODO_CORREDOR && millis() >= nextPlan) {
+      bool ok = fetchPlan();
+#if USE_DISPLAY
+      if (ok) ui_set_plan(netPlan);
+#endif
+      if (!ok) planFailAt = millis();
+      nextPlan = millis() + (ok ? PLAN_MS : PLAN_RETRY_MS);
+    }
     if (millis() >= nextPoll) {
       int n = fetchPanel();
       if (n > 0 && pm_parse(httpBuf, n, netModel)) {
@@ -153,6 +181,12 @@ static void netTask(void *) {
         ui_set_model(netModel);
 #endif
         nextPoll = millis() + POLL_MS;
+        // planta alterada no app (Editor de Planta / DXF) → baixa de novo já na próxima volta
+        if (PAINEL_MODO == PAINEL_MODO_CORREDOR && pm_plan_changed(netModel, netPlan) &&
+            (!planFailAt || millis() - planFailAt >= PLAN_RETRY_MS) && nextPlan > millis()) {
+          Serial.printf("[planta] mudou no app (%s → %s): atualizando\n", netPlan.sig[0] ? netPlan.sig : "-", netModel.ps);
+          nextPlan = millis();
+        }
       } else {
         online = false;
         if (n > 0) Serial.println("[panel] resposta inválida");

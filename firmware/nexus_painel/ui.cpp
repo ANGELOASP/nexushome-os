@@ -62,6 +62,14 @@ static uint32_t s_pendingAt = 0;
 static lv_obj_t *s_modal = nullptr;
 static int16_t s_modalDev = -1;
 static int s_modalTemp = 23;
+// planta (corredor): canvas na PSRAM, redesenhado só quando o estado dos cômodos muda
+static PPlan s_planIn, s_plan;
+static volatile bool s_newPlan = false;
+static lv_obj_t *planCanvas = nullptr, *planLabel = nullptr;
+static lv_color_t *planBuf = nullptr;
+static int planW = 0, planH = 0;
+static PFit planFit;
+static uint32_t planSig = 0;
 static lv_obj_t *s_modalTempLbl = nullptr, *s_modalSlider = nullptr;
 
 static lv_obj_t *mkLabel(lv_obj_t *p, const lv_font_t *f, lv_color_t c, const char *t) {
@@ -243,6 +251,154 @@ static void openDetail(int dev) {
   }
 }
 
+// ------------------------------------------------------------ planta
+static uint8_t roomState(const char *room) {      // 0 normal · 1 algo ligado · 2 alarme
+  uint8_t st = 0;
+  for (int i = 0; i < s_ui.nDevs; i++) {
+    const PDev &d = s_ui.devs[i];
+    if (strcmp(d.room, room)) continue;
+    if (d.alarm || d.lock) return 2;
+    // circuito habilitado, válvula aberta, portão ou alarme armado não são "uso": não acendem o cômodo
+    if (pm_active(d) && strcmp(d.type, "alarm") && strcmp(d.type, "meter") && strcmp(d.type, "valve") &&
+        strcmp(d.type, "gate") && strcmp(d.type, "curtain")) st = 1;
+  }
+  return st;
+}
+
+static const PDev *devById(const char *id) {
+  for (int i = 0; i < s_ui.nDevs; i++) if (!strcmp(s_ui.devs[i].id, id)) return &s_ui.devs[i];
+  return nullptr;
+}
+
+static uint32_t planSignature() {
+  uint32_t h = 2166136261u;
+  auto mix = [&](uint32_t v) { h = (h ^ v) * 16777619u; };
+  mix(s_plan.valid ? s_plan.nRooms * 131 + s_plan.nWalls : 7);
+  for (int i = 0; i < s_plan.nRooms; i++) mix(roomState(s_plan.rooms[i].name) + 3 * !strcmp(s_filter, s_plan.rooms[i].name));
+  for (int i = 0; i < s_plan.nDevs; i++) {
+    const PDev *d = devById(s_plan.devs[i].id);
+    mix(d ? (pm_active(*d) | (d->alarm << 1) | (d->ok << 2)) : 9);
+  }
+  return h;
+}
+
+static void refreshPlan(bool force) {
+  if (!planCanvas) return;
+  uint32_t sig = planSignature();
+  if (!force && sig == planSig) return;
+  planSig = sig;
+  lv_canvas_fill_bg(planCanvas, C_CARD, LV_OPA_COVER);
+  if (!s_plan.valid) {
+    lv_draw_label_dsc_t ld; lv_draw_label_dsc_init(&ld);
+    ld.font = &nh_font_20; ld.color = C_MUTED; ld.align = LV_TEXT_ALIGN_CENTER;
+    lv_canvas_draw_text(planCanvas, 0, planH / 2 - 12, planW, &ld, "Carregando a planta da casa…");
+    return;
+  }
+  planFit = pm_plan_fit(s_plan, planW, planH, 14);
+  lv_draw_rect_dsc_t rd; lv_draw_rect_dsc_init(&rd);
+  rd.border_width = 0; rd.radius = 0;
+  uint8_t tri[3 * PLAN_MAX_PTS];
+  int labelX[PLAN_MAX_ROOMS], labelY[PLAN_MAX_ROOMS]; uint8_t labelSt[PLAN_MAX_ROOMS];
+  for (int i = 0; i < s_plan.nRooms; i++) {
+    const PRoom &r = s_plan.rooms[i];
+    uint8_t st = roomState(r.name);
+    lv_color_t base = lv_color_hex(r.color);
+    rd.bg_color = st == 2 ? lv_color_mix(C_CRIT, C_INK, 150)
+                : st == 1 ? lv_color_mix(C_ACCENT, C_INK, 120)
+                          : lv_color_mix(base, C_INK, 70);
+    rd.bg_opa = LV_OPA_COVER;
+    int nt = pm_triangulate(r.x, r.z, r.n, tri, PLAN_MAX_PTS);
+    int best = 0; float bestA = -1;
+    for (int t = 0; t < nt; t++) {
+      lv_point_t pts[3]; int qx[3], qy[3];
+      for (int k = 0; k < 3; k++) pm_plan_px(planFit, r.x[tri[3 * t + k]], r.z[tri[3 * t + k]], &qx[k], &qy[k]);
+      // empurra cada vértice 1 px para fora do triângulo: os vizinhos se sobrepõem e somem as emendas
+      int mx = (qx[0] + qx[1] + qx[2]) / 3, my = (qy[0] + qy[1] + qy[2]) / 3;
+      for (int k = 0; k < 3; k++) {
+        pts[k].x = qx[k] + (qx[k] > mx) - (qx[k] < mx);
+        pts[k].y = qy[k] + (qy[k] > my) - (qy[k] < my);
+      }
+      lv_canvas_draw_polygon(planCanvas, pts, 3, &rd);
+      float a = pm_tri_area(r.x, r.z, tri + 3 * t, 1);
+      if (a > bestA) { bestA = a; best = t; }
+    }
+    // contorno do cômodo escolhido
+    if (!strcmp(s_filter, r.name)) {
+      lv_draw_line_dsc_t sel; lv_draw_line_dsc_init(&sel);
+      sel.color = C_ACCENT; sel.width = 5; sel.round_start = sel.round_end = 1;
+      for (int k = 0; k < r.n; k++) {
+        lv_point_t ln[2]; int ax, ay, bx, by;
+        pm_plan_px(planFit, r.x[k], r.z[k], &ax, &ay);
+        pm_plan_px(planFit, r.x[(k + 1) % r.n], r.z[(k + 1) % r.n], &bx, &by);
+        ln[0].x = ax; ln[0].y = ay; ln[1].x = bx; ln[1].y = by;
+        lv_canvas_draw_line(planCanvas, ln, 2, &sel);
+      }
+    }
+    // nome no meio do maior triângulo (num cômodo em L o centro pode cair fora); desenhado no fim
+    labelX[i] = -1;
+    if (nt > 0) {
+      float lx = (r.x[tri[3 * best]] + r.x[tri[3 * best + 1]] + r.x[tri[3 * best + 2]]) / 3;
+      float lz = (r.z[tri[3 * best]] + r.z[tri[3 * best + 1]] + r.z[tri[3 * best + 2]]) / 3;
+      pm_plan_px(planFit, lx, lz, &labelX[i], &labelY[i]);
+      labelSt[i] = st;
+    }
+  }
+  // paredes
+  lv_draw_line_dsc_t wd; lv_draw_line_dsc_init(&wd);
+  wd.color = lv_color_hex(0xC9D3E3); wd.width = planFit.s > 30 ? 3 : 2;
+  for (int i = 0; i < s_plan.nWalls; i++) {
+    lv_point_t ln[2]; int ax, ay, bx, by;
+    pm_plan_px(planFit, s_plan.walls[i][0], s_plan.walls[i][1], &ax, &ay);
+    pm_plan_px(planFit, s_plan.walls[i][2], s_plan.walls[i][3], &bx, &by);
+    ln[0].x = ax; ln[0].y = ay; ln[1].x = bx; ln[1].y = by;
+    lv_canvas_draw_line(planCanvas, ln, 2, &wd);
+  }
+  // aparelhos (pontos)
+  lv_draw_rect_dsc_t dd; lv_draw_rect_dsc_init(&dd);
+  dd.radius = LV_RADIUS_CIRCLE; dd.border_width = 2; dd.border_color = C_INK;
+  for (int i = 0; i < s_plan.nDevs; i++) {
+    const PDev *d = devById(s_plan.devs[i].id);
+    if (!d) continue;
+    int px, py; pm_plan_px(planFit, s_plan.devs[i].x, s_plan.devs[i].z, &px, &py);
+    dd.bg_color = (d->alarm || d->lock) ? C_CRIT : !d->ok ? C_LINE : pm_active(*d) ? C_ACCENT : C_MUTED;
+    lv_canvas_draw_rect(planCanvas, px - 7, py - 7, 14, 14, &dd);
+  }
+  // nomes dos cômodos por último, numa etiqueta escura (legíveis sobre pontos e paredes)
+  lv_draw_label_dsc_t ld; lv_draw_label_dsc_init(&ld);
+  ld.font = &nh_font_16; ld.align = LV_TEXT_ALIGN_CENTER;
+  lv_draw_rect_dsc_t bg; lv_draw_rect_dsc_init(&bg);
+  bg.bg_color = C_INK; bg.bg_opa = LV_OPA_70; bg.radius = 6; bg.border_width = 0;
+  for (int i = 0; i < s_plan.nRooms; i++) {
+    if (labelX[i] < 0) continue;
+    lv_point_t sz;
+    lv_txt_get_size(&sz, s_plan.rooms[i].name, &nh_font_16, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    int w = sz.x + 12, h = sz.y + 4;
+    lv_canvas_draw_rect(planCanvas, labelX[i] - w / 2, labelY[i] - h / 2 - 14, w, h, &bg);
+    ld.color = labelSt[i] == 2 ? C_CRIT : labelSt[i] == 1 ? lv_color_hex(0xFBE3B3) : C_TEXT;
+    lv_canvas_draw_text(planCanvas, labelX[i] - w / 2, labelY[i] - h / 2 - 12, w, &ld, s_plan.rooms[i].name);
+  }
+}
+
+static void updatePlanLabel() {
+  if (!planLabel) return;
+  if (s_filter[0]) lv_label_set_text_fmt(planLabel, "%s · toque de novo para ver todos", s_filter);
+  else lv_label_set_text(planLabel, "PLANTA · toque num cômodo");
+}
+
+static void onPlanTouch(lv_event_t *e) {
+  static lv_point_t pt = { 0, 0 };
+  // a posição é guardada quando o dedo encosta: ao soltar, alguns drivers zeram o ponto
+  if (lv_event_get_code(e) == LV_EVENT_PRESSED) { lv_indev_get_point(lv_indev_get_act(), &pt); return; }
+  if (!s_plan.valid) return;
+  lv_area_t a; lv_obj_get_coords(planCanvas, &a);
+  int i = pm_plan_room_at(s_plan, planFit, pt.x - a.x1, pt.y - a.y1);
+  if (i < 0 || !strcmp(s_filter, s_plan.rooms[i].name)) s_filter[0] = 0;
+  else pm_copy(s_filter, sizeof(s_filter), s_plan.rooms[i].name);
+  updatePlanLabel();
+  refreshPlan(false);
+  s_newModel = true;                               // lista de aparelhos com o filtro novo
+}
+
 // ------------------------------------------------------------ quadros
 static void onTile(lv_event_t *e) {
   int i = (int)(intptr_t)lv_event_get_user_data(e);
@@ -311,11 +467,12 @@ static void refreshTiles() {
   for (int i = 0; i < s_ui.nDevs && t < PANEL_MAX_DEVS; i++) {
     const PDev &d = s_ui.devs[i];
     if (!s_room && s_filter[0] && strcmp(d.room, s_filter)) continue;
+    if (s_room && !pm_same_room(d.room, s_roomName)) continue;   // o servidor já filtra; aqui é a garantia
     tileDev[t] = i;
     lv_obj_t *tile = tiles[t];
     lv_obj_clear_flag(tile, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(tileName[t], d.name);
-    lv_label_set_text(tileRoom[t], s_room ? d.type : d.room);
+    lv_label_set_text(tileRoom[t], s_room ? pm_type_label(d.type) : d.room);
     char st[48];
     bool pending = pendingStill && !strcmp(d.id, s_pendingId);
     if (pending) pm_copy(st, sizeof(st), "enviando…");
@@ -374,7 +531,7 @@ static void refreshSummary() {
   // cômodo: clima no subtítulo (sensor do cômodo com temperatura)
   if (s_room) {
     for (int i = 0; i < s_ui.nDevs; i++) {
-      if (!isnan(s_ui.devs[i].temp) && !strcmp(s_ui.devs[i].type, "sensor")) {
+      if (!isnan(s_ui.devs[i].temp) && !strcmp(s_ui.devs[i].type, "sensor") && pm_same_room(s_ui.devs[i].room, s_roomName)) {
         char t[16]; pm_fmt_temp(t, sizeof(t), s_ui.devs[i].temp);
         lv_label_set_text_fmt(hdrSub, "%s · %s", s_conn.date, t);
         return;
@@ -393,10 +550,11 @@ static void refreshConn() {
 }
 
 static void onTimer(lv_timer_t *) {
-  bool model = false, conn = false;
+  bool model = false, conn = false, plan = false;
   if (xSemaphoreTake(s_mx, 0) == pdTRUE) {
     if (s_newModel) { memcpy(&s_ui, &s_in, sizeof(PModel)); s_newModel = false; model = true; }
     if (s_newConn) { s_conn = s_connIn; s_newConn = false; conn = true; }
+    if (s_newPlan) { memcpy(&s_plan, &s_planIn, sizeof(PPlan)); s_newPlan = false; plan = true; }
     xSemaphoreGive(s_mx);
   }
   if (conn) refreshConn();
@@ -406,6 +564,7 @@ static void onTimer(lv_timer_t *) {
     refreshSummary();
     refreshTiles();
   }
+  if ((model && s_ui.valid) || plan) refreshPlan(plan);
 }
 
 // ------------------------------------------------------------ montagem
@@ -413,9 +572,14 @@ static void mkCard(lv_obj_t *scr, int i, int x, int y, int w, int h, const char 
   lv_obj_t *c = mkBox(scr, x, y, w, h, C_CARD);
   mkLabel(c, &nh_font_16, C_MUTED, title);
   cardVal[i] = mkLabel(c, big ? &nh_font_48 : &nh_font_24, color, "-");
-  lv_obj_align(cardVal[i], LV_ALIGN_LEFT_MID, 0, big ? 6 : 4);
+  if (h < 80) {                                  // cartão baixo (7"): título em cima, número embaixo
+    lv_obj_set_style_pad_ver(c, 8, 0);
+    lv_obj_align(cardVal[i], LV_ALIGN_BOTTOM_LEFT, 0, 2);
+  } else {
+    lv_obj_align(cardVal[i], LV_ALIGN_LEFT_MID, 0, big ? 6 : 4);
+  }
   cardSub[i] = mkLabel(c, &nh_font_16, C_MUTED, "");
-  lv_obj_align(cardSub[i], LV_ALIGN_BOTTOM_LEFT, 0, 0);
+  lv_obj_align(cardSub[i], big && h >= 140 ? LV_ALIGN_BOTTOM_LEFT : LV_ALIGN_TOP_RIGHT, 0, 0);
 }
 
 static void build() {
@@ -446,25 +610,47 @@ static void build() {
   int y = HH;
   int gx, gy, gw, gh;   // área dos quadros
   if (portrait) {
-    int cw = (W - 3 * P) / 2, ch = 150;
+    // corredor em pé (P4 10,1"): planta em cima, resumo 2×2, alertas e quadros
+    if (!s_room) {
+      int ph = 500;
+      lv_obj_t *pc = mkBox(scr, P, y, W - 2 * P, ph, C_CARD);
+      lv_obj_set_style_pad_all(pc, 0, 0);
+      planW = W - 2 * P - 2; planH = ph - 2;
+      planBuf = (lv_color_t *)heap_caps_malloc(LV_CANVAS_BUF_SIZE_TRUE_COLOR(planW, planH), MALLOC_CAP_SPIRAM);
+      if (planBuf) {
+        planCanvas = lv_canvas_create(pc);
+        lv_canvas_set_buffer(planCanvas, planBuf, planW, planH, LV_IMG_CF_TRUE_COLOR);
+        lv_obj_center(planCanvas);
+        lv_obj_add_flag(planCanvas, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(planCanvas, onPlanTouch, LV_EVENT_PRESSED, nullptr);
+        lv_obj_add_event_cb(planCanvas, onPlanTouch, LV_EVENT_CLICKED, nullptr);
+        planLabel = mkLabel(pc, &nh_font_16, C_MUTED, "");
+        lv_obj_align(planLabel, LV_ALIGN_TOP_LEFT, 12, 8);
+      }
+      y += ph + P;
+    }
+    int cw = (W - 3 * P) / 2, ch = s_room ? 150 : 104;
     mkCard(scr, 0, P, y, cw, ch, "ENERGIA AGORA", C_ACCENT, true);
     mkCard(scr, 1, 2 * P + cw, y, cw, ch, "ÁGUA AGORA", C_WATER, true);
     mkCard(scr, 2, P, y + ch + P, cw, ch, "RESERVATÓRIO", C_WATER, true);
     mkCard(scr, 3, 2 * P + cw, y + ch + P, cw, ch, "BATERIA", C_OK, true);
     lv_label_set_text(cardSub[0], "consumo da casa");
-    lv_label_set_text(cardSub[1], "vazão de todos os ramais");
+    lv_label_set_text(cardSub[1], "todos os ramais");
     lv_label_set_text(cardSub[2], "nível das caixas");
     y += 2 * ch + 2 * P;
-    alertBox = mkBox(scr, P, y, W - 2 * P, 128, C_CARD);
-    y += 128 + P;
-    chipBar = lv_obj_create(scr);
-    lv_obj_set_pos(chipBar, P, y);
-    lv_obj_set_size(chipBar, W - 2 * P, 60);
-    y += 60 + P;
+    int ah = s_room ? 128 : 100;
+    alertBox = mkBox(scr, P, y, W - 2 * P, ah, C_CARD);
+    y += ah + P;
+    if (planCanvas == nullptr && !s_room) {
+      chipBar = lv_obj_create(scr);                // sem PSRAM para a planta: volta aos chips
+      lv_obj_set_pos(chipBar, P, y);
+      lv_obj_set_size(chipBar, W - 2 * P, 60);
+      y += 60 + P;
+    }
     gx = P; gy = y; gw = W - 2 * P; gh = H - y - P;
   } else {
     int lw = W >= 1200 ? 400 : 290;
-    int ch = s_room ? 92 : 86;
+    int ch = s_room ? 70 : 86;      // 7": cartões baixos para sobrar lugar aos alertas
     const char *titles[4] = { "ENERGIA DA CASA", "ÁGUA", "RESERVATÓRIO", "BATERIA" };
     lv_color_t colors[4] = { C_ACCENT, C_WATER, C_WATER, C_OK };
     for (int i = 0; i < 4; i++) mkCard(scr, i, P, y + i * (ch + P / 2), lw, ch, titles[i], colors[i], false);
@@ -472,10 +658,28 @@ static void build() {
     alertBox = mkBox(scr, P, ay, lw, H - ay - P, C_CARD);
     gx = lw + 2 * P; gy = y; gw = W - gx - P; gh = H - y - P;
     if (!s_room) {
-      chipBar = lv_obj_create(scr);
-      lv_obj_set_pos(chipBar, gx, y);
-      lv_obj_set_size(chipBar, gw, 60);
-      gy += 60 + P; gh -= 60 + P;
+      // corredor deitado: planta em cima dos quadros
+      int ph = gh * 55 / 100;
+      lv_obj_t *pc = mkBox(scr, gx, gy, gw, ph, C_CARD);
+      lv_obj_set_style_pad_all(pc, 0, 0);
+      planW = gw - 2; planH = ph - 2;
+      planBuf = (lv_color_t *)heap_caps_malloc(LV_CANVAS_BUF_SIZE_TRUE_COLOR(planW, planH), MALLOC_CAP_SPIRAM);
+      if (planBuf) {
+        planCanvas = lv_canvas_create(pc);
+        lv_canvas_set_buffer(planCanvas, planBuf, planW, planH, LV_IMG_CF_TRUE_COLOR);
+        lv_obj_center(planCanvas);
+        lv_obj_add_flag(planCanvas, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(planCanvas, onPlanTouch, LV_EVENT_PRESSED, nullptr);
+        lv_obj_add_event_cb(planCanvas, onPlanTouch, LV_EVENT_CLICKED, nullptr);
+        planLabel = mkLabel(pc, &nh_font_16, C_MUTED, "");
+        lv_obj_align(planLabel, LV_ALIGN_TOP_LEFT, 12, 8);
+        gy += ph + P; gh -= ph + P;
+      } else {
+        chipBar = lv_obj_create(scr);
+        lv_obj_set_pos(chipBar, gx, y);
+        lv_obj_set_size(chipBar, gw, 60);
+        gy += 60 + P; gh -= 60 + P;
+      }
     }
   }
   if (chipBar) {
@@ -490,6 +694,7 @@ static void build() {
   lv_obj_set_flex_flow(alertBox, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(alertBox, 6, 0);
   mkLabel(alertBox, &nh_font_16, C_MUTED, "ALERTAS");
+  lv_obj_update_layout(alertBox);
   for (int i = 0; i < 3; i++) {
     alertRows[i] = mkLabel(alertBox, &nh_font_16, C_TEXT, "");
     lv_label_set_long_mode(alertRows[i], LV_LABEL_LONG_DOT);
@@ -534,6 +739,8 @@ static void build() {
   lv_obj_set_style_text_color(alertRows[0], C_MUTED, 0);
   lv_obj_add_flag(alertRows[1], LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(alertRows[2], LV_OBJ_FLAG_HIDDEN);
+  updatePlanLabel();
+  refreshPlan(true);
   lv_timer_create(onTimer, 400, nullptr);
 }
 
@@ -557,6 +764,14 @@ void ui_set_model(const PModel &m) {
   xSemaphoreTake(s_mx, portMAX_DELAY);
   memcpy(&s_in, &m, sizeof(PModel));
   s_newModel = true;
+  xSemaphoreGive(s_mx);
+}
+
+void ui_set_plan(const PPlan &p) {
+  if (!s_mx) return;
+  xSemaphoreTake(s_mx, portMAX_DELAY);
+  memcpy(&s_planIn, &p, sizeof(PPlan));
+  s_newPlan = true;
   xSemaphoreGive(s_mx);
 }
 

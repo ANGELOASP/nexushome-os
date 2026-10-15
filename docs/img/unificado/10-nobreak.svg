@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1150" viewBox="0 0 1600 1150" font-family="Arial, Helvetica, sans-serif">
+<title>10 — Banco de baterias, inversor e QDC</title>
+<defs>
+  <marker id="dimA" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#333"/></marker>
+  <marker id="arrK" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker>
+  <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f3a93"/></marker>
+  <marker id="arrO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f28c28"/></marker>
+  <marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2a8a2a"/></marker>
+  <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d32"/></marker>
+  <pattern id="hatch" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="10" stroke="#999" stroke-width="1.2"/></pattern>
+  <pattern id="hatchR" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="10" stroke="#e8a59a" stroke-width="2"/></pattern>
+  <pattern id="slots" patternUnits="userSpaceOnUse" width="12" height="12"><rect x="3" y="0" width="6" height="12" fill="#cfcfcf"/></pattern>
+  <pattern id="grelha" patternUnits="userSpaceOnUse" width="8" height="8"><line x1="0" y1="4" x2="8" y2="4" stroke="#555" stroke-width="2"/></pattern>
+</defs>
+<rect x="0" y="0" width="1600" height="1150" fill="#ffffff"/>
+<rect x="10" y="10" width="1580" height="1130" fill="none" stroke="#111" stroke-width="1"/>
+<rect x="20" y="20" width="1560" height="1110" fill="none" stroke="#111" stroke-width="2.5"/>
+<text x="40" y="52" font-family="Arial, Helvetica, sans-serif" font-size="22" text-anchor="start" fill="#111" font-weight="bold">Banco de baterias, inversor e QDC (§4.1, §4.2, §12, §8 X9)</text>
+<text x="40" y="74" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="start" fill="#333">Sem escala. DC: vermelho (+) e preto (−), isolação 1 kV, terminal de compressão estanhado olhal M8 + termo-retrátil. CA: fase preto, neutro azul-claro, PE verde-amarelo.</text>
+<rect x="50" y="130" width="170" height="110" rx="5" fill="#eef6ee" stroke="#111" stroke-width="2"/>
+<text x="135" y="150" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="middle" fill="#111" font-weight="bold">Pack 1</text>
+<text x="135" y="166" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">LiFePO4 24 V (25,6 V)</text>
+<text x="135" y="182" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">100 Ah · BMS 100 A</text>
+<text x="206" y="160" font-family="Arial, Helvetica, sans-serif" font-size="16" text-anchor="middle" fill="#d32" font-weight="bold">+</text>
+<text x="206" y="228" font-family="Arial, Helvetica, sans-serif" font-size="16" text-anchor="middle" fill="#111" font-weight="bold">−</text>
+<path d="M 220 156 L 262 156" stroke="#d32" stroke-width="5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="262" y="146" width="54" height="20" rx="2" fill="#fff" stroke="#111" stroke-width="1.8"/>
+<line x1="268" y1="156" x2="310" y2="156" stroke="#111" stroke-width="1"/>
+<text x="289" y="140" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">classe T 150 A</text>
+<path d="M 316 156 L 420 156" stroke="#d32" stroke-width="5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 220 224 L 460 224" stroke="#111" stroke-width="5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="50" y="330" width="170" height="110" rx="5" fill="#eef6ee" stroke="#111" stroke-width="2"/>
+<text x="135" y="350" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="middle" fill="#111" font-weight="bold">Pack 2</text>
+<text x="135" y="366" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">LiFePO4 24 V (25,6 V)</text>
+<text x="135" y="382" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">100 Ah · BMS 100 A</text>
+<text x="206" y="360" font-family="Arial, Helvetica, sans-serif" font-size="16" text-anchor="middle" fill="#d32" font-weight="bold">+</text>
+<text x="206" y="428" font-family="Arial, Helvetica, sans-serif" font-size="16" text-anchor="middle" fill="#111" font-weight="bold">−</text>
+<path d="M 220 356 L 262 356" stroke="#d32" stroke-width="5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="262" y="346" width="54" height="20" rx="2" fill="#fff" stroke="#111" stroke-width="1.8"/>
+<line x1="268" y1="356" x2="310" y2="356" stroke="#111" stroke-width="1"/>
+<text x="289" y="340" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">classe T 150 A</text>
+<path d="M 316 356 L 420 356" stroke="#d32" stroke-width="5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 220 424 L 460 424" stroke="#111" stroke-width="5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="289" y="268" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#a3221a">fusível a &lt; 20 cm do borne</text>
+<text x="56" y="292" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111" font-weight="bold">35 mm² classe 5, mesmo comprimento</text>
+<text x="56" y="307" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111" font-weight="bold">nos dois packs (≤ 1 m)</text>
+<text x="135" y="490" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111" font-weight="bold">Paralelo: 200 Ah · 5,12 kWh</text>
+<text x="135" y="506" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">(alternativa: 1 pack 200 Ah, BMS ≥ 200 A)</text>
+<rect x="414" y="120" width="12" height="320" fill="#d32" stroke="#111" stroke-width="1"/>
+<rect x="454" y="120" width="12" height="330" fill="#222" stroke="#111" stroke-width="1"/>
+<text x="420" y="112" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#d32" font-weight="bold">barr. +</text>
+<text x="470" y="112" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111" font-weight="bold">barr. −</text>
+<text x="408" y="462" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#111">cobre, M8, isolados</text>
+<path d="M 426 180 L 540 180" stroke="#d32" stroke-width="6" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="540" y="154" width="100" height="52" rx="4" fill="#fff" stroke="#111" stroke-width="2"/>
+<line x1="556" y1="180" x2="576" y2="180" stroke="#111" stroke-width="2.5"/>
+<line x1="576" y1="180" x2="612" y2="164" stroke="#111" stroke-width="2.5"/>
+<line x1="616" y1="180" x2="626" y2="180" stroke="#111" stroke-width="2.5"/>
+<text x="590" y="146" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111" font-weight="bold">seccionadora DC 250 A</text>
+<text x="590" y="222" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">(ou disjuntor DC 250 A)</text>
+<path d="M 640 180 L 840 180" stroke="#d32" stroke-width="7" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="740" y="170" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#d32" font-weight="bold">50 mm² ≤ 1,5 m</text>
+<path d="M 466 380 L 540 380" stroke="#111" stroke-width="6" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="540" y="362" width="100" height="36" rx="3" fill="#ddd" stroke="#111" stroke-width="2"/>
+<text x="590" y="385" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111" font-weight="bold">SHUNT</text>
+<text x="590" y="354" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111" font-weight="bold">300 A / 75 mV</text>
+<path d="M 640 380 L 840 380" stroke="#111" stroke-width="7" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="740" y="370" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111" font-weight="bold">50 mm² ≤ 1,5 m</text>
+<text x="740" y="404" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">(manual pode pedir 2 × 35 mm²:</text>
+<text x="740" y="418" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">vale o maior — verificar)</text>
+<rect x="520" y="480" width="190" height="64" rx="5" fill="#fff8e8" stroke="#b8860b" stroke-width="2"/>
+<text x="615" y="500" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="middle" fill="#111" font-weight="bold">PZEM-017 · end. 41</text>
+<text x="615" y="516" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">0–300 V CC · RS-485</text>
+<line x1="560" y1="398" x2="560" y2="480" stroke="#888" stroke-width="2"/>
+<line x1="620" y1="398" x2="620" y2="480" stroke="#888" stroke-width="2"/>
+<text x="566" y="442" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111" font-weight="bold">S+</text>
+<text x="626" y="442" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111" font-weight="bold">S−</text>
+<text x="500" y="566" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111">X9.1/X9.2: par trançado 0,5 mm², ≤ 1 m</text>
+<path d="M 426 300 L 488 300 L 488 330" stroke="#d32" stroke-width="2" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="481" y="330" width="14" height="26" fill="#fff" stroke="#111" stroke-width="1.4"/>
+<text x="498" y="347" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111" font-weight="bold">1 A</text>
+<path d="M 488 356 L 488 520 L 520 520" stroke="#d32" stroke-width="2" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 466 430 L 476 430 L 476 534 L 520 534" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="500" y="582" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111">X9.3/X9.4: tensão do banco, fusível 1 A no + junto ao barramento</text>
+<line x1="710" y1="512" x2="790" y2="512" stroke="#1f3a93" stroke-width="2.5" stroke-dasharray="8 4"/>
+<text x="796" y="508" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#1f3a93" font-weight="bold">RS-485 D → T4</text>
+<text x="796" y="523" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#1f3a93">(8N2 · X5-D)</text>
+<rect x="840" y="130" width="200" height="300" rx="5" fill="#f3f3f3" stroke="#111" stroke-width="2"/>
+<text x="940" y="150" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="middle" fill="#111" font-weight="bold">Inversor híbrido</text>
+<text x="940" y="166" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">ANENJI</text>
+<text x="940" y="182" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">ANJ-4000W-24V-WiFi</text>
+<text x="940" y="198" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">4000 W contínuos</text>
+<text x="940" y="214" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">saída 220 V senoidal</text>
+<text x="940" y="230" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">entrada DC 24 V</text>
+<text x="940" y="246" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111"></text>
+<text x="940" y="262" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">modo UPS (~10 ms)</text>
+<text x="940" y="278" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">prioridade SBU ou SUB</text>
+<text x="940" y="294" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">Wi-Fi 192.168.1.50</text>
+<text x="940" y="310" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111"></text>
+<text x="940" y="326" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">I DC máx ≈ 181 A</text>
+<text x="940" y="342" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">(placa e manual:</text>
+<text x="940" y="358" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">verificar)</text>
+<text x="834" y="174" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#d32" font-weight="bold">DC+</text>
+<text x="834" y="374" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#111" font-weight="bold">DC−</text>
+<rect x="1080" y="620" width="230" height="120" rx="5" fill="#f3f3f3" stroke="#111" stroke-width="2"/>
+<text x="1195" y="640" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="middle" fill="#111" font-weight="bold">QDG</text>
+<text x="1195" y="656" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">concessionária</text>
+<text x="1195" y="672" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">DPS classe II 275 V 20 kA</text>
+<text x="1195" y="688" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">fornece a entrada CA</text>
+<text x="1195" y="704" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">do inversor</text>
+<path d="M 1120 620 L 1120 520 L 900 520 L 900 430" stroke="#111" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1136 620 L 1136 536 L 916 536 L 916 430" stroke="#4aa3df" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="900" cy="470" r="12" fill="none" stroke="#b8860b" stroke-width="2.5"/>
+<text x="884" y="474" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#b8860b" font-weight="bold">TC</text>
+<rect x="950" y="440" width="175" height="60" rx="5" fill="#fff8e8" stroke="#b8860b" stroke-width="2"/>
+<text x="1037.5" y="460" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="middle" fill="#111" font-weight="bold">PZEM-016 · end. 42</text>
+<text x="1037.5" y="476" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">TC 100 A · rede → inversor</text>
+<line x1="950" y1="470" x2="912" y2="470" stroke="#b8860b" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="894" y="448" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#111" font-weight="bold">AC IN</text>
+<path d="M 1200 620 L 1200 330 L 1170 330 L 1170 300" stroke="#111" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1216 620 L 1216 346 L 1186 346 L 1186 300" stroke="#4aa3df" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="1224" y="590" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111" font-weight="bold">← rede direta (posição 2)</text>
+<path d="M 1040 200 L 1110 200 L 1110 240" stroke="#111" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1040 216 L 1126 216 L 1126 240" stroke="#4aa3df" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="1046" y="192" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111" font-weight="bold">AC OUT</text>
+<rect x="1090" y="240" width="120" height="60" rx="4" fill="#fff" stroke="#111" stroke-width="2"/>
+<text x="1150" y="262" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="middle" fill="#111" font-weight="bold">chave 1-0-2</text>
+<text x="1150" y="278" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">2 polos, 40 A</text>
+<text x="1150" y="292" font-family="Arial, Helvetica, sans-serif" font-size="10.5" text-anchor="middle" fill="#111">1 = inversor · 2 = rede</text>
+<path d="M 1210 262 L 1290 262" stroke="#111" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1210 278 L 1290 278" stroke="#4aa3df" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="1250" cy="262" r="11" fill="none" stroke="#b8860b" stroke-width="2.5"/>
+<text x="1250" y="244" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#b8860b" font-weight="bold">TC 43</text>
+<rect x="1290" y="120" width="270" height="440" rx="5" fill="#fbfbfb" stroke="#111" stroke-width="2.2"/>
+<text x="1425" y="142" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="middle" fill="#111" font-weight="bold">QDC — cargas críticas</text>
+<text x="1425" y="158" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">(saída do inversor via 1-0-2)</text>
+<rect x="1304" y="220" width="242" height="48" rx="3" fill="#fff8e8" stroke="#b8860b" stroke-width="1.5"/>
+<text x="1425" y="240" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">PZEM-016 · end. 43 (TC 100 A)</text>
+<text x="1425" y="256" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">saída do inversor (consumo crítico)</text>
+<rect x="1304" y="276" width="242" height="26" rx="3" fill="#fde3df" stroke="#111" stroke-width="1.2"/>
+<text x="1425" y="294" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">DPS classe II 275 V</text>
+<line x1="1320" y1="316" x2="1320" y2="540" stroke="#111" stroke-width="3"/>
+<line x1="1320" y1="332" x2="1340" y2="332" stroke="#111" stroke-width="2"/>
+<rect x="1340" y="324" width="14" height="16" fill="#fde3df" stroke="#111" stroke-width="1"/>
+<line x1="1354" y1="332" x2="1366" y2="332" stroke="#111" stroke-width="2"/>
+<text x="1372" y="336" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">iluminação da casa (todos</text>
+<text x="1372" y="358" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">os circuitos de luz)</text>
+<line x1="1320" y1="386" x2="1340" y2="386" stroke="#111" stroke-width="2"/>
+<rect x="1340" y="378" width="14" height="16" fill="#fde3df" stroke="#111" stroke-width="1"/>
+<line x1="1354" y1="386" x2="1366" y2="386" stroke="#111" stroke-width="2"/>
+<text x="1372" y="390" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">rack de rede (modo UPS)</text>
+<line x1="1320" y1="418" x2="1340" y2="418" stroke="#111" stroke-width="2"/>
+<rect x="1340" y="410" width="14" height="16" fill="#fde3df" stroke="#111" stroke-width="1"/>
+<line x1="1354" y1="418" x2="1366" y2="418" stroke="#111" stroke-width="2"/>
+<text x="1372" y="422" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">QAU — Q1 1P+N 10 A C</text>
+<text x="1372" y="444" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">&quot;Automação&quot; (desenho 05)</text>
+<line x1="1320" y1="472" x2="1340" y2="472" stroke="#111" stroke-width="2"/>
+<rect x="1340" y="464" width="14" height="16" fill="#fde3df" stroke="#111" stroke-width="1"/>
+<line x1="1354" y1="472" x2="1366" y2="472" stroke="#111" stroke-width="2"/>
+<text x="1372" y="476" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">geladeira (opcional)</text>
+<text x="1425" y="545" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#a3221a">circuitos e disjuntores: (verificar)</text>
+<text x="1150" y="390" font-family="Arial, Helvetica, sans-serif" font-size="1" text-anchor="start" fill="#111"></text>
+<line x1="1125" y1="470" x2="1160" y2="470" stroke="#1f3a93" stroke-width="2" stroke-dasharray="8 4"/>
+<text x="1130" y="462" font-family="Arial, Helvetica, sans-serif" font-size="10.5" text-anchor="start" fill="#1f3a93">RS-485 D</text>
+<rect x="34" y="628" width="640" height="330" rx="6" fill="#fff" stroke="#999" stroke-width="1"/>
+<text x="46" y="650" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="start" fill="#111" font-weight="bold">Parametrização do inversor (§4.1 — verificar no manual)</text>
+<text x="46" y="672" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Bateria &quot;LiFePO4&quot;/&quot;USER&quot;: carga 28,4 V · flutuação 27,6 V · corte 24,0 V · retorno 25,6 V</text>
+<text x="46" y="689" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Corrente de carga máx. 50 A (0,25 C do banco de 200 Ah). Limitar a carga do inversor a ≤ 0,5 C.</text>
+<text x="46" y="706" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Energia útil: 5,12 kWh × 0,9 × 0,92 ≈ 4,2 kWh. Ex.: ≈ 430 W (luz 250 + rack 80 + automação 60</text>
+<text x="46" y="723" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">+ autoconsumo 40) → autonomia ≈ 9,8 h.</text>
+<text x="46" y="756" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="start" fill="#111" font-weight="bold">Nobreak na tela T4 (§12)</text>
+<text x="46" y="778" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">41 PZEM-017: tensão, corrente e potência do banco → % de carga, autonomia.</text>
+<text x="46" y="795" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">42 PZEM-016: rede &lt; 180 V por 5 s = alerta critical &quot;casa no inversor&quot;.</text>
+<text x="46" y="812" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">43 PZEM-016: potência de saída (consumo das cargas críticas).</text>
+<text x="46" y="829" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">SoC por contagem de Ah; recalibra em 100 % (≥ 27,6 V e &lt; 5 A por 10 min) e 10 % (≤ 24,0 V).</text>
+<text x="46" y="846" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Bateria 20 %: warning · 10 %: critical.</text>
+<text x="46" y="880" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="start" fill="#111" font-weight="bold">Instalação</text>
+<text x="46" y="902" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Ambiente ventilado, 10–35 °C, ≥ 0,5 m do QAU, sem material combustível; extintor CO₂ 6 kg na porta.</text>
+<text x="46" y="919" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Aterramento: ligação N-PE da saída conforme o manual (QDC usa o PE da casa, TN-S); confirmar que o DR</text>
+<text x="46" y="936" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">do QDC não desarma ao comutar (verificar).</text>
+<text x="40" y="1010" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="start" fill="#111" font-weight="bold">Legenda</text>
+<path d="M 40 1032 L 86 1032" stroke="#d32" stroke-width="5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="94" y="1036" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">DC + (35/50 mm²)</text>
+<path d="M 260 1032 L 306 1032" stroke="#111" stroke-width="5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="314" y="1036" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">DC − / fase L</text>
+<path d="M 480 1032 L 526 1032" stroke="#4aa3df" stroke-width="5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="534" y="1036" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">neutro N</text>
+<line x1="700" y1="1032" x2="746" y2="1032" stroke="#1f3a93" stroke-width="2.5" stroke-dasharray="8 4"/>
+<text x="754" y="1036" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">RS-485 D</text>
+<circle cx="60" cy="1062" r="10" fill="none" stroke="#b8860b" stroke-width="2.5"/>
+<text x="80" y="1066" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">TC 100 A do PZEM-016 (núcleo aberto)</text>
+<line x1="400" y1="1056" x2="400" y2="1068" stroke="#888" stroke-width="2"/>
+<text x="410" y="1066" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">sinal de medição (X9)</text>
+<g id="carimbo">
+<rect x="980" y="998" width="600" height="132" fill="#fff" stroke="#111" stroke-width="2"/>
+<line x1="980" y1="1030" x2="1580" y2="1030" stroke="#111" stroke-width="1"/>
+<line x1="980" y1="1074" x2="1580" y2="1074" stroke="#111" stroke-width="1"/>
+<line x1="980" y1="1102" x2="1580" y2="1102" stroke="#111" stroke-width="1"/>
+<line x1="1130" y1="1074" x2="1130" y2="1102" stroke="#111" stroke-width="1"/>
+<line x1="1270" y1="1074" x2="1270" y2="1102" stroke="#111" stroke-width="1"/>
+<line x1="1310" y1="1102" x2="1310" y2="1130" stroke="#111" stroke-width="1"/>
+<text x="992" y="1020" font-family="Arial, Helvetica, sans-serif" font-size="16" text-anchor="start" fill="#111" font-weight="bold">NexusHome OS — Projeto de Automação Unificado</text>
+<text x="992" y="1059" font-family="Arial, Helvetica, sans-serif" font-size="20" text-anchor="start" fill="#111" font-weight="bold">Banco de baterias, inversor e QDC</text>
+<text x="992" y="1094" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111" font-weight="bold">Folha 10/11</text>
+<text x="1142" y="1094" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111">Rev. v2.16</text>
+<text x="1282" y="1094" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="start" fill="#111">Escala: sem escala</text>
+<text x="992" y="1121" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Fonte: docs/projeto-unificado.md</text>
+<text x="1322" y="1121" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Arquivo: 10-nobreak.svg</text>
+</g>
+</svg>

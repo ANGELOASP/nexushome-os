@@ -3,7 +3,7 @@
 // ------------------------------------------------------------
 // Lógica pura (testável com `npm test`): o que o cartão de um sensor mostra a
 // partir do status que a tela do quadro publica (docs/projeto-unificado.md §15).
-//   sensores por cômodo: temp, hum, presence, smoke, heat, door
+//   sensores por cômodo: temp, hum, presence, smoke, heat, door (true = aberta)
 //   gás: gas_lel, gas_al1, gas_al2      reservatório: level_pct, volume_l
 //   nobreak: soc, batt_v, batt_a, grid_v, grid_fail, on_battery, autonomy_h, out_w
 // ============================================================
@@ -31,7 +31,8 @@ export function sensorReadings(s = {}) {
   if (typeof s.presence === 'boolean') out.push({ key: 'presence', label: 'Presença', value: s.presence ? 'alguém' : 'vazio', alarm: false });
   if (typeof s.smoke === 'boolean') out.push({ key: 'smoke', label: 'Fumaça', value: s.smoke ? 'ALARME' : 'normal', alarm: s.smoke });
   if (typeof s.heat === 'boolean') out.push({ key: 'heat', label: 'Calor', value: s.heat ? 'ALARME' : 'normal', alarm: s.heat });
-  if (typeof s.door === 'boolean') out.push({ key: 'door', label: 'Porta', value: s.door ? 'fechada' : 'aberta', alarm: false });
+  // door: true = porta ABERTA (firmware esp32s3_seguranca: contato NF aberto)
+  if (typeof s.door === 'boolean') out.push({ key: 'door', label: 'Porta', value: s.door ? 'aberta' : 'fechada', alarm: false });
   if (s.leak === true) out.push({ key: 'leak', label: 'Vazamento', value: 'ALARME', alarm: true });
   return out;
 }

@@ -247,7 +247,7 @@ Nós por barramento: A = 36 + mestre (dividido em 3 ramos pelo hub); B = 14 + me
   - P2: QDG fileiras 1 e 2 (PZEM 7–21).
   - P3: QDG fileira 3 (PZEM 23–40).
   - P4: reserva.
-  - Terminação: na tela, em cada porta do hub (jumper) e no último PZEM de cada fileira.
+  - Terminação: na tela e em cada porta do hub (jumper). O trecho tela → entrada do hub também é um barramento: se o hub tiver jumper na entrada, ligue-o; trechos internos curtos (< 2 m) funcionam sem. Depois, e no **último PZEM de cada ramo**: PZEM 21 no P2 (as fileiras 1 e 2 ficam em série, o PZEM 16 **não** leva resistor) e PZEM 40 no P3.
 - **B (Segurança):** T3 → X5-B → **HUB-B**.
   - P1: módulos 90–93 no QAU.
   - P2: ala íntima: XY-MD02 82, 83, 84, 85, 86.
@@ -275,11 +275,11 @@ Se você **quiser** o gateway como mestre permanente da energia, para a tela pod
 
 | Item | Especificação |
 |---|---|
-| Caixa | Quadro de comando em aço carbono, pintura epóxi, **IP54**, **1000 × 800 × 300 mm** (A × L × P), porta única com fecho de lingueta e chave, **placa de montagem** galvanizada (≈ 940 × 740 mm) |
+| Caixa | Quadro de comando em aço carbono, pintura epóxi, **IP54**, **1200 × 800 × 300 mm** (A × L × P), porta única com fecho de lingueta e chave, **placa de montagem** galvanizada (≈ 1140 × 740 mm). São ~250 bornes: precisam de **dois trilhos de réguas** (R5 e R6) |
 | Recortes na porta | 4 janelas para as telas 4,3": recorte de **108 × 70 mm** cada, com moldura/escudo impresso em 3D ou de acrílico **(verificar no desenho mecânico da placa comprada)** |
-| Ventilação | 2 grelhas com filtro 120 × 120 mm (entrada embaixo à esquerda, saída em cima à direita). Ventilador 24 V 120 mm opcional, com termostato DIN a 35 °C |
+| Ventilação | 2 grelhas com filtro 120 × 120 mm **nas laterais** (entrada embaixo na lateral esquerda, saída em cima na lateral direita: a porta fica livre para as telas). Ventilador 24 V 120 mm opcional, com termostato DIN a 35 °C |
 | Entrada de cabos | Base com flange removível e prensa-cabos PG/M (M25 para Cat.6, M32 para multivias, M40 para chicotes de 220 V) |
-| Montagem | Base do quadro a 0,60 m do piso, **centro das telas a 1,50 m** do piso, espaço livre de 1,0 m à frente (NR-10) |
+| Montagem | Base do quadro a 0,50 m do piso, **centro das telas a 1,50 m** do piso, espaço livre de 1,0 m à frente (NR-10) |
 | Aterramento | Barra de PE de cobre 12 furos; cordoalha de 6 mm² entre porta e caixa |
 | Identificação | Plaqueta "QAU — Automação — 220 V / 24 V", diagrama dentro do bolso da porta |
 
@@ -296,14 +296,16 @@ Coordenada **y** = distância do topo da placa de montagem até o eixo do trilho
 | C3 | 380 | Canaleta 40 × 60 | dados RS-485 (exclusiva) |
 | **R3 — Relés de energia e água** | 470 | Trilho TS35 | **Relay 32CH (5)** · **Relay 16CH (6)** · **Relay 32CH (22)** · **Relay 8CH (4)** · contadoras FT-PFC-04 (1, 2) |
 | C4 | 560 | Canaleta 60 × 80 | comando 220 V das bobinas e paralelos das luzes (**exclusiva 220 V**) |
-| **R4 — Interface 220 V** | 640 | Trilho TS35 com barreira | 10 × relé de retorno Finder 38.51 230 V CA (KR1–KR10) · bornes de 220 V da iluminação |
-| C5 | 720 | Canaleta 60 × 80 | |
-| **R5 — Réguas de bornes** | 800 | Trilho TS35 | **X0** (entrada CA) · **X3** (comando dos contatores) · **X4** (luzes) · barreira · **X1/X2** (24 V) · **X5** (RS-485) · **X6** (entradas de campo) · **X7** (água) · **X8** (saídas de segurança) · **X9** (nobreak) · barra PE |
-| Fundo | 860–940 | Prateleira/suporte | 2 × VRLA 12 V 7 Ah (esquerda) · reserva |
+| **R4 — Interface 220 V** | 640 | Trilho TS35 com barreira | 10 × relé de retorno Finder 38.51 230 V CA (KR1–KR10) · 2 × relé de interface dos exaustores Finder 38.51 24 V CC (KE1, KE2) |
+| C5 | 720 | Canaleta 60 × 80 com divisória | fios de R4/R5 para cima: **220 V à esquerda** (X0, X3, X4, KR, KE) e **24 V à direita** (X1/X2) — a divisória continua a barreira |
+| **R5 — Réguas de bornes (força e 24 V)** | 800 | Trilho TS35 | **X0** (entrada CA) · **X3** (comando dos contatores) · **X4** (luzes) · barreira · **X1/X2** (24 V) |
+| C6 | 870 | Canaleta 60 × 80 (só SELV) | fios de campo de X5–X9 (RS-485, entradas, válvulas, sirenes) e chicotes da porta; nada de 220 V |
+| **R6 — Réguas de bornes (campo)** | 950 | Trilho TS35 | **X5** (RS-485) · **X6** (entradas de campo) · **X7** (água) · **X8** (saídas de segurança) · **X9** (nobreak). São 148 bornes: **push-in 1,5 mm² com no máximo 4,2 mm de largura** (148 × 4,2 ≈ 622 mm + tampas e batentes ≈ 650 mm, cabe nos ≈ 720 mm úteis). A **barra PE** sai do trilho e vai parafusada na placa, logo abaixo do R6 (y ≈ 1000), à direita |
+| Fundo | 1020–1130 | Prateleira/suporte | 2 × VRLA 12 V 7 Ah (esquerda) · reserva |
 
-**Zonas.** A metade esquerda das fileiras R4–R5 é a **zona 220 V**, separada da zona SELV (24 V e dados) por uma **barreira isolante** e por canaletas próprias (C4). Nenhum fio de 24 V passa na canaleta do 220 V.
+**Zonas.** A metade esquerda das fileiras R4–R5 (X0, X3, X4, KR, KE) é a **zona 220 V**, separada da zona SELV (24 V e dados) por uma **barreira isolante** e por canaletas próprias (C4). Nenhum fio de 24 V passa na canaleta do 220 V.
 
-**Ligações da porta (telas):** um **chicote flexível** por tela, com cabo PP 4 × 0,5 mm² blindado (+24 V marrom, 0 V azul, A preto, B branco; malha no SH). Os chicotes passam por um **laço de dobradiça** de 300 mm do lado das dobradiças e terminam no borne X5 do barramento da tela e em X1/X2 (alimentação).
+**Ligações da porta (telas):** um **chicote flexível** por tela (malha no SH). O RS-485 da 4.3B é isolado, então o GND de referência do barramento é um condutor próprio: o chicote leva **6 vias** (PP blindado 6 × 0,5 mm²: +24 V marrom, 0 V azul, A preto, B branco, **GND do RS-485 cinza**, reserva verde). Os chicotes passam por um **laço de dobradiça** de 300 mm do lado das dobradiças e terminam no borne X5 do barramento da tela e em X1/X2 (alimentação).
 
 ### 6.3 Tampa (porta) com quatro telas
 
@@ -339,9 +341,9 @@ Quatro telas lado a lado na altura dos olhos, da esquerda para a direita: **T1 �
 - **Todo fio flexível leva terminal tubular (ilhós) isolado DIN 46228-4**, crimpado com alicate de catraca quadrado.
   - Cores do ilhós por bitola: 0,5 mm² branco · 0,75 cinza · 1,0 vermelho · 1,5 preto · 2,5 azul · 4 cinza · 6 amarelo.
   - Dois fios num borne: ilhós **duplo**.
-- **Anilhas** nas duas pontas de cada fio, no formato `régua.borne`. Exemplo: o fio que sai de X4.12 leva "X4.12" na ponta do QAU e "L03-P2" na ponta da caixa de parede.
+- **Anilhas** nas duas pontas de cada fio, no formato `régua.borne`. Exemplo: o fio que sai de X4.32 leva "X4.32" na ponta do QAU e "L03-P2" na ponta da caixa de parede (X4.n1…n4: o ponto L03 usa X4.31–X4.34).
 - Cabos de bateria: **terminal de compressão de cobre estanhado** (olhal M8) e termo-retrátil vermelho/preto.
-- Bornes: **push-in (mola)**, 2,5 mm² (sinais e 24 V) e 4 mm² (entradas), com tampa final e pontes. Bornes-fusível 5 × 20 com LED. Bornes de terra verde-amarelo.
+- Bornes: **push-in (mola)**, com tampa final e pontes. R5 (força e 24 V): 2,5 mm² e 4 mm² (entradas CA). R6 (campo): **1,5 mm², largura ≤ 4,2 mm** (os sinais de campo chegam em 0,5–1,5 mm²). Bornes-fusível 5 × 20 com LED. Bornes de terra verde-amarelo.
 
 ---
 
@@ -440,7 +442,7 @@ Para cada ponto de luz **Ln** (n = 1…10), há quatro bornes:
 | L09 | Lavanderia | 91 / 1 | KR9 → 91 / DI1 |
 | L10 | Área Externa | 91 / 2 | KR10 → 91 / DI2 |
 
-O contato **NA** de cada KRn fecha o **+24 V segurança** (X2) na entrada DIn do módulo (fio preto 0,5 mm²). O comum das entradas do módulo vai ao 0 V **(verificar no manual do Relay (D) se a entrada é "fonte" ou "dreno")**.
+O contato **NA** de cada KRn fecha o **+24 V segurança** (X2) na entrada DIn do módulo (fio preto 0,5 mm²). O comum das entradas do módulo vai ao 0 V **(verificar no manual do Relay (D) se a entrada é "fonte" ou "dreno")**. Se a leitura sair invertida, o firmware de segurança corrige com `DI_INVERT_90…93`, sem mexer na fiação.
 
 ### X5 — RS-485
 
@@ -513,8 +515,8 @@ Cabo de cada cômodo até o QAU: **Cat.6 U/UTP em home-run**.
 
 | Bornes | Ligação |
 |---|---|
-| X7.1–X7.24 | 8 válvulas × 3 fios. **Vermelho = ABRE** (vai ao **NF** do canal do relé 4), **azul = FECHA** (vai ao **NA**), **preto = 0 V**. COM de cada canal = +24 V (X1.15, via FU8). Relé desligado = válvula aberta |
-| X7.25–X7.39 | 7 medidores de vazão BT01/K24: +24 (marrom), 0 V (azul), pulso (preto) → DI1–DI4 da contadora 1 e DI1–DI3 da contadora 2 **(verificar a tensão do sensor; se for 5 V, use DC-DC)** |
+| X7.1–X7.24 | 8 válvulas × 3 fios, **válvula n no canal n do relé 4** (1–6 ramais, 7 geral, 8 externa, a mesma ordem do firmware). **Vermelho = ABRE** (vai ao **NF** do canal do relé 4), **azul = FECHA** (vai ao **NA**), **preto = 0 V**. COM de cada canal = +24 V (X1.15, via FU8). Relé desligado = válvula aberta |
+| X7.25–X7.45 | 7 medidores de vazão BT01/K24: +24 (marrom), 0 V (azul), pulso (preto) → DI1–DI4 da contadora 1 e DI1–DI3 da contadora 2 **(verificar a tensão do sensor; se for 5 V, use DC-DC)** |
 
 ### X8 — saídas de segurança (24 V segurança)
 
@@ -528,6 +530,8 @@ Cabo de cada cômodo até o QAU: **Cat.6 U/UTP em home-run**.
 | X8.6 | +24 V (FU18) → COM do Relay 91 / CH5; o NA vai à sirene interna (+) |
 | X8.7 | +24 V (FU18) → COM do Relay 91 / CH6; o NA vai à sirene externa (+) |
 | X8.8 | AL2 dos transmissores em paralelo (NA) → sirene interna (+). A sirene toca mesmo com a automação desligada |
+| X8.11 | +24 V (FU18) → comum dos contatos AL2 NA em paralelo (alimenta o X8.8) |
+| X2.16 | 0 V das duas sirenes (−) |
 | X8.9 / X8.10 | Relay 91 / CH3 e CH4: comando dos exaustores dos banheiros. O contato NA comanda um **relé de interface 24 V** na zona 220 V, que liga a fase do exaustor |
 
 ### X9 — nobreak
@@ -651,6 +655,8 @@ Correções deste projeto:
 | Cômodos | Waveshare **ESP32-S3-Touch-LCD-7** (800 × 480) | cada cômodo, ao lado da porta, a 1,30 m | aparelhos do cômodo + resumo da casa | fonte 5 V 2 A de embutir (caixa 4 × 4) ou USB-C | `nexus_painel` (`PAINEL_MODO_COMODO`, `PAINEL_COMODO "Cozinha"`) |
 | Servidor | monitor HDMI 21"–24" | sala técnica ou escritório | NexusHome OS em tela cheia | — | `scripts/quiosque-nexushome.ps1` |
 
+**Tela do corredor:** a parte de cima mostra a **planta da casa que está no NexusHome** (a mesma do app, desenhada no Editor de Planta ou importada do DXF). Cada cômodo é colorido pelo estado: âmbar com luz ou aparelho ligado, vermelho com alarme. Cada aparelho aparece como um ponto, e tocar num cômodo filtra a lista de aparelhos embaixo. Capturas: [`docs/img/painel-p4-planta.png`](img/painel-p4-planta.png), [`painel-p4-alarme.png`](img/painel-p4-alarme.png), [`painel-p4-deitado.png`](img/painel-p4-deitado.png) e [`painel-7-cozinha.png`](img/painel-7-cozinha.png); dá para refazer no PC com `firmware/nexus_painel/simulador/rodar.sh`.
+
 As telas de corredor e de cômodo **não** ficam no RS-485. Elas falam com o NexusHome pela rede. Sem internet, mostram "sem conexão" e o último estado conhecido; a proteção continua nas telas do QAU.
 
 ---
@@ -719,11 +725,12 @@ As telas de corredor e de cômodo **não** ficam no RS-485. Elas falam com o Nex
 | 42 | Exaustor — Banheiro 2 | `fan` | Banheiro 2 |
 | 50 | Alarme da casa | `alarm` | Sala de Estar |
 
-Status publicado pelos sensores (chaves): `temp`, `hum`, `presence`, `smoke`, `heat`, `door`, `gas_lel`, `gas_al1`, `gas_al2`. Os alarmes ativos aparecem como `smoke: true`, `leak`/`gas: true` etc.; o app e as telas pintam de vermelho.
+Status publicado pelos sensores (chaves): `temp`, `hum`, `presence`, `smoke`, `heat`, `door` (`true` = porta **aberta**), `gas_lel`, `gas_al1`, `gas_al2`. Os alarmes ativos aparecem como `smoke: true`, `leak`/`gas: true` etc.; o app e as telas pintam de vermelho.
 
 ### 15.2 Servidor (iot-gateway v11, migração 025)
 
-- `GET /iot-gateway/panel?room=&limit=`: resumo da casa para P4 e 7".
+- `GET /iot-gateway/panel?room=&limit=&plan=0`: resumo da casa para P4 e 7". Com `plan=0` (P4 do corredor) vem também `ps`, a assinatura da planta do andar.
+- `GET /iot-gateway/panel/plan?floor=0`: a planta do app (cômodos com polígonos, paredes e a posição de cada aparelho) para o P4 desenhar. A resposta traz `sig`. **A planta do P4 é sempre a da última versão do app**: não há planta gravada no firmware; o P4 baixa a planta ao ligar e, a cada consulta (3 s), compara `ps` com a assinatura da planta que está desenhando. Mudou um cômodo, parede ou aparelho no Editor de Planta (ou um DXF novo) → baixa e redesenha em poucos segundos, sem regravar nada. Por garantia, também baixa a cada 30 min.
 - `POST /iot-gateway/panel/command {device_id, action, value}`: liga e desliga, brilho, temperatura, abrir e fechar, armar o alarme. Para aparelhos com `hw`, o comando vai para a fila da tela do barramento.
 - Lote com `"source": "seguranca" | "agua" | "nobreak" | "eletrica"`: o alerta sai com o módulo certo.
 - **Migração 025:** novas métricas de histórico: `battery_soc`, `battery_voltage`, `gas_lel`, `grid_voltage`, `power_backup_w`. **Sem a 025** o gateway grava o status (painel ao vivo) e responde "execute a migração 025" para o histórico novo.
@@ -736,9 +743,9 @@ Status publicado pelos sensores (chaves): `temp`, `hum`, `presence`, `smoke`, `h
 
 | Qtd | Item | Especificação mínima |
 |---|---|---|
-| 1 | Quadro de comando (QAU) | aço, IP54, 1000 × 800 × 300 mm, placa de montagem, porta com chave |
-| 5 m | Trilho DIN TS35 | perfurado, 35 × 7,5 mm |
-| 6 m | Canaleta recortada | PVC cinza, 40 × 60 mm (3 m) e 60 × 80 mm (3 m), com tampa |
+| 1 | Quadro de comando (QAU) | aço, IP54, 1200 × 800 × 300 mm, placa de montagem, porta com chave |
+| 6 m | Trilho DIN TS35 | perfurado, 35 × 7,5 mm (R1–R6) |
+| 7 m | Canaleta recortada | PVC cinza, 40 × 60 mm (3 m), 60 × 60 mm (1 m, C1) e 60 × 80 mm (3 m), com tampa |
 | 1 | Barreira isolante | policarbonato 3 mm para separar a zona 220 V |
 | 1 | Barra de terra | cobre, 12 furos, com isoladores |
 | 2 | Grelhas de ventilação com filtro | 120 × 120 mm (IP54) |
@@ -759,7 +766,7 @@ Status publicado pelos sensores (chaves): `temp`, `hum`, `presence`, `smoke`, `h
 | 1 | F2 | Mean Well **DRC-100B** (27,6 V, 100 W, com carregador e alarme) |
 | 2 | Baterias da F2 | VRLA 12 V 7 Ah (série) |
 | 1 | Tomada de serviço DIN | 2P+T 10 A |
-| 19 | Bornes-fusível | 5 × 20, com LED 24 V. Fusíveis rápidos: 9 × 1 A, 9 × 2 A, 1 × 5 A (bateria) |
+| 19 | Bornes-fusível | 5 × 20, com LED 24 V. Fusíveis rápidos: **10 × 1 A, 8 × 2 A** (tabelas X1/X2) e 1 × 5 A (bateria) |
 | 1 | Disjuntor de comando no QDG | 1P, 2 A, curva C (fase de comando dos contatores) |
 
 ### 16.3 Controle e comunicação
@@ -781,7 +788,7 @@ Status publicado pelos sensores (chaves): `temp`, `hum`, `presence`, `smoke`, `h
 | 8 | Sensores de temperatura/umidade | **XY-MD02** (SHT20, RS-485 Modbus) |
 | 2 | Transmissores de gás | RS-485 Modbus + 2 relés AL1/AL2, 24 V, calibrados para GLP **ou** gás natural |
 | 1 | Válvula de gás | solenoide NF com rearme manual, 24 V CC, certificada |
-| 6 | Detectores de fumaça | óptico autônomo com saída a relé, 12–24 V |
+| 5 | Detectores de fumaça | óptico autônomo com saída a relé, 12–24 V (salas e quartos: X6.25–X6.40) |
 | 1 | Detector térmico | termovelocimétrico com saída a relé (cozinha) |
 | 8 | Sensores de presença | mmWave 24 GHz ou PIR de teto, **saída a relé**, 12–24 V |
 | 2 | Contatos magnéticos | de sobrepor/embutir, NF |
@@ -797,7 +804,7 @@ Status publicado pelos sensores (chaves): `temp`, `hum`, `presence`, `smoke`, `h
 |---|---|---|
 | 305 m (1 caixa) | Cat.6 U/UTP | 4 pares 23 AWG, CM, para os home-runs dos sensores |
 | 100 m | Cat.6 F/UTP blindado | 4 pares, para os ramos RS-485 de campo |
-| 20 m | Cabo PP flexível blindado | 4 × 0,5 mm², para os chicotes da porta e o trecho do shunt |
+| 20 m | Cabo PP flexível blindado | 6 × 0,5 mm², para os chicotes da porta (e 2 × 0,5 mm² para o trecho do shunt) |
 | 100 m de cada | Cabo flexível 750 V (classe 5) | 1,0 mm²: vermelho (comando CA), marrom (+24), azul-escuro (0 V) |
 | 50 m | Cabo flexível 750 V | 0,5 mm² preto (sinais DI dentro do QAU) |
 | 100 m de cada | Cabo flexível 750 V | 1,5 mm²: laranja (paralelos), cinza (retorno), azul-claro (N), preto (fase) |
@@ -806,7 +813,8 @@ Status publicado pelos sensores (chaves): `temp`, `hum`, `presence`, `smoke`, `h
 | 3 m | Cabo de bateria | 50 mm² classe 5, vermelho e preto (1,5 m cada) |
 | 1 kit | Terminais tubulares DIN 46228-4 | isolados, 0,5 / 0,75 / 1,0 / 1,5 / 2,5 mm² (500 de cada) + duplos 2 × 1,0 e 2 × 1,5 |
 | 8 | Terminais de compressão | olhal M8 para 35 e 50 mm², cobre estanhado + termo-retrátil |
-| 120 | Bornes push-in 2,5 mm² | cinza (sinais/24 V) + 30 azuis (neutro) + 20 verde-amarelo (terra) + tampas e pontes |
+| 120 | Bornes push-in 2,5 mm² | R5: cinza (24 V e comando) + 30 azuis (neutro) + 20 verde-amarelo (terra) + tampas e pontes |
+| 160 | Bornes push-in 1,5 mm² | R6 (X5–X9): cinza, **largura ≤ 4,2 mm** (148 + reserva) + tampas, batentes e pontes |
 | 20 | Bornes push-in 4 mm² | cinza (entradas CA) |
 | 1 rolo | Anilhas de identificação | letras e números para 0,5–2,5 mm² + etiquetas de borne |
 | 10 | Resistores de terminação | 120 Ω ¼ W (um por ponta de ramo) |

@@ -24,7 +24,7 @@ insert into public.devices (id, name, type, model, room, status, is_online, hw) 
   ('b3000000-0000-4000-8000-000000000010', 'Luz — Área Externa', 'light', 'outdoor_light', 'Área Externa', '{"on": false}', false, 'esp32-seguranca'),  -- L10 · relé 91/2 · three-way
   ('b3000000-0000-4000-8000-000000000021', 'Sensores — Sala de Estar', 'sensor', 'presence', 'Sala de Estar', '{"temp": null, "hum": null, "presence": false, "smoke": false}', false, 'esp32-seguranca'),
   ('b3000000-0000-4000-8000-000000000022', 'Sensores — Sala de TV', 'sensor', 'presence', 'Sala de TV', '{"temp": null, "hum": null, "presence": false, "smoke": false}', false, 'esp32-seguranca'),
-  ('b3000000-0000-4000-8000-000000000023', 'Sensores — Cozinha', 'sensor', 'smoke', 'Cozinha', '{"presence": false, "heat": false, "door": true}', false, 'esp32-seguranca'),
+  ('b3000000-0000-4000-8000-000000000023', 'Sensores — Cozinha', 'sensor', 'smoke', 'Cozinha', '{"presence": false, "heat": false, "door": false}', false, 'esp32-seguranca'),
   ('b3000000-0000-4000-8000-000000000024', 'Sensores — Quarto Principal', 'sensor', 'presence', 'Quarto Principal', '{"temp": null, "hum": null, "presence": false, "smoke": false}', false, 'esp32-seguranca'),
   ('b3000000-0000-4000-8000-000000000025', 'Sensores — Quarto 2', 'sensor', 'presence', 'Quarto 2', '{"temp": null, "hum": null, "presence": false, "smoke": false}', false, 'esp32-seguranca'),
   ('b3000000-0000-4000-8000-000000000026', 'Sensores — Quarto 3', 'sensor', 'presence', 'Quarto 3', '{"temp": null, "hum": null, "presence": false, "smoke": false}', false, 'esp32-seguranca'),

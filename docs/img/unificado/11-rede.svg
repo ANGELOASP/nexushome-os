@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100" font-family="Arial, Helvetica, sans-serif">
+<title>11 — Rede: rack, telas, servidor e IPs</title>
+<defs>
+  <marker id="dimA" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#333"/></marker>
+  <marker id="arrK" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker>
+  <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f3a93"/></marker>
+  <marker id="arrO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f28c28"/></marker>
+  <marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2a8a2a"/></marker>
+  <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d32"/></marker>
+  <pattern id="hatch" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="10" stroke="#999" stroke-width="1.2"/></pattern>
+  <pattern id="hatchR" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="10" stroke="#e8a59a" stroke-width="2"/></pattern>
+  <pattern id="slots" patternUnits="userSpaceOnUse" width="12" height="12"><rect x="3" y="0" width="6" height="12" fill="#cfcfcf"/></pattern>
+  <pattern id="grelha" patternUnits="userSpaceOnUse" width="8" height="8"><line x1="0" y1="4" x2="8" y2="4" stroke="#555" stroke-width="2"/></pattern>
+</defs>
+<rect x="0" y="0" width="1600" height="1100" fill="#ffffff"/>
+<rect x="10" y="10" width="1580" height="1080" fill="none" stroke="#111" stroke-width="1"/>
+<rect x="20" y="20" width="1560" height="1060" fill="none" stroke="#111" stroke-width="2.5"/>
+<text x="40" y="52" font-family="Arial, Helvetica, sans-serif" font-size="22" text-anchor="start" fill="#111" font-weight="bold">Rede — rack 12U, telas, servidor e plano de IPs (§13, §14)</text>
+<text x="40" y="74" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="start" fill="#333">Sem escala. Rede 192.168.1.0/24 com DHCP reservado no roteador. Telas de corredor e de cômodo NÃO ficam no RS-485: falam com o NexusHome pela rede.</text>
+<text x="70" y="118" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="start" fill="#111" font-weight="bold">Rack de parede 19&quot; 12U — vista frontal</text>
+<rect x="70" y="130" width="340" height="544" rx="4" fill="#e9ecef" stroke="#111" stroke-width="2.5"/>
+<rect x="100" y="150" width="280" height="504" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="94" y="175" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#555">1</text>
+<line x1="100" y1="150" x2="380" y2="150" stroke="#ddd" stroke-width="0.8"/>
+<text x="94" y="217" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#555">2</text>
+<line x1="100" y1="192" x2="380" y2="192" stroke="#ddd" stroke-width="0.8"/>
+<text x="94" y="259" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#555">3</text>
+<line x1="100" y1="234" x2="380" y2="234" stroke="#ddd" stroke-width="0.8"/>
+<text x="94" y="301" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#555">4</text>
+<line x1="100" y1="276" x2="380" y2="276" stroke="#ddd" stroke-width="0.8"/>
+<text x="94" y="343" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#555">5</text>
+<line x1="100" y1="318" x2="380" y2="318" stroke="#ddd" stroke-width="0.8"/>
+<text x="94" y="385" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#555">6</text>
+<line x1="100" y1="360" x2="380" y2="360" stroke="#ddd" stroke-width="0.8"/>
+<text x="94" y="427" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#555">7</text>
+<line x1="100" y1="402" x2="380" y2="402" stroke="#ddd" stroke-width="0.8"/>
+<text x="94" y="469" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#555">8</text>
+<line x1="100" y1="444" x2="380" y2="444" stroke="#ddd" stroke-width="0.8"/>
+<text x="94" y="511" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#555">9</text>
+<line x1="100" y1="486" x2="380" y2="486" stroke="#ddd" stroke-width="0.8"/>
+<text x="94" y="553" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#555">10</text>
+<line x1="100" y1="528" x2="380" y2="528" stroke="#ddd" stroke-width="0.8"/>
+<text x="94" y="595" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#555">11</text>
+<line x1="100" y1="570" x2="380" y2="570" stroke="#ddd" stroke-width="0.8"/>
+<text x="94" y="637" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#555">12</text>
+<line x1="100" y1="612" x2="380" y2="612" stroke="#ddd" stroke-width="0.8"/>
+<rect x="104" y="153" width="272" height="36" rx="3" fill="#dfe7f0" stroke="#333" stroke-width="1.3"/>
+<rect x="114" y="159" width="14" height="10" fill="#fff" stroke="#555" stroke-width="0.8"/>
+<rect x="135" y="159" width="14" height="10" fill="#fff" stroke="#555" stroke-width="0.8"/>
+<rect x="156" y="159" width="14" height="10" fill="#fff" stroke="#555" stroke-width="0.8"/>
+<rect x="177" y="159" width="14" height="10" fill="#fff" stroke="#555" stroke-width="0.8"/>
+<rect x="198" y="159" width="14" height="10" fill="#fff" stroke="#555" stroke-width="0.8"/>
+<rect x="219" y="159" width="14" height="10" fill="#fff" stroke="#555" stroke-width="0.8"/>
+<rect x="240" y="159" width="14" height="10" fill="#fff" stroke="#555" stroke-width="0.8"/>
+<rect x="261" y="159" width="14" height="10" fill="#fff" stroke="#555" stroke-width="0.8"/>
+<rect x="282" y="159" width="14" height="10" fill="#fff" stroke="#555" stroke-width="0.8"/>
+<rect x="303" y="159" width="14" height="10" fill="#fff" stroke="#555" stroke-width="0.8"/>
+<rect x="324" y="159" width="14" height="10" fill="#fff" stroke="#555" stroke-width="0.8"/>
+<rect x="345" y="159" width="14" height="10" fill="#fff" stroke="#555" stroke-width="0.8"/>
+<text x="240" y="183" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111" font-weight="bold">Patch panel 24 portas Cat.6</text>
+<rect x="104" y="195" width="272" height="36" rx="3" fill="#f3f3f3" stroke="#333" stroke-width="1.3"/>
+<text x="240" y="217" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">Organizador de cabos</text>
+<rect x="104" y="237" width="272" height="36" rx="3" fill="#ddeeff" stroke="#333" stroke-width="1.3"/>
+<text x="240" y="259" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">Switch gerenciável PoE · .2</text>
+<rect x="104" y="279" width="272" height="36" rx="3" fill="#f3f3f3" stroke="#333" stroke-width="1.3"/>
+<text x="240" y="301" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">Organizador de cabos</text>
+<rect x="104" y="321" width="272" height="78" rx="3" fill="#eef6ee" stroke="#333" stroke-width="1.3"/>
+<text x="240" y="364" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">ONU (operadora) + roteador Wi-Fi 6 · .1</text>
+<rect x="104" y="405" width="272" height="78" rx="3" fill="#fff8e8" stroke="#333" stroke-width="1.3"/>
+<text x="240" y="448" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">Servidor NexusHome (mini PC) · .10</text>
+<rect x="104" y="489" width="272" height="120" rx="3" fill="#fff" stroke="#bbb" stroke-width="1.3" stroke-dasharray="4 3"/>
+<text x="240" y="553" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#999">livre</text>
+<rect x="104" y="615" width="272" height="36" rx="3" fill="#fde3df" stroke="#333" stroke-width="1.3"/>
+<text x="240" y="637" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">Régua com DPS (QDC, saída do inversor)</text>
+<text x="240" y="668" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">porta de vidro · 570 mm de profundidade · ventilação superior</text>
+<text x="240" y="694" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#a3221a">ocupação das U: ilustrativa (verificar)</text>
+<text x="50" y="724" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="start" fill="#111" font-weight="bold">Itens (§14)</text>
+<text x="50" y="746" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">• Roteador/ONU da operadora + roteador Wi-Fi 6 (mesh se necessário).</text>
+<text x="50" y="763" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">• Switch gerenciável 8–16 portas Gigabit, 4+ portas PoE 802.3af/at</text>
+<text x="50" y="780" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">   (P4 do corredor e câmeras).</text>
+<text x="50" y="797" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">• Servidor: mini PC (Windows 11 ou Linux), SSD, HDMI p/ o monitor.</text>
+<text x="50" y="814" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">• Patch panel 24 portas Cat.6 + organizador.</text>
+<text x="50" y="831" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">• Alimentação: régua do rack com DPS, no QDC (saída do inversor,</text>
+<text x="50" y="848" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">   modo UPS).</text>
+<ellipse cx="560" cy="150" rx="80" ry="30" fill="#eef3fb" stroke="#1f3a93" stroke-width="1.8"/>
+<text x="560" y="147" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#1f3a93" font-weight="bold">INTERNET</text>
+<text x="560" y="163" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#1f3a93">NexusHome (Supabase)</text>
+<rect x="700" y="120" width="230" height="62" rx="5" fill="#eef6ee" stroke="#111" stroke-width="1.8"/>
+<text x="815" y="139" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">ONU / roteador · .1</text>
+<text x="815" y="155" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">operadora + Wi-Fi 6</text>
+<text x="815" y="171" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">DHCP reservado</text>
+<line x1="640" y1="150" x2="700" y2="150" stroke="#555" stroke-width="2.5"/>
+<rect x="700" y="260" width="230" height="62" rx="5" fill="#ddeeff" stroke="#111" stroke-width="1.8"/>
+<text x="815" y="279" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">Switch PoE · .2</text>
+<text x="815" y="295" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">gerenciável, Gigabit</text>
+<text x="815" y="311" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">4+ portas PoE 802.3af/at</text>
+<line x1="815" y1="182" x2="815" y2="260" stroke="#555" stroke-width="2.5"/>
+<text x="822" y="225" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#555">Ethernet</text>
+<rect x="480" y="400" width="220" height="62" rx="5" fill="#fff8e8" stroke="#111" stroke-width="1.8"/>
+<text x="590" y="419" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">Servidor NexusHome · .10</text>
+<text x="590" y="435" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">mini PC (rack)</text>
+<text x="590" y="451" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">navegador em quiosque</text>
+<path d="M 740 322 L 740 360 L 590 360 L 590 400" fill="none" stroke="#555" stroke-width="2.5" stroke-linejoin="round"/>
+<rect x="480" y="520" width="220" height="62" rx="5" fill="#fff" stroke="#111" stroke-width="1.8"/>
+<text x="590" y="539" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">Monitor do servidor</text>
+<text x="590" y="555" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">HDMI 21&quot;–24&quot;</text>
+<text x="590" y="571" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">quiosque-nexushome.ps1</text>
+<line x1="590" y1="462" x2="590" y2="520" stroke="#111" stroke-width="2.5"/>
+<text x="598" y="495" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111" font-weight="bold">HDMI</text>
+<text x="470" y="610" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#555">monitor: sala técnica ou escritório</text>
+<rect x="760" y="400" width="230" height="78" rx="5" fill="#fff7ec" stroke="#c77700" stroke-width="1.8"/>
+<text x="875" y="419" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">P4 10,1&quot; do corredor · .20</text>
+<text x="875" y="435" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">ESP32-P4-NANO + 10.1-DSI-</text>
+<text x="875" y="451" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">TOUCH-A · a 1,50 m</text>
+<text x="875" y="467" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">PoE 802.3af (módulo PoE)</text>
+<path d="M 860 322 L 860 400" fill="none" stroke="#f28c28" stroke-width="4.5" stroke-linejoin="round"/>
+<text x="868" y="355" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#b35f00" font-weight="bold">PoE via</text>
+<text x="868" y="369" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#b35f00" font-weight="bold">patch panel</text>
+<path d="M 930 150 L 1010 150" fill="none" stroke="#333" stroke-width="2" stroke-dasharray="2 5" stroke-linejoin="round"/>
+<text x="1014" y="138" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="start" fill="#111" font-weight="bold">Wi-Fi</text>
+<text x="1014" y="154" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#555">(VLAN &quot;IoT&quot; recomendada: sem acesso à rede dos computadores)</text>
+<rect x="1030" y="170" width="530" height="450" rx="8" fill="#fbfdff" stroke="#1f3a93" stroke-width="1.5" stroke-dasharray="8 5"/>
+<text x="1044" y="192" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="start" fill="#1f3a93" font-weight="bold">VLAN IoT (recomendado)</text>
+<line x1="1010" y1="150" x2="1010" y2="590" stroke="#333" stroke-width="2" stroke-dasharray="2 5"/>
+<rect x="1060" y="210" width="360" height="62" rx="5" fill="#fff" stroke="#111" stroke-width="1.8"/>
+<text x="1240" y="229" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">Telas 7&quot; dos cômodos · .21–.30</text>
+<text x="1240" y="245" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">ESP32-S3-Touch-LCD-7 · uma por cômodo</text>
+<text x="1240" y="261" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">fonte 5 V 2 A de embutir · a 1,30 m</text>
+<line x1="1010" y1="236" x2="1060" y2="236" stroke="#333" stroke-width="2" stroke-dasharray="2 5"/>
+<rect x="1060" y="300" width="360" height="62" rx="5" fill="#e9f1fb" stroke="#111" stroke-width="1.8"/>
+<text x="1240" y="319" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">T1 Água .40 · T2 Energia .41</text>
+<text x="1240" y="335" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">T3 Segurança .42 · T4 Nobreak .43</text>
+<text x="1240" y="351" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">tampa do QAU · 24 V do QAU</text>
+<line x1="1010" y1="326" x2="1060" y2="326" stroke="#333" stroke-width="2" stroke-dasharray="2 5"/>
+<rect x="1060" y="390" width="360" height="46" rx="5" fill="#f3f3f3" stroke="#111" stroke-width="1.8"/>
+<text x="1240" y="409" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">Inversor ANENJI · .50</text>
+<text x="1240" y="425" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">Wi-Fi do inversor</text>
+<line x1="1010" y1="416" x2="1060" y2="416" stroke="#333" stroke-width="2" stroke-dasharray="2 5"/>
+<rect x="1060" y="470" width="360" height="62" rx="5" fill="#fff" stroke="#111" stroke-width="1.8" stroke-dasharray="6 4"/>
+<text x="1240" y="489" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">Gateway RS485 TO WIFI/ETH · .200</text>
+<text x="1240" y="505" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">só diagnóstico (Wi-Fi ou Ethernet)</text>
+<text x="1240" y="521" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">desligado do barramento no dia a dia</text>
+<line x1="1010" y1="496" x2="1060" y2="496" stroke="#333" stroke-width="2" stroke-dasharray="2 5"/>
+<text x="1044" y="560" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">Sem internet: P4 e 7&quot; mostram &quot;sem conexão&quot; e o último estado;</text>
+<text x="1044" y="576" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">a proteção continua nas telas do QAU (RS-485, local).</text>
+<text x="470" y="650" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="start" fill="#111" font-weight="bold">Plano de IPs (§14) — 192.168.1.0/24</text>
+<rect x="470" y="660" width="420" height="24" fill="#20324f" stroke="#111" stroke-width="1"/>
+<text x="480" y="677" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#fff" font-weight="bold">IP</text>
+<text x="580" y="677" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#fff" font-weight="bold">Equipamento</text>
+<rect x="470" y="684" width="420" height="22" fill="#f3f6fa" stroke="#ccc" stroke-width="0.8"/>
+<text x="480" y="700" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">.1</text>
+<text x="580" y="700" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">roteador</text>
+<rect x="470" y="706" width="420" height="22" fill="#fff" stroke="#ccc" stroke-width="0.8"/>
+<text x="480" y="722" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">.2</text>
+<text x="580" y="722" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">switch</text>
+<rect x="470" y="728" width="420" height="22" fill="#f3f6fa" stroke="#ccc" stroke-width="0.8"/>
+<text x="480" y="744" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">.10</text>
+<text x="580" y="744" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">servidor NexusHome</text>
+<rect x="470" y="750" width="420" height="22" fill="#fff" stroke="#ccc" stroke-width="0.8"/>
+<text x="480" y="766" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">.20</text>
+<text x="580" y="766" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">P4 corredor</text>
+<rect x="470" y="772" width="420" height="22" fill="#f3f6fa" stroke="#ccc" stroke-width="0.8"/>
+<text x="480" y="788" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">.21–.30</text>
+<text x="580" y="788" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">telas 7&quot; (uma por cômodo)</text>
+<rect x="470" y="794" width="420" height="22" fill="#fff" stroke="#ccc" stroke-width="0.8"/>
+<text x="480" y="810" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">.40</text>
+<text x="580" y="810" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">T1 Água</text>
+<rect x="470" y="816" width="420" height="22" fill="#f3f6fa" stroke="#ccc" stroke-width="0.8"/>
+<text x="480" y="832" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">.41</text>
+<text x="580" y="832" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">T2 Energia</text>
+<rect x="470" y="838" width="420" height="22" fill="#fff" stroke="#ccc" stroke-width="0.8"/>
+<text x="480" y="854" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">.42</text>
+<text x="580" y="854" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">T3 Segurança</text>
+<rect x="470" y="860" width="420" height="22" fill="#f3f6fa" stroke="#ccc" stroke-width="0.8"/>
+<text x="480" y="876" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">.43</text>
+<text x="580" y="876" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">T4 Nobreak</text>
+<rect x="470" y="882" width="420" height="22" fill="#fff" stroke="#ccc" stroke-width="0.8"/>
+<text x="480" y="898" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">.50</text>
+<text x="580" y="898" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">inversor (Wi-Fi)</text>
+<rect x="470" y="904" width="420" height="22" fill="#f3f6fa" stroke="#ccc" stroke-width="0.8"/>
+<text x="480" y="920" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">.200</text>
+<text x="580" y="920" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">gateway RS-485 (diagnóstico)</text>
+<text x="40" y="1000" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="start" fill="#111" font-weight="bold">Legenda</text>
+<line x1="40" y1="1022" x2="86" y2="1022" stroke="#555" stroke-width="2.5"/>
+<text x="94" y="1026" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Ethernet Cat.6</text>
+<line x1="240" y1="1022" x2="286" y2="1022" stroke="#f28c28" stroke-width="4.5"/>
+<text x="294" y="1026" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">PoE 802.3af</text>
+<line x1="420" y1="1022" x2="466" y2="1022" stroke="#333" stroke-width="2" stroke-dasharray="2 5"/>
+<text x="474" y="1026" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Wi-Fi</text>
+<line x1="560" y1="1022" x2="606" y2="1022" stroke="#111" stroke-width="2.5"/>
+<text x="614" y="1026" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">HDMI</text>
+<g id="carimbo">
+<rect x="980" y="948" width="600" height="132" fill="#fff" stroke="#111" stroke-width="2"/>
+<line x1="980" y1="980" x2="1580" y2="980" stroke="#111" stroke-width="1"/>
+<line x1="980" y1="1024" x2="1580" y2="1024" stroke="#111" stroke-width="1"/>
+<line x1="980" y1="1052" x2="1580" y2="1052" stroke="#111" stroke-width="1"/>
+<line x1="1130" y1="1024" x2="1130" y2="1052" stroke="#111" stroke-width="1"/>
+<line x1="1270" y1="1024" x2="1270" y2="1052" stroke="#111" stroke-width="1"/>
+<line x1="1310" y1="1052" x2="1310" y2="1080" stroke="#111" stroke-width="1"/>
+<text x="992" y="970" font-family="Arial, Helvetica, sans-serif" font-size="16" text-anchor="start" fill="#111" font-weight="bold">NexusHome OS — Projeto de Automação Unificado</text>
+<text x="992" y="1009" font-family="Arial, Helvetica, sans-serif" font-size="20" text-anchor="start" fill="#111" font-weight="bold">Rede: rack, telas, servidor e IPs</text>
+<text x="992" y="1044" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111" font-weight="bold">Folha 11/11</text>
+<text x="1142" y="1044" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111">Rev. v2.16</text>
+<text x="1282" y="1044" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="start" fill="#111">Escala: sem escala</text>
+<text x="992" y="1071" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Fonte: docs/projeto-unificado.md</text>
+<text x="1322" y="1071" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Arquivo: 11-rede.svg</text>
+</g>
+</svg>

@@ -1,0 +1,437 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200" font-family="Arial, Helvetica, sans-serif">
+<title>05 — Alimentação 220 V / 24 V (unifilar)</title>
+<defs>
+  <marker id="dimA" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#333"/></marker>
+  <marker id="arrK" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker>
+  <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f3a93"/></marker>
+  <marker id="arrO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f28c28"/></marker>
+  <marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2a8a2a"/></marker>
+  <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d32"/></marker>
+  <pattern id="hatch" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="10" stroke="#999" stroke-width="1.2"/></pattern>
+  <pattern id="hatchR" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="10" stroke="#e8a59a" stroke-width="2"/></pattern>
+  <pattern id="slots" patternUnits="userSpaceOnUse" width="12" height="12"><rect x="3" y="0" width="6" height="12" fill="#cfcfcf"/></pattern>
+  <pattern id="grelha" patternUnits="userSpaceOnUse" width="8" height="8"><line x1="0" y1="4" x2="8" y2="4" stroke="#555" stroke-width="2"/></pattern>
+</defs>
+<rect x="0" y="0" width="1600" height="1200" fill="#ffffff"/>
+<rect x="10" y="10" width="1580" height="1180" fill="none" stroke="#111" stroke-width="1"/>
+<rect x="20" y="20" width="1560" height="1160" fill="none" stroke="#111" stroke-width="2.5"/>
+<text x="40" y="52" font-family="Arial, Helvetica, sans-serif" font-size="22" text-anchor="start" fill="#111" font-weight="bold">Alimentação do QAU — 220 V CA / 24 V CC (unifilar)</text>
+<text x="40" y="74" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="start" fill="#333">Sem escala. Referências conforme §4.3 e §8 (X0, X1, X2). Bornes ímpares = +24 V (marrom); bornes pares = 0 V (azul-escuro).</text>
+<rect x="40" y="100" width="160" height="120" rx="4" fill="#f5f5f5" stroke="#111" stroke-width="2"/>
+<text x="120" y="120" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="middle" fill="#111" font-weight="bold">QDC</text>
+<text x="120" y="136" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">(saída do inversor)</text>
+<rect x="56" y="144" width="128" height="60" rx="4" fill="#fde3df" stroke="#111" stroke-width="1.8"/>
+<text x="120" y="162" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">Q1</text>
+<text x="120" y="177" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">1P+N 10 A C</text>
+<text x="120" y="192" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">&quot;Automação&quot;</text>
+<path d="M 184 150 L 250 150" stroke="#111" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 184 168 L 250 168" stroke="#4aa3df" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 200 186 L 250 186" stroke="#2a2" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 200 186 L 250 186" stroke="#ec0" stroke-width="3" stroke-dasharray="7 7" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="226" y="144" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">2,5 mm²</text>
+<rect x="250" y="143" width="22" height="14" fill="#ddd" stroke="#111" stroke-width="1"/>
+<rect x="250" y="161" width="22" height="14" fill="#ddd" stroke="#111" stroke-width="1"/>
+<rect x="250" y="179" width="22" height="14" fill="#cfe9b0" stroke="#111" stroke-width="1"/>
+<text x="261" y="136" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">X0</text>
+<text x="250" y="216" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111">X0.1 L (preto)</text>
+<text x="250" y="230" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111">X0.2 N (azul-claro)</text>
+<text x="250" y="244" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111">X0.PE (verde-amarelo)</text>
+<path d="M 272 150 L 330 150" stroke="#111" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 272 168 L 330 168" stroke="#4aa3df" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="330" y="132" width="74" height="48" rx="3" fill="#fde3df" stroke="#111" stroke-width="1.8"/>
+<text x="367" y="152" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">Q2</text>
+<text x="367" y="168" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">2P 6 A C</text>
+<text x="367" y="202" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">6 kA</text>
+<path d="M 404 150 L 1480 150" stroke="#111" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 404 168 L 1480 168" stroke="#4aa3df" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 272 186 L 1480 186" stroke="#2a2" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 272 186 L 1480 186" stroke="#ec0" stroke-width="3" stroke-dasharray="7 7" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="560" y="142" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111" font-weight="bold">L/N após Q2: 1,5 mm² para DPS1, F1, F2 e TS</text>
+<text x="1480" y="204" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="end" fill="#111" font-weight="bold">barra PE</text>
+<path d="M 700 150 L 700 250" stroke="#111" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 714 168 L 714 250" stroke="#4aa3df" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 728 186 L 728 250" stroke="#2a2" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 728 186 L 728 250" stroke="#ec0" stroke-width="2.5" stroke-dasharray="7 7" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="670" y="250" width="90" height="50" rx="4" fill="#fde3df" stroke="#111" stroke-width="1.8"/>
+<text x="715" y="268" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">DPS1</text>
+<text x="715" y="283" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">F-N + N-PE</text>
+<text x="770" y="266" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111">classe II, 275 V, 20 kA (8/20 µs)</text>
+<text x="770" y="280" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111">retaguarda: fusível/disjuntor</text>
+<text x="770" y="294" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111">conforme o fabricante (verificar)</text>
+<path d="M 1380 150 L 1380 250" stroke="#111" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1394 168 L 1394 250" stroke="#4aa3df" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1408 186 L 1408 250" stroke="#2a2" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1408 186 L 1408 250" stroke="#ec0" stroke-width="2.5" stroke-dasharray="7 7" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="1340" y="250" width="120" height="50" rx="4" fill="#fde3df" stroke="#111" stroke-width="1.8"/>
+<text x="1400" y="268" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">TS</text>
+<text x="1400" y="283" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">DIN 2P+T 10 A</text>
+<text x="1466" y="270" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111">notebook de</text>
+<text x="1466" y="284" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111">manutenção</text>
+<path d="M 470 150 L 470 380" stroke="#111" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 484 168 L 484 380" stroke="#4aa3df" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="400" y="380" width="250" height="58" rx="4" fill="#eeeeee" stroke="#111" stroke-width="1.8"/>
+<text x="525" y="398" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">F1 — Mean Well SDR-120-24</text>
+<text x="525" y="413" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111">24 V, 5 A, DIN · +24 V &quot;geral&quot;</text>
+<text x="525" y="428" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111"></text>
+<path d="M 980 150 L 980 380" stroke="#111" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 994 168 L 994 380" stroke="#4aa3df" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="900" y="380" width="250" height="58" rx="4" fill="#eeeeee" stroke="#111" stroke-width="1.8"/>
+<text x="1025" y="398" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">F2 — Mean Well DRC-100B</text>
+<text x="1025" y="413" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">27,6 V, 100 W, carregador</text>
+<text x="1025" y="428" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">+24 V &quot;segurança&quot;</text>
+<path d="M 400 420 L 70 420 L 70 450" stroke="#8b4513" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 400 432 L 88 432 L 88 450" stroke="#1f3a93" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="236" y="414" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#8b4513" font-weight="bold">+24 V geral</text>
+<text x="236" y="449" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#1f3a93" font-weight="bold">0 V</text>
+<path d="M 70 450 L 70 450 L 70 964" stroke="#8b4513" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 70 470 L 120 470" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="120" y="462" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="126" y1="470" x2="168" y2="470" stroke="#111" stroke-width="1"/>
+<text x="147" y="458" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU1  1 A</text>
+<path d="M 174 470 L 216 470" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 88 488 L 216 488" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="88" cy="488" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="70" cy="470" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="216" y="463" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="216" y="481" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="239" y="474" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.1</text>
+<text x="239" y="492" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.2</text>
+<path d="M 262 470 L 280 470" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 262 488 L 280 488" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="288" y="474" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">T1 Água (+24 / 0 V)</text>
+<text x="288" y="490" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,3 A</text>
+<path d="M 70 524 L 120 524" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="120" y="516" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="126" y1="524" x2="168" y2="524" stroke="#111" stroke-width="1"/>
+<text x="147" y="512" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU2  1 A</text>
+<path d="M 174 524 L 216 524" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 88 542 L 216 542" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="88" cy="542" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="70" cy="524" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="216" y="517" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="216" y="535" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="239" y="528" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.3</text>
+<text x="239" y="546" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.4</text>
+<path d="M 262 524 L 280 524" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 262 542 L 280 542" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="288" y="528" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">T2 Energia</text>
+<text x="288" y="544" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,3 A</text>
+<path d="M 70 578 L 120 578" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="120" y="570" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="126" y1="578" x2="168" y2="578" stroke="#111" stroke-width="1"/>
+<text x="147" y="566" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU3  1 A</text>
+<path d="M 174 578 L 216 578" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 88 596 L 216 596" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="88" cy="596" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="70" cy="578" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="216" y="571" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="216" y="589" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="239" y="582" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.5</text>
+<text x="239" y="600" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.6</text>
+<path d="M 262 578 L 280 578" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 262 596 L 280 596" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="288" y="582" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">T4 Nobreak</text>
+<text x="288" y="598" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,3 A</text>
+<path d="M 70 632 L 120 632" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="120" y="624" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="126" y1="632" x2="168" y2="632" stroke="#111" stroke-width="1"/>
+<text x="147" y="620" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU4  2 A</text>
+<path d="M 174 632 L 216 632" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 88 650 L 216 650" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="88" cy="650" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="70" cy="632" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="216" y="625" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="216" y="643" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="239" y="636" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.7</text>
+<text x="239" y="654" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.8</text>
+<path d="M 262 632 L 280 632" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 262 650 L 280 650" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="288" y="636" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">Relay 32CH (5)</text>
+<text x="288" y="652" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,6 A</text>
+<path d="M 70 686 L 120 686" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="120" y="678" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="126" y1="686" x2="168" y2="686" stroke="#111" stroke-width="1"/>
+<text x="147" y="674" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU5  2 A</text>
+<path d="M 174 686 L 216 686" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 88 704 L 216 704" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="88" cy="704" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="70" cy="686" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="216" y="679" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="216" y="697" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="239" y="690" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.9</text>
+<text x="239" y="708" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.10</text>
+<path d="M 262 686 L 280 686" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 262 704 L 280 704" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="288" y="690" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">Relay 16CH (6)</text>
+<text x="288" y="706" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,3 A</text>
+<path d="M 70 740 L 120 740" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="120" y="732" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="126" y1="740" x2="168" y2="740" stroke="#111" stroke-width="1"/>
+<text x="147" y="728" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU6  2 A</text>
+<path d="M 174 740 L 216 740" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 88 758 L 216 758" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="88" cy="758" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="70" cy="740" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="216" y="733" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="216" y="751" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="239" y="744" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.11</text>
+<text x="239" y="762" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.12</text>
+<path d="M 262 740 L 280 740" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 262 758 L 280 758" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="288" y="744" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">Relay 32CH (22)</text>
+<text x="288" y="760" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,6 A</text>
+<path d="M 70 794 L 120 794" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="120" y="786" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="126" y1="794" x2="168" y2="794" stroke="#111" stroke-width="1"/>
+<text x="147" y="782" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU7  1 A</text>
+<path d="M 174 794 L 216 794" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 88 812 L 216 812" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="88" cy="812" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="70" cy="794" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="216" y="787" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="216" y="805" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="239" y="798" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.13</text>
+<text x="239" y="816" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.14</text>
+<path d="M 262 794 L 280 794" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 262 812 L 280 812" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="288" y="798" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">Relay 8CH (4) + contadoras 1 e 2</text>
+<text x="288" y="814" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,3 A</text>
+<path d="M 70 848 L 120 848" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="120" y="840" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="126" y1="848" x2="168" y2="848" stroke="#111" stroke-width="1"/>
+<text x="147" y="836" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU8  2 A</text>
+<path d="M 174 848 L 216 848" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 88 866 L 216 866" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="88" cy="866" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="70" cy="848" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="216" y="841" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="216" y="859" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="239" y="852" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.15</text>
+<text x="239" y="870" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.16</text>
+<path d="M 262 848 L 280 848" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 262 866 L 280 866" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="288" y="852" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">alimentação das válvulas (via relé 4)</text>
+<text x="288" y="868" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 1,0 A</text>
+<path d="M 70 902 L 120 902" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="120" y="894" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="126" y1="902" x2="168" y2="902" stroke="#111" stroke-width="1"/>
+<text x="147" y="890" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU9  1 A</text>
+<path d="M 174 902 L 216 902" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 88 920 L 216 920" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="88" cy="920" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="70" cy="902" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="216" y="895" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="216" y="913" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="239" y="906" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.17</text>
+<text x="239" y="924" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.18</text>
+<path d="M 262 902 L 280 902" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 262 920 L 280 920" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="288" y="906" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">HUB-A + gateway</text>
+<text x="288" y="922" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,3 A</text>
+<path d="M 70 956 L 120 956" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="120" y="948" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="126" y1="956" x2="168" y2="956" stroke="#111" stroke-width="1"/>
+<text x="147" y="944" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU10  1 A</text>
+<path d="M 174 956 L 216 956" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 88 974 L 216 974" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="88" cy="974" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="70" cy="956" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="216" y="949" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="216" y="967" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="239" y="960" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.19</text>
+<text x="239" y="978" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X1.20</text>
+<path d="M 262 956 L 280 956" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 262 974 L 280 974" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="288" y="960" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">sonda QDY30A (+24 V pelo cabo)</text>
+<text x="288" y="976" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,1 A</text>
+<path d="M 88 450 L 88 982" stroke="#1f3a93" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 900 420 L 840 420 L 840 450" stroke="#8b4513" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 900 432 L 858 432 L 858 450" stroke="#1f3a93" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 840 450 L 840 450 L 840 856" stroke="#8b4513" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 840 470 L 890 470" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="890" y="462" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="896" y1="470" x2="938" y2="470" stroke="#111" stroke-width="1"/>
+<text x="917" y="458" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU11  1 A</text>
+<path d="M 944 470 L 986 470" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 858 488 L 986 488" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="858" cy="488" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="840" cy="470" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="986" y="463" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="986" y="481" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="1009" y="474" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.1</text>
+<text x="1009" y="492" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.2</text>
+<path d="M 1032 470 L 1050 470" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1032 488 L 1050 488" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="1058" y="474" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">T3 Segurança</text>
+<text x="1058" y="490" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,3 A</text>
+<path d="M 840 524 L 890 524" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="890" y="516" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="896" y1="524" x2="938" y2="524" stroke="#111" stroke-width="1"/>
+<text x="917" y="512" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU12  2 A</text>
+<path d="M 944 524 L 986 524" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 858 542 L 986 542" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="858" cy="542" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="840" cy="524" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="986" y="517" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="986" y="535" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="1009" y="528" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.3</text>
+<text x="1009" y="546" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.4</text>
+<path d="M 1032 524 L 1050 524" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1032 542 L 1050 542" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="1058" y="528" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">Relay (D) 90 e 91 + IO 92 e 93 + HUB-B</text>
+<text x="1058" y="544" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,6 A</text>
+<path d="M 840 578 L 890 578" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="890" y="570" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="896" y1="578" x2="938" y2="578" stroke="#111" stroke-width="1"/>
+<text x="917" y="566" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU13  1 A</text>
+<path d="M 944 578 L 986 578" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 858 596 L 986 596" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="858" cy="596" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="840" cy="578" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="986" y="571" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="986" y="589" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="1009" y="582" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.5</text>
+<text x="1009" y="600" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.6</text>
+<path d="M 1032 578 L 1050 578" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1032 596 L 1050 596" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="1058" y="582" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">transmissor de gás 50 (Cozinha)</text>
+<text x="1058" y="598" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,2 A</text>
+<path d="M 840 632 L 890 632" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="890" y="624" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="896" y1="632" x2="938" y2="632" stroke="#111" stroke-width="1"/>
+<text x="917" y="620" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU14  1 A</text>
+<path d="M 944 632 L 986 632" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 858 650 L 986 650" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="858" cy="650" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="840" cy="632" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="986" y="625" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="986" y="643" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="1009" y="636" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.7</text>
+<text x="1009" y="654" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.8</text>
+<path d="M 1032 632 L 1050 632" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1032 650 L 1050 650" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="1058" y="636" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">transmissor de gás 51 (Lavanderia)</text>
+<text x="1058" y="652" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,2 A</text>
+<path d="M 840 686 L 890 686" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="890" y="678" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="896" y1="686" x2="938" y2="686" stroke="#111" stroke-width="1"/>
+<text x="917" y="674" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU15  2 A</text>
+<path d="M 944 686 L 986 686" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 858 704 L 986 704" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="858" cy="704" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="840" cy="686" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="986" y="679" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="986" y="697" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="1009" y="690" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.9</text>
+<text x="1009" y="708" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.10</text>
+<path d="M 1032 686 L 1050 686" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1032 704 L 1050 704" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="1058" y="690" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">detectores de fumaça + sensores de presença</text>
+<text x="1058" y="706" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,6 A</text>
+<path d="M 840 740 L 890 740" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="890" y="732" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="896" y1="740" x2="938" y2="740" stroke="#111" stroke-width="1"/>
+<text x="917" y="728" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU16  1 A</text>
+<path d="M 944 740 L 986 740" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 858 758 L 986 758" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="858" cy="758" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="840" cy="740" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="986" y="733" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="986" y="751" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="1009" y="744" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.11</text>
+<text x="1009" y="762" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.12</text>
+<path d="M 1032 740 L 1050 740" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1032 758 L 1050 758" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="1058" y="744" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">XY-MD02 (par marrom do Cat.6)</text>
+<text x="1058" y="760" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,1 A</text>
+<path d="M 840 794 L 890 794" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="890" y="786" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="896" y1="794" x2="938" y2="794" stroke="#111" stroke-width="1"/>
+<text x="917" y="782" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU17  2 A</text>
+<path d="M 944 794 L 986 794" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 858 812 L 986 812" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="858" cy="812" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="840" cy="794" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="986" y="787" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="986" y="805" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="1009" y="798" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.13</text>
+<text x="1009" y="816" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.14</text>
+<path d="M 1032 794 L 1050 794" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1032 812 L 1050 812" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="1058" y="798" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">válvula de gás NF (via cadeia de corte, §10)</text>
+<text x="1058" y="814" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,5 A</text>
+<path d="M 840 848 L 890 848" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="890" y="840" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="896" y1="848" x2="938" y2="848" stroke="#111" stroke-width="1"/>
+<text x="917" y="836" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">FU18  2 A</text>
+<path d="M 944 848 L 986 848" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 858 866 L 986 866" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="858" cy="866" r="3.5" fill="#1f3a93" stroke="#1f3a93" stroke-width="1"/>
+<circle cx="840" cy="848" r="3.5" fill="#8b4513" stroke="#8b4513" stroke-width="1"/>
+<rect x="986" y="841" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<rect x="986" y="859" width="46" height="14" fill="#eee" stroke="#111" stroke-width="1"/>
+<text x="1009" y="852" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.15</text>
+<text x="1009" y="870" font-family="monospace" font-size="10.5" text-anchor="middle" fill="#111" font-weight="bold">X2.16</text>
+<path d="M 1032 848 L 1050 848" stroke="#8b4513" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1032 866 L 1050 866" stroke="#1f3a93" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="1058" y="852" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">sirenes (via AL2 e Relay 91) → X8.6, X8.7, X8.11</text>
+<text x="1058" y="868" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">corrente máx. 0,8 A</text>
+<path d="M 858 450 L 858 874" stroke="#1f3a93" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="1172" y="290" width="70" height="44" rx="3" fill="#cfd8dc" stroke="#111" stroke-width="1.5"/>
+<rect x="1256" y="290" width="70" height="44" rx="3" fill="#cfd8dc" stroke="#111" stroke-width="1.5"/>
+<text x="1207" y="310" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">VRLA</text>
+<text x="1207" y="325" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">12 V 7 Ah</text>
+<text x="1291" y="310" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">VRLA</text>
+<text x="1291" y="325" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">12 V 7 Ah</text>
+<path d="M 1242 312 L 1256 312" stroke="#d32" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="1249" y="284" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">série</text>
+<path d="M 1326 304 L 1352 304 L 1352 360" stroke="#d32" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="1344" y="360" width="16" height="34" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="1366" y="376" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111" font-weight="bold">FU-BAT</text>
+<text x="1366" y="390" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">5 A</text>
+<path d="M 1352 394 L 1352 418 L 1150 418" stroke="#d32" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 1172 320 L 1156 320 L 1156 406 L 1150 406" stroke="#111" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="1166" y="438" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#333">BAT+ / BAT− da F2</text>
+<text x="1430" y="400" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">reserva da F2:</text>
+<text x="1430" y="415" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">≈ 3 h com 38 W</text>
+<text x="1430" y="430" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">ligar por último</text>
+<text x="1430" y="445" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">(§17)</text>
+<text x="1010" y="222" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#1f3a93">Contatos de alarme da DRC-100B:</text>
+<text x="1010" y="237" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#1f3a93">&quot;AC fail&quot; → 91 / DI4 · &quot;bateria baixa&quot; → 91 / DI5</text>
+<text x="40" y="1040" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="start" fill="#111" font-weight="bold">Legenda</text>
+<path d="M 40 1062 L 86 1062" stroke="#111" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="94" y="1066" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">fase L (220 V)</text>
+<path d="M 250 1062 L 296 1062" stroke="#4aa3df" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="304" y="1066" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">neutro N</text>
+<path d="M 460 1062 L 506 1062" stroke="#2a2" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 460 1062 L 506 1062" stroke="#ec0" stroke-width="4" stroke-dasharray="7 7" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="514" y="1066" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">PE</text>
+<path d="M 40 1084 L 86 1084" stroke="#8b4513" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="94" y="1088" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">+24 V CC</text>
+<path d="M 250 1084 L 296 1084" stroke="#1f3a93" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="304" y="1088" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">0 V CC</text>
+<path d="M 460 1084 L 506 1084" stroke="#d32" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="514" y="1088" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">bateria + (F2)</text>
+<rect x="680" y="1048" width="54" height="16" rx="2" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="686" y1="1056" x2="728" y2="1056" stroke="#111" stroke-width="1"/>
+<text x="742" y="1061" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">borne-fusível 5 × 20 com LED</text>
+<text x="40" y="1122" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">Bornes-fusível: 10 × 1 A (FU1–3, 7, 9, 10, 11, 13, 14, 16) e 8 × 2 A (FU4–6, 8, 12, 15, 17, 18) conforme §8;</text>
+<text x="40" y="1138" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">mais 1 × 5 A (FU-BAT) = 19 bornes-fusível (§16.2). Orçamento: F1 ≈ 62 W de 120 W; F2 ≈ 60 W em alarme de 100 W.</text>
+<g id="carimbo">
+<rect x="980" y="1048" width="600" height="132" fill="#fff" stroke="#111" stroke-width="2"/>
+<line x1="980" y1="1080" x2="1580" y2="1080" stroke="#111" stroke-width="1"/>
+<line x1="980" y1="1124" x2="1580" y2="1124" stroke="#111" stroke-width="1"/>
+<line x1="980" y1="1152" x2="1580" y2="1152" stroke="#111" stroke-width="1"/>
+<line x1="1130" y1="1124" x2="1130" y2="1152" stroke="#111" stroke-width="1"/>
+<line x1="1270" y1="1124" x2="1270" y2="1152" stroke="#111" stroke-width="1"/>
+<line x1="1310" y1="1152" x2="1310" y2="1180" stroke="#111" stroke-width="1"/>
+<text x="992" y="1070" font-family="Arial, Helvetica, sans-serif" font-size="16" text-anchor="start" fill="#111" font-weight="bold">NexusHome OS — Projeto de Automação Unificado</text>
+<text x="992" y="1109" font-family="Arial, Helvetica, sans-serif" font-size="20" text-anchor="start" fill="#111" font-weight="bold">Alimentação 220 V / 24 V (unifilar)</text>
+<text x="992" y="1144" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111" font-weight="bold">Folha 5/11</text>
+<text x="1142" y="1144" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111">Rev. v2.16</text>
+<text x="1282" y="1144" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="start" fill="#111">Escala: sem escala</text>
+<text x="992" y="1171" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Fonte: docs/projeto-unificado.md</text>
+<text x="1322" y="1171" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Arquivo: 05-alimentacao.svg</text>
+</g>
+</svg>

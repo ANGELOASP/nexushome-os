@@ -35,6 +35,7 @@ struct PDev {
   int16_t soc;         // % bateria (-1)
   float   temp;        // °C (NAN)
   int16_t bri;         // % brilho (-1)
+  int16_t gas;         // % LEL do transmissor de gás (-1)
   char    arm[6];      // off|home|away ("" = não é alarme)
   bool    alarm;       // algum alarme ativo no aparelho
   bool    lock;        // travado (rompimento, sobrecarga...): o painel não reabre
@@ -54,6 +55,7 @@ struct PAlert { uint8_t sev; char msg[124]; };
 struct PModel {
   bool     valid;
   char     t[26];
+  char     ps[12];                    // assinatura da planta (só com ?plan=); "" = não veio
   PHouse   h;
   uint8_t  nRooms;
   char     rooms[PANEL_MAX_ROOMS][32];
@@ -104,6 +106,7 @@ static inline bool pm_parse(const char* json, size_t len, PModel& m) {
   m.h.alertsOpen = h["alerts_open"] | 0;
   m.h.health = pm_health(h["health"] | "safe");
   pm_copy(m.t, sizeof(m.t), doc["t"] | "");
+  pm_copy(m.ps, sizeof(m.ps), doc["ps"] | "");
 
   m.nRooms = 0;
   for (JsonVariantConst r : doc["rooms"].as<JsonArrayConst>()) {
@@ -126,6 +129,7 @@ static inline bool pm_parse(const char* json, size_t len, PModel& m) {
     x.soc = d["soc"].isNull() ? -1 : (int16_t)(d["soc"] | 0);
     x.temp = d["temp"].isNull() ? NAN : (float)(d["temp"] | 0.0);
     x.bri = d["bri"].isNull() ? -1 : (int16_t)(d["bri"] | 0);
+    x.gas = d["gas"].isNull() ? -1 : (int16_t)(d["gas"] | 0);
     pm_copy(x.arm, sizeof(x.arm), d["arm"] | "");
     x.alarm = d["alarm"] | false;
     x.lock = d["lock"] | false;
@@ -219,6 +223,7 @@ static inline void pm_state_text(const PDev& d, char* out, size_t n) {
     return;
   }
   if (d.open >= 0) { pm_copy(out, n, d.open ? "Aberta" : "Fechada"); return; }
+  if (d.gas >= 0) { snprintf(out, n, "Gás %d%% LEL", d.gas); return; }
   if (d.soc >= 0) { snprintf(out, n, "Bateria %d%%", d.soc); return; }
   if (d.lvl >= 0) { snprintf(out, n, "Nível %d%%", d.lvl); return; }
   if (!isnan(d.w) && d.on >= 0) { pm_fmt_watts(w, sizeof(w), d.w); snprintf(out, n, "%s · %s", d.on ? "Ligado" : "Desligado", w); return; }
@@ -238,4 +243,196 @@ static inline void pm_urlencode(char* out, size_t n, const char* s) {
     else { out[o++] = '%'; out[o++] = hex[c >> 4]; out[o++] = hex[c & 15]; }
   }
   out[o] = 0;
+}
+
+// ============================================================
+// Planta (v2.16): GET /iot-gateway/panel/plan — a mesma do app
+// (supabase/functions/iot-gateway/plan.ts). Coordenadas em metros.
+// ============================================================
+#define PLAN_MAX_ROOMS  24
+#define PLAN_MAX_PTS    40
+#define PLAN_MAX_WALLS  260
+#define PLAN_MAX_DEVS   PANEL_MAX_DEVS
+
+struct PRoom { char name[32]; uint32_t color; uint8_t n; float x[PLAN_MAX_PTS], z[PLAN_MAX_PTS]; float cx, cz; };
+struct PDevPos { char id[37]; float x, z; };
+struct PPlan {
+  bool valid;
+  char sig[12];                       // assinatura (igual ao `ps` do /panel enquanto a planta não muda)
+  float minX, minZ, maxX, maxZ;
+  uint8_t nRooms;  PRoom rooms[PLAN_MAX_ROOMS];
+  uint16_t nWalls; float walls[PLAN_MAX_WALLS][4];
+  uint8_t nDevs;   PDevPos devs[PLAN_MAX_DEVS];
+};
+
+static inline uint32_t pm_hex_color(const char *s) {
+  if (!s || s[0] != '#') return 0x64748B;
+  return (uint32_t)strtoul(s + 1, nullptr, 16) & 0xFFFFFF;
+}
+
+/** A planta do app mudou? (o /panel trouxe uma assinatura diferente da planta desenhada) */
+static inline bool pm_plan_changed(const PModel &m, const PPlan &p) {
+  return m.ps[0] && strcmp(m.ps, p.sig) != 0;
+}
+
+static inline bool pm_parse_plan(const char *json, size_t len, PPlan &p) {
+  JsonDocument doc;
+  if (deserializeJson(doc, json, len)) return false;
+  if ((doc["v"] | 0) != 1) return false;
+  JsonArrayConst bb = doc["bbox"];
+  p.minX = bb[0] | 0.0f; p.minZ = bb[1] | 0.0f; p.maxX = bb[2] | 1.0f; p.maxZ = bb[3] | 1.0f;
+  if (p.maxX - p.minX < 0.1f) p.maxX = p.minX + 1;
+  if (p.maxZ - p.minZ < 0.1f) p.maxZ = p.minZ + 1;
+  pm_copy(p.sig, sizeof(p.sig), doc["sig"] | "");
+  p.nRooms = 0;
+  for (JsonObjectConst r : doc["rooms"].as<JsonArrayConst>()) {
+    if (p.nRooms >= PLAN_MAX_ROOMS) break;
+    PRoom &x = p.rooms[p.nRooms];
+    pm_copy(x.name, sizeof(x.name), r["n"] | "");
+    x.color = pm_hex_color(r["c"] | "#64748b");
+    x.n = 0; x.cx = x.cz = 0;
+    for (JsonArrayConst pt : r["p"].as<JsonArrayConst>()) {
+      if (x.n >= PLAN_MAX_PTS) break;
+      x.x[x.n] = pt[0] | 0.0f; x.z[x.n] = pt[1] | 0.0f;
+      x.cx += x.x[x.n]; x.cz += x.z[x.n]; x.n++;
+    }
+    if (x.n < 3) continue;                       // polígono inválido: ignora
+    x.cx /= x.n; x.cz /= x.n;
+    p.nRooms++;
+  }
+  p.nWalls = 0;
+  for (JsonArrayConst w : doc["walls"].as<JsonArrayConst>()) {
+    if (p.nWalls >= PLAN_MAX_WALLS) break;
+    for (int k = 0; k < 4; k++) p.walls[p.nWalls][k] = w[k] | 0.0f;
+    p.nWalls++;
+  }
+  p.nDevs = 0;
+  for (JsonObjectConst d : doc["devs"].as<JsonArrayConst>()) {
+    if (p.nDevs >= PLAN_MAX_DEVS) break;
+    PDevPos &x = p.devs[p.nDevs++];
+    pm_copy(x.id, sizeof(x.id), d["id"] | "");
+    x.x = d["x"] | 0.0f; x.z = d["z"] | 0.0f;
+  }
+  p.valid = true;
+  return true;
+}
+
+// ---- encaixe da planta na área da tela (escala, margem e giro de 90° se couber melhor) ----
+struct PFit { float s, ox, oy; bool rot; float minX, minZ, maxX, maxZ; };
+
+static inline PFit pm_plan_fit(const PPlan &p, int w, int h, int margin) {
+  PFit f; f.minX = p.minX; f.minZ = p.minZ; f.maxX = p.maxX; f.maxZ = p.maxZ;
+  float dx = p.maxX - p.minX, dz = p.maxZ - p.minZ;
+  float aw = (float)(w - 2 * margin), ah = (float)(h - 2 * margin);
+  float sN = fminf(aw / dx, ah / dz);          // sem giro: x → direita, z → baixo
+  float sR = fminf(aw / dz, ah / dx);          // girada: z → direita, x → cima
+  f.rot = sR > sN * 1.05f;
+  f.s = f.rot ? sR : sN;
+  float pw = (f.rot ? dz : dx) * f.s, ph = (f.rot ? dx : dz) * f.s;
+  f.ox = margin + (aw - pw) / 2; f.oy = margin + (ah - ph) / 2;
+  return f;
+}
+
+static inline void pm_plan_px(const PFit &f, float x, float z, int *px, int *py) {
+  float u, v;
+  if (f.rot) { u = (z - f.minZ) * f.s; v = (f.maxX - x) * f.s; }
+  else       { u = (x - f.minX) * f.s; v = (z - f.minZ) * f.s; }
+  *px = (int)lroundf(f.ox + u); *py = (int)lroundf(f.oy + v);
+}
+
+static inline void pm_plan_world(const PFit &f, int px, int py, float *x, float *z) {
+  float u = (px - f.ox) / f.s, v = (py - f.oy) / f.s;
+  if (f.rot) { *z = f.minZ + u; *x = f.maxX - v; }
+  else       { *x = f.minX + u; *z = f.minZ + v; }
+}
+
+/** Ponto dentro do polígono (regra par-ímpar). */
+static inline bool pm_point_in_room(const PRoom &r, float x, float z) {
+  bool in = false;
+  for (int i = 0, j = r.n - 1; i < r.n; j = i++) {
+    if (((r.z[i] > z) != (r.z[j] > z)) && (x < (r.x[j] - r.x[i]) * (z - r.z[i]) / (r.z[j] - r.z[i]) + r.x[i])) in = !in;
+  }
+  return in;
+}
+
+/** Cômodo sob o toque (pixel da área da planta) ou -1. */
+static inline int pm_plan_room_at(const PPlan &p, const PFit &f, int px, int py) {
+  float x, z; pm_plan_world(f, px, py, &x, &z);
+  for (int i = 0; i < p.nRooms; i++) if (pm_point_in_room(p.rooms[i], x, z)) return i;
+  return -1;
+}
+
+/**
+ * Triangulação por "orelhas" (os cômodos não são convexos e o LVGL 8 só preenche
+ * polígonos convexos). Devolve o número de triângulos; tri = índices de 3 em 3.
+ */
+static inline int pm_triangulate(const float *x, const float *z, int n, uint8_t *tri, int maxTri) {
+  if (n < 3) return 0;
+  uint8_t idx[PLAN_MAX_PTS]; int m = n;
+  float area = 0;
+  for (int i = 0, j = n - 1; i < n; j = i++) area += x[j] * z[i] - x[i] * z[j];
+  for (int i = 0; i < n; i++) idx[i] = (uint8_t)(area > 0 ? i : n - 1 - i);   // sempre anti-horário
+  int nt = 0, guard = 0;
+  while (m > 3 && nt < maxTri && guard++ < 4 * n * n) {
+    bool cut = false;
+    for (int k = 0; k < m; k++) {
+      int a = idx[(k + m - 1) % m], b = idx[k], c = idx[(k + 1) % m];
+      float cr = (x[b] - x[a]) * (z[c] - z[a]) - (z[b] - z[a]) * (x[c] - x[a]);
+      if (cr <= 1e-9f) continue;                          // vértice reflexo (ou colinear)
+      bool inside = false;
+      for (int q = 0; q < m && !inside; q++) {
+        int p = idx[q];
+        if (p == a || p == b || p == c) continue;
+        float d1 = (x[b] - x[a]) * (z[p] - z[a]) - (z[b] - z[a]) * (x[p] - x[a]);
+        float d2 = (x[c] - x[b]) * (z[p] - z[b]) - (z[c] - z[b]) * (x[p] - x[b]);
+        float d3 = (x[a] - x[c]) * (z[p] - z[c]) - (z[a] - z[c]) * (x[p] - x[c]);
+        inside = d1 >= 0 && d2 >= 0 && d3 >= 0;
+      }
+      if (inside) continue;
+      tri[3 * nt] = a; tri[3 * nt + 1] = b; tri[3 * nt + 2] = c; nt++;
+      for (int q = k; q < m - 1; q++) idx[q] = idx[q + 1];
+      m--; cut = true; break;
+    }
+    if (!cut) {                                           // polígono degenerado: tira um vértice
+      for (int q = 0; q < m - 1; q++) idx[q] = idx[q + 1];
+      m--;
+    }
+  }
+  if (m == 3 && nt < maxTri) { tri[3 * nt] = idx[0]; tri[3 * nt + 1] = idx[1]; tri[3 * nt + 2] = idx[2]; nt++; }
+  return nt;
+}
+
+/** Área de uma lista de triângulos (para conferir a triangulação no teste). */
+static inline float pm_tri_area(const float *x, const float *z, const uint8_t *tri, int nt) {
+  float s = 0;
+  for (int t = 0; t < nt; t++) {
+    int a = tri[3 * t], b = tri[3 * t + 1], c = tri[3 * t + 2];
+    s += fabsf((x[b] - x[a]) * (z[c] - z[a]) - (z[b] - z[a]) * (x[c] - x[a])) / 2;
+  }
+  return s;
+}
+
+/** Nome do tipo em português para o subtítulo do quadro (tela do cômodo). */
+static inline const char *pm_type_label(const char *t) {
+  static const char *const map[][2] = {
+    { "light", "Luz" }, { "ac", "Ar-condicionado" }, { "valve", "Válvula" }, { "meter", "Circuito do quadro" },
+    { "sensor", "Sensor" }, { "fan", "Ventilador / exaustor" }, { "alarm", "Alarme" }, { "gate", "Portão" },
+    { "curtain", "Cortina" }, { "tv", "TV" }, { "plug", "Tomada" }, { "switch", "Interruptor" }, { "lock", "Fechadura" },
+    { "camera", "Câmera" }, { "speaker", "Assistente" }, { "audio", "Áudio" }, { "projector", "Projetor" },
+    { "media", "Mídia" }, { "computer", "Computador" }, { "tablet", "Tablet" }, { "network", "Rede" },
+    { "appliance", "Eletrodoméstico" }, { "vacuum", "Robô aspirador" }, { "solar", "Energia" }, { "hub", "Hub" },
+  };
+  for (auto &m : map) if (!strcmp(t, m[0])) return m[1];
+  return "Aparelho";
+}
+
+/** Mesmo cômodo, sem diferenciar maiúsculas (ASCII) — o servidor também compara assim. */
+static inline bool pm_same_room(const char *a, const char *b) {
+  for (; *a && *b; a++, b++) {
+    char x = *a, y = *b;
+    if (x >= 'A' && x <= 'Z') x += 32;
+    if (y >= 'A' && y <= 'Z') y += 32;
+    if (x != y) return false;
+  }
+  return *a == *b;
 }

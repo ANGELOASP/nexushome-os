@@ -191,7 +191,7 @@ um circuito: edite a tabela `CIRCUITS` no firmware **e** o nome/cômodo no app (
 7. **RS-485**: ramos em cascata a partir do hub, 120 Ω nas pontas; `scan` deve listar 5, 6, 7–21, 22, 23–40.
 8. **NexusHome** (feito pelo dono do projeto):
    - SQL Editor: `supabase/migrations/023_eletrica.sql` e depois `supabase/seeds/eletrica.sql`;
-   - `supabase functions deploy iot-gateway` (envio em lote e alertas do firmware).
+   - `supabase functions deploy iot-gateway --no-verify-jwt` (envio em lote e alertas do firmware).
 9. **Firmware**: `powershell -ExecutionPolicy Bypass -File scripts\instalar-arduino.ps1 -Firmware eletrica -Porta COM6`
    — copia para `Documentos\Arduino\esp32s3_eletrica`, onde você preenche Wi-Fi e `DEVICE_SECRET`.
    Compilado aqui com o core `esp32:esp32` 3.3.12 + ESP32_Display_Panel 1.0.4 + lvgl 8.4.0 para a 4.3B, com a tela:

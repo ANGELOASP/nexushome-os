@@ -22,7 +22,8 @@ test('gás e reservatório', () => {
   assert.equal(sensorReadings({ gas_lel: 0 })[0].alarm, false);
   const lv = sensorReadings({ level_pct: 15, volume_l: 150 });
   assert.equal(lv[0].alarm, true); assert.equal(lv[1].value, '150 L');
-  assert.equal(sensorReadings({ door: false })[0].value, 'aberta');
+  assert.equal(sensorReadings({ door: true })[0].value, 'aberta');     // firmware: true = aberta
+  assert.equal(sensorReadings({ door: false })[0].value, 'fechada');
 });
 
 test('nobreak: % do banco, falta de energia e autonomia', () => {

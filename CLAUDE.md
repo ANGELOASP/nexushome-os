@@ -46,7 +46,7 @@ painel controla e mostra dispositivos sobre ela. Versão atual: ver `package.jso
 | `js/scene-devices-extra.js` | modelos 3D da biblioteca ampliada (v2.13: áudio, vídeo, computadores, eletrodomésticos...) |
 | `js/mobile-nav.js` | celular (< 900 px, v2.15): abas Casa/Aparelhos/Rotinas/Monitor/Mais; cada painel diz sua aba em `data-mtab`; `body.m-ui` liga o CSS |
 | `js/sensor-readings.js` | cartões dos sensores do quadro (temperatura, umidade, presença, fumaça, gás, nível) e do nobreak (v2.16) |
-| `supabase/functions/iot-gateway/panel.ts` | telas de parede (v2.16): `GET /panel` (resumo compacto) e `POST /panel/command` |
+| `supabase/functions/iot-gateway/panel.ts` / `plan.ts` | telas de parede (v2.16): `GET /panel` (resumo compacto), `POST /panel/command` e `GET /panel/plan` (a planta do app para o P4 desenhar; `sig`/`ps` = assinatura: o P4 rebaixa a planta assim que ela muda no app) |
 
 Convenções: medidas em **metros**; giro em graus, frente do objeto = `(-sin rot, cos rot)`; no 3D
 `rotation.y = -rot` e a escala é `METER = 1.9` unidades de cena por metro.
@@ -65,6 +65,8 @@ npm run build
 - Ganchos de teste (só em dev): `window.__fp` (editor), `window.__nh = { state, selectRoom }`,
   `window.__three = { renderer, scene }`.
 - SQL: `tests/sql/run.sh` e `tests/sql/run_isolation.sh` (Postgres local).
+- Firmware: `arduino-cli compile` (FQBNs em `scripts/nexus-comum.ps1`); tela do painel sem placa:
+  `firmware/nexus_painel/simulador/rodar.sh` (LVGL no PC → PNG). Scripts PowerShell: `pwsh -File scripts/testes/rodar-testes.ps1`.
 - Navegador headless no contêiner: Playwright com Chromium em `/opt/pw-browsers` (`--use-gl=swiftshader`).
 
 ## Estado do banco (out/2026)

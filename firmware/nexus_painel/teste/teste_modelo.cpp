@@ -8,7 +8,7 @@
 static PModel m;
 static const PDev* find(const char* tail) { for (int i = 0; i < m.nDevs; i++) { size_t L = strlen(m.devs[i].id), T = strlen(tail); if (L >= T && !strcmp(m.devs[i].id + L - T, tail)) return &m.devs[i]; } return nullptr; }
 int main(int argc, char** argv) {
-  if (argc < 2) { fprintf(stderr, "uso: teste snapshot.json\n"); return 2; }
+  if (argc < 2) { fprintf(stderr, "uso: teste snapshot.json [plan.json]\n"); return 2; }
   std::ifstream f(argv[1]); std::stringstream ss; ss << f.rdbuf(); std::string js = ss.str();
   assert(pm_parse(js.c_str(), js.size(), m));
   assert(m.h.watts == 1235); assert(m.h.water == 42); assert(m.h.level == 81); assert(m.h.soc == 63);
@@ -38,5 +38,51 @@ int main(int argc, char** argv) {
   for (int i = 0; i < 150; i++) { big += (i ? "," : ""); big += "{\"id\":\"x\",\"n\":\"y\",\"t\":\"light\",\"act\":[\"power\"],\"on\":true}"; }
   big += "]}";
   assert(pm_parse(big.c_str(), big.size(), m) && m.nDevs == PANEL_MAX_DEVS);
-  printf("OK modelo do painel: %d testes\n", 24);
+  // ---- planta (segundo argumento: plan.json gerado pelo servidor) ----
+  if (argc >= 3) {
+    static PPlan pl;
+    std::ifstream fp(argv[2]); std::stringstream sp; sp << fp.rdbuf(); std::string pj = sp.str();
+    assert(pm_parse_plan(pj.c_str(), pj.size(), pl));
+    assert(pl.nRooms == 10 && pl.nWalls == 129);
+    for (int i = 0; i < pl.nRooms; i++) {
+      const PRoom &r = pl.rooms[i];
+      float area = 0;
+      for (int a = 0, b = r.n - 1; a < r.n; b = a++) area += r.x[b] * r.z[a] - r.x[a] * r.z[b];
+      area = fabsf(area) / 2;
+      uint8_t tri[3 * PLAN_MAX_PTS];
+      int nt = pm_triangulate(r.x, r.z, r.n, tri, PLAN_MAX_PTS);
+      float ta = pm_tri_area(r.x, r.z, tri, nt);
+      if (fabsf(ta - area) > 0.02f * area + 0.01f) { fprintf(stderr, "%s: área %.3f × triângulos %.3f (%d)\n", r.name, area, ta, nt); return 1; }
+      // um ponto dentro do primeiro triângulo tem de cair neste cômodo
+      float px = (r.x[tri[0]] + r.x[tri[1]] + r.x[tri[2]]) / 3, pz = (r.z[tri[0]] + r.z[tri[1]] + r.z[tri[2]]) / 3;
+      assert(pm_point_in_room(r, px, pz));
+    }
+    // retrato do P4 (área 768 × 560): a casa (≈13 × 17 m) cabe melhor girada
+    PFit f = pm_plan_fit(pl, 768, 560, 12);
+    assert(f.rot && f.s > 20);
+    int x0, y0, x1, y1;
+    pm_plan_px(f, pl.minX, pl.minZ, &x0, &y0); pm_plan_px(f, pl.maxX, pl.maxZ, &x1, &y1);
+    assert(x0 >= 0 && x0 <= 768 && x1 >= 0 && x1 <= 768 && y0 >= 0 && y0 <= 560 && y1 >= 0 && y1 <= 560);
+    float wx, wz; int qx, qy; pm_plan_px(f, 1.5f, 2.0f, &qx, &qy); pm_plan_world(f, qx, qy, &wx, &wz);
+    assert(fabsf(wx - 1.5f) < 0.1f && fabsf(wz - 2.0f) < 0.1f);
+    // toque no meio da cozinha (ponto interno) acha a Cozinha
+    int k = -1; for (int i = 0; i < pl.nRooms; i++) if (!strcmp(pl.rooms[i].name, "Cozinha")) k = i;
+    assert(k >= 0);
+    uint8_t tri[3 * PLAN_MAX_PTS]; pm_triangulate(pl.rooms[k].x, pl.rooms[k].z, pl.rooms[k].n, tri, PLAN_MAX_PTS);
+    const PRoom &kr = pl.rooms[k];
+    int tx, ty; pm_plan_px(f, (kr.x[tri[0]] + kr.x[tri[1]] + kr.x[tri[2]]) / 3, (kr.z[tri[0]] + kr.z[tri[1]] + kr.z[tri[2]]) / 3, &tx, &ty);
+    assert(pm_plan_room_at(pl, f, tx, ty) == k);
+    assert(pm_plan_room_at(pl, f, 0, 0) == -1);
+    assert(pm_hex_color("#fbbf24") == 0xFBBF24);
+    // assinatura: o /panel com a mesma `ps` não pede a planta de novo; outra `ps` (planta editada no app) pede
+    assert(strlen(pl.sig) == 8);
+    std::string same = std::string("{\"v\":1,\"house\":{},\"devices\":[],\"ps\":\"") + pl.sig + "\"}";
+    assert(pm_parse(same.c_str(), same.size(), m) && !pm_plan_changed(m, pl));
+    const char *edited = "{\"v\":1,\"house\":{},\"devices\":[],\"ps\":\"0badf00d\"}";
+    assert(pm_parse(edited, strlen(edited), m) && pm_plan_changed(m, pl));
+    const char *noSig = "{\"v\":1,\"house\":{},\"devices\":[]}";
+    assert(pm_parse(noSig, strlen(noSig), m) && !pm_plan_changed(m, pl));   // painel de cômodo: sem `ps`
+    printf("OK planta: %d cômodos, %d paredes, escala %.1f px/m%s\n", pl.nRooms, pl.nWalls, f.s, f.rot ? " (girada)" : "");
+  }
+  printf("OK modelo do painel: %d testes\n", 27);
 }

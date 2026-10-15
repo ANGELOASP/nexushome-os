@@ -11,6 +11,7 @@ A placa é escolhida **automaticamente pelo chip**: compilou para ESP32-P4, vira
 
 O painel é **cliente** do NexusHome:
 - lê `GET /iot-gateway/panel` a cada 3 s;
+- no corredor, desenha **a planta do app** (`GET /iot-gateway/panel/plan`): os mesmos cômodos, paredes e aparelhos do Editor de Planta. Não há planta gravada no firmware. A cada consulta o `/panel` traz a assinatura da planta (`ps`); se você mudar a planta no app (ou importar outro DXF), o P4 baixa a nova e redesenha em poucos segundos, sem regravar a placa;
 - manda os toques para `POST /iot-gateway/panel/command`;
 - **não** entra no RS-485: quem comanda os barramentos são as telas 4,3" do quadro.
 
