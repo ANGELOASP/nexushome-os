@@ -46,6 +46,7 @@ painel controla e mostra dispositivos sobre ela. Versão atual: ver `package.jso
 | `js/device-actions.js` | ações por tipo (automações/cenas/cartão do cômodo) — espelha as ações do `run_automations` (024) |
 | `js/scene-devices-extra.js` | modelos 3D da biblioteca ampliada (v2.13: áudio, vídeo, computadores, eletrodomésticos...) |
 | `js/mobile-nav.js` | celular (< 900 px, v2.15): abas Casa/Aparelhos/Rotinas/Monitor/Mais; cada painel diz sua aba em `data-mtab`; `body.m-ui` liga o CSS |
+| `js/lighting.js` | circuitos de iluminação (v2.17): luminárias + pontos de comando + modo de acionamento em `devices.lighting` (026); ferramenta Iluminação (L) do Editor de Planta e luminárias extras no 3D |
 | `js/sensor-readings.js` | cartões dos sensores do quadro (temperatura, umidade, presença, fumaça, gás, nível) e do nobreak (v2.16) |
 | `supabase/functions/iot-gateway/panel.ts` / `plan.ts` | telas de parede (v2.16): `GET /panel` (resumo compacto), `POST /panel/command` e `GET /panel/plan` (a planta do app para o P4 desenhar; `sig`/`ps` = assinatura: o P4 rebaixa a planta assim que ela muda no app) |
 
@@ -72,7 +73,7 @@ npm run build
 
 ## Estado do banco (out/2026)
 
-Migrações **001 a 025 aplicadas** pelo usuário no Supabase (a 025 é do quadro unificado, v2.16), **incluindo a 018** (isolamento por dono: tabelas com
+Migrações **001 a 025 aplicadas** pelo usuário no Supabase (a 025 é do quadro unificado, v2.16; a **026** — iluminação, v2.17 — ainda não), **incluindo a 018** (isolamento por dono: tabelas com
 `owner_id`). Seeds rodados: `supabase/seeds/eletrica.sql` (34 dispositivos `b2000000-…`) e `supabase/seeds/unificado.sql`
 (segurança/iluminação `b3…` e nobreak `b4…`), out/2026.
 

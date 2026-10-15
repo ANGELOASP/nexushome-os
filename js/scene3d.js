@@ -806,7 +806,7 @@ function refreshDeviceMarkers() {
   if (!THREE || !scene) return;
   // nativos e integrados (Samsung SmartThings, Tuya...) posicionados na planta
   const placed = state.devices.filter((d) => isPlaced(d));
-  const sig = placed.map((d) => `${d.id}:${d.type}:${d.model || ''}:${d.pos_x}:${d.pos_z}:${d.pos_y ?? ''}:${d.pos_rot ?? ''}:${pinFloor(d, state.rooms)}`).join('|');
+  const sig = placed.map((d) => `${d.id}:${d.type}:${d.model || ''}:${d.pos_x}:${d.pos_z}:${d.pos_y ?? ''}:${d.pos_rot ?? ''}:${pinFloor(d, state.rooms)}:${d.lighting ? JSON.stringify([d.lighting.fixtures, d.lighting.switches]) : ''}`).join('|');
   syncLegacyAc();
   if (sig === markerSig && markerGroup) {
     // só o estado mudou: atualiza os modelos sem reconstruir
@@ -814,6 +814,7 @@ function refreshDeviceMarkers() {
       const d = state.devices.find((x) => x.id === m.id);
       if (!d) return;
       m.update(d, clock.t);
+      if (!m.head) return;                 // luminárias extras e interruptores do circuito: só o modelo
       m.active = deviceActive(d) && d.is_online !== false;
       paintOrb(THREE, m, d);
     });
@@ -828,6 +829,7 @@ function refreshDeviceMarkers() {
   scene.add(markerGroup);
   deviceMarkers = [];
   markerPicks = [];
+  const lightBudget = { left: MAX_CIRCUIT_LIGHTS };
   const ringGeo = new THREE.RingGeometry(0.14 * METER, 0.2 * METER, 32);
   const headGeo = new THREE.SphereGeometry(0.07 * METER, 18, 12);
   placed.forEach((d) => {
@@ -874,10 +876,44 @@ function refreshDeviceMarkers() {
     paintOrb(THREE, m, d);
     deviceMarkers.push(m);
     markerPicks.push(pick);
+    if (d.type === 'light' && d.lighting) addCircuitExtras(THREE, d, lightBudget);
   });
   const fIn = insideRoom && rooms[insideRoom] ? rooms[insideRoom].def.floorNo : null;
   deviceMarkers.forEach((m) => {
     m.group.visible = fIn !== null ? m.floor === fIn : (floorFilter === 'all' || m.floor === floorFilter);
+  });
+}
+
+// circuitos de iluminação (v2.17): as luminárias além da 1ª e os pontos de comando de cada circuito.
+// Luz pontual custa caro (lição do CLAUDE.md): no máximo 2 por circuito e 24 na casa; as demais só brilham.
+const MAX_CIRCUIT_LIGHTS = 24;
+function addCircuitExtras(THREE, d, budget) {
+  const place = (model, p, floor) => {
+    const g = new THREE.Group();
+    g.position.set(Number(p.x) * METER, 0.16 + floor * FLOOR_H, Number(p.z) * METER);
+    const mountY = Number.isFinite(Number(p.y)) && p.y !== null ? Number(p.y) : model.entry.y;
+    model.group.scale.set(METER, VSCALE, METER);
+    model.group.position.y = mountY * VSCALE;
+    if (p.rot !== null && p.rot !== undefined && Number.isFinite(Number(p.rot))) model.group.rotation.y = -(Number(p.rot) * Math.PI) / 180;
+    model.update(d, 0);
+    g.add(model.group);
+    markerGroup.add(g);
+    deviceMarkers.push({ id: d.id, floor, group: g, head: null, ring: null, update: model.update, active: false });
+  };
+  (d.lighting.fixtures || []).slice(1).forEach((f, i) => {
+    if (!Number.isFinite(Number(f.x)) || !Number.isFinite(Number(f.z))) return;
+    const model = buildDeviceModel(THREE, { ...d, model: f.model });
+    const pts = [];
+    model.group.traverse((o) => { if (o.isPointLight) pts.push(o); });
+    pts.forEach((pt) => {
+      if (i >= 1 || budget.left <= 0) pt.parent.remove(pt); else budget.left -= 1;
+    });
+    place(model, f, Number(f.floor) || 0);
+  });
+  (d.lighting.switches || []).forEach((sw) => {
+    if (!Number.isFinite(Number(sw.x)) || !Number.isFinite(Number(sw.z))) return;
+    const model = buildDeviceModel(THREE, { ...d, model: sw.kind === 'presenca' ? 'presence' : (sw.kind === 'dimmer' ? 'dimmer' : 'switch') });
+    place(model, sw, Number(sw.floor) || 0);
   });
 }
 

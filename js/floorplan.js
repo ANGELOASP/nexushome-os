@@ -50,6 +50,10 @@ import { FLOOR_TYPES, FLOOR_BY_KEY, floorTypeOf } from './floors.js';
 import { saveDevicePin } from './device-pins-store.js';
 import { DEVICE_CATALOG, CATALOG_BY_MODEL, catalogFor, LEGACY_TYPES, TYPE_LABELS, defaultStatus } from './device-catalog.js';
 import { mountDevice } from './device-mount.js';
+import {
+  FIXTURE_TYPES, SWITCH_KINDS, SWITCH_BY_KIND, CONTROL_MODES, CONTROL_BY_MODE, quadroPoint, controlModeFor, circuitFixtures, circuitSwitches,
+  ensureLighting, syncPrimary, lightingWarnings, lightingSummary, commandLetter, wiringSegments, lightingPointAt,
+} from './lighting.js';
 import { getStDevices, linkStDevice } from './panels/smartthings.js';
 import { getTuyaDevices, linkTuyaDevice } from './panels/tuya.js';
 import { roomFromPoint } from './dxf.js';
@@ -83,6 +87,9 @@ let devDraft = [];         // dispositivos na planta (v2.7): { id, name, type, r
 let devBaseline = [];
 let selDev = null;         // id do dispositivo selecionado na planta
 let devPlace = null;       // id do dispositivo sendo posicionado (ferramenta Dispositivos)
+let lightSel = null;       // v2.17: circuito de iluminação em edição (id do dispositivo "light")
+let lightAdd = null;       // o que o clique insere: { what: 'fixture', model } | { what: 'switch', kind }
+let lightHover = null;     // prévia do ponto sob o cursor (já fixado na parede/teto)
 let devHover = null;       // { x, z } — prévia do marcador sob o cursor
 let showDims = true;       // cotas (comprimento) nas paredes
 let clip = null;           // área de transferência do editor (Ctrl+C / Ctrl+V)
@@ -180,6 +187,7 @@ export function initFloorplan({ getClient: gc } = {}) {
   document.getElementById('btn-fp-tool-window')?.addEventListener('click', () => setTool('window'));
   document.getElementById('btn-fp-tool-furn')?.addEventListener('click', () => { setTool('furniture'); toggleFurnPanel(true); });
   document.getElementById('btn-fp-tool-dev')?.addEventListener('click', () => { setTool('device'); toggleDevPanel(true); });
+  document.getElementById('btn-fp-tool-light')?.addEventListener('click', () => { setTool('light'); toggleLightPanel(true); });
   document.getElementById('btn-fp-topoly')?.addEventListener('click', convertToPolygon);
   initDxfImport({
     getContext: () => ({ floor: currentFloor, rooms: draft, walls: wallsDraft }),
@@ -567,11 +575,12 @@ function setTool(t) {
   if (t !== 'furniture') { furnPlace = null; furnHover = null; toggleFurnPanel(false); }
   if (t !== 'select' && t !== 'device') selDev = null;
   if (t !== 'device') { devPlace = null; devHover = null; toggleDevPanel(false); }
-  const map = { device: 'btn-fp-tool-dev', select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase', room: 'btn-fp-tool-room', poly: 'btn-fp-tool-poly', fill: 'btn-fp-tool-fill', door: 'btn-fp-tool-door', window: 'btn-fp-tool-window', furniture: 'btn-fp-tool-furn' };
+  if (t !== 'light') { lightAdd = null; lightHover = null; toggleLightPanel(false); }
+  const map = { light: 'btn-fp-tool-light', device: 'btn-fp-tool-dev', select: 'btn-fp-tool-select', wall: 'btn-fp-tool-wall', erase: 'btn-fp-tool-erase', room: 'btn-fp-tool-room', poly: 'btn-fp-tool-poly', fill: 'btn-fp-tool-fill', door: 'btn-fp-tool-door', window: 'btn-fp-tool-window', furniture: 'btn-fp-tool-furn' };
   Object.entries(map).forEach(([k, id]) => {
     document.getElementById(id)?.classList.toggle('fp-tool-active', k === t);
   });
-  if (canvas) canvas.style.cursor = (t === 'wall' || t === 'room' || t === 'poly' || t === 'fill' || t === 'door' || t === 'window' || t === 'furniture' || t === 'device') ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
+  if (canvas) canvas.style.cursor = (t === 'wall' || t === 'room' || t === 'poly' || t === 'fill' || t === 'door' || t === 'window' || t === 'furniture' || t === 'device' || t === 'light') ? 'crosshair' : (t === 'erase' ? 'pointer' : 'default');
   draw();
 }
 
@@ -843,6 +852,7 @@ function render() {
   drawWalls();
   drawOpenings();
   drawWallDims();
+  drawLighting();
   drawDevices();
   // o cômodo selecionado vai para o primeiro plano: por cima das paredes e dos vizinhos
   const selRoom = rooms.find((r) => r.id === selectedId);
@@ -1944,6 +1954,15 @@ function onPointerDown(e) {
     return;
   }
 
+  // ferramenta ILUMINAÇÃO (v2.17): clique insere luminária/ponto de comando no circuito escolhido;
+  // clicar num ponto existente escolhe o circuito dele; Shift+clique apaga o ponto
+  if (tool === 'light') {
+    if (e.button !== 0) return;
+    lightPointerDown(wx, wz, e.shiftKey);
+    e.preventDefault();
+    return;
+  }
+
   // ferramenta DISPOSITIVOS: clique posiciona o dispositivo escolhido; clicar num marcador o seleciona
   if (tool === 'device') {
     if (e.button !== 0) return;
@@ -2239,6 +2258,12 @@ function onPointerMove(e) {
     let p = snapWallPoint(wx, wz);
     if (wallDraw) p = { ...p, ...axisLock(wallDraw.x1, wallDraw.z1, p.x, p.z) };
     wallHover = p;
+    draw();
+    return;
+  }
+  if (tool === 'light' && !drag) {
+    lightHover = lightAdd && lightSel ? lightMount(lightAdd, wx, wz) : null;
+    canvas.style.cursor = lightAdd && lightSel ? 'copy' : (lightHitAny(wx, wz) ? 'pointer' : 'default');
     draw();
     return;
   }
@@ -2675,6 +2700,7 @@ function onKeyDown(e) {
     if (k === 'j') { setTool('window'); return; }
     if (k === 'm') { setTool('furniture'); toggleFurnPanel(true); return; }
     if (k === 'x') { setTool('device'); toggleDevPanel(true); return; }
+    if (k === 'l') { setTool('light'); toggleLightPanel(true); return; }
     if (k === 'r' && selFurn) { e.preventDefault(); rotateFurniture(e.shiftKey ? 15 : 90); return; }
     // zoom e vista: + − 0 (tudo) F (seleção) Espaço (mover a vista)
     if (k === '+' || k === '=') { e.preventDefault(); zoomCenter(1.25); return; }
@@ -2729,6 +2755,8 @@ function onKeyDown(e) {
     if (!presetsEl?.classList.contains('hidden')) { hidePresets(); return; }
     if (marquee) { marquee = null; drag = null; draw(); return; }
     if (devPlace) { devPlace = null; devHover = null; setTool('select'); return; }       // sai do posicionamento de dispositivo
+    if (tool === 'light' && lightAdd) { lightAdd = null; lightHover = null; buildLightPanel(); draw(); return; }   // para de inserir pontos de luz
+    if (tool === 'light') { setTool('select'); return; }
     if (selDev) { selDev = null; draw(); return; }
     if (furnPlace) { furnPlace = null; furnHover = null; setTool('select'); return; }   // sai da inserção de móveis
     if (selFurn) { selFurn = null; draw(); return; }
@@ -3323,6 +3351,7 @@ function devRow(d) {
     id: d.id, name: d.name, type: d.type, room: d.room, virtual: !!d.virtual, vendor: d.vendor || null,
     model: d.model ?? null, pos_x: d.pos_x ?? null, pos_z: d.pos_z ?? null, pos_floor: d.pos_floor ?? null,
     pos_y: d.pos_y ?? null, pos_rot: d.pos_rot ?? null,
+    hw: d.hw ?? null, lighting: d.lighting ? JSON.parse(JSON.stringify(d.lighting)) : null,
   };
 }
 function floorDevices() { return devDraft.filter((d) => isPlaced(d) && pinFloor(d, draft) === currentFloor); }
@@ -3357,6 +3386,9 @@ function applyMount(d, wx, wz, quiet = false) {
   d.pos_x = m.x; d.pos_z = m.z;
   d.pos_y = Math.round(m.y * 100) / 100;
   d.pos_rot = m.rot;
+  // circuito de iluminação: o dispositivo É a 1ª luminária — mover um move o outro
+  const f0 = d.lighting?.fixtures?.[0];
+  if (f0) Object.assign(f0, { x: d.pos_x, z: d.pos_z, y: d.pos_y, rot: d.pos_rot, floor: currentFloor });
   if (!quiet && m.note) toast(`${d.name}: ${m.note}`, m.ok ? 'Fixação automática pela biblioteca — ajuste a altura no painel do dispositivo se quiser.' : 'Ficou no ponto clicado, na altura padrão.', m.ok ? 'success' : 'info');
   return m;
 }
@@ -3379,6 +3411,7 @@ function unplaceDevice(id) {
   if (!d || !isPlaced(d)) return;
   pushHistory();
   d.pos_x = null; d.pos_z = null; d.pos_floor = null;
+  if (d.lighting) d.lighting = { ...d.lighting, fixtures: [], switches: [] };   // o circuito sai da planta inteiro
   if (selDev === id) selDev = null;
   toast(`${d.name} saiu da planta`, 'Ele continua cadastrado; posicione de novo pela ferramenta Dispositivos (X).', 'info');
   syncToolbar();
@@ -3423,7 +3456,8 @@ function drawOneDevice(d, mode = '') {
 }
 
 function drawDevices() {
-  const list = floorDevices();
+  // na ferramenta Iluminação os circuitos aparecem com os símbolos de planta elétrica (drawLighting)
+  const list = floorDevices().filter((d) => !(tool === 'light' && d.type === 'light' && !d.virtual));
   list.forEach((d) => { if (d.id !== selDev) drawOneDevice(d); });
   const s = list.find((d) => d.id === selDev);
   if (s) drawOneDevice(s, 'sel');
@@ -3662,6 +3696,332 @@ function syncDeviceSel() {
     document.getElementById('fp-dev-room').textContent = `${catalogFor(d).label} · ${d.room || 'sem cômodo'}`;
     const yEl = document.getElementById('fp-dev-y');
     if (yEl && document.activeElement !== yEl) yEl.value = String(d.pos_y ?? catalogFor(d).y);
+  }
+}
+
+
+// ------------------------------------------------------------
+// Iluminação (v2.17): cada dispositivo "light" é um circuito — várias luminárias
+// que acendem juntas e os pontos de onde ele é acionado (devices.lighting, migração 026).
+// Símbolos de planta elétrica (NBR 5444): ponto de luz no teto ⊗, spot •, arandela ◗,
+// fita LED ▬, interruptores S / S3w / S4w, com a letra de comando do circuito.
+// ------------------------------------------------------------
+
+const LIGHT_ON = '#fbbf24';
+function lightCircuits() { return devDraft.filter((d) => d.type === 'light' && !d.virtual); }
+function lightDev(id = lightSel) { return devDraft.find((d) => d.id === id && d.type === 'light' && !d.virtual) || null; }
+function lightLabel(add) {
+  return add.what === 'fixture' ? (CATALOG_BY_MODEL[add.model]?.label || 'luminária') : (SWITCH_BY_KIND[add.kind]?.label || 'ponto de comando');
+}
+
+/** Onde o ponto fica de verdade: luminária pela fixação da biblioteca; comando na parede a 1,10 m (presença no teto). */
+function lightMount(add, wx, wz) {
+  const ctxM = { walls: floorWalls(), openings: openingsDraft, furniture: floorFurniture() };
+  const entry = add.what === 'fixture'
+    ? CATALOG_BY_MODEL[add.model]
+    : (add.kind === 'presenca' ? { ...CATALOG_BY_MODEL.switch, mount: 'ceiling', y: 2.5 } : CATALOG_BY_MODEL.switch);
+  const m = mountDevice(entry, snapDev(wx), snapDev(wz), ctxM);
+  return { x: m.x, z: m.z, y: Math.round(m.y * 100) / 100, rot: m.rot, floor: currentFloor, ok: m.ok, note: m.note };
+}
+
+/** Ponto de luz/comando sob o cursor (qualquer circuito do andar): { d, kind, index }. */
+function lightHitAny(wx, wz) {
+  const r = Math.max(0.2, 12 / view.scale);
+  const list = lightCircuits();
+  // o circuito em edição ganha nos pontos sobrepostos
+  const sel = list.find((d) => d.id === lightSel);
+  for (const d of sel ? [sel, ...list.filter((x) => x !== sel)] : list) {
+    const hit = lightingPointAt(d, wx, wz, currentFloor, r);
+    if (hit) return { d, ...hit };
+  }
+  return null;
+}
+
+function lightPointerDown(wx, wz, shift) {
+  const hit = lightHitAny(wx, wz);
+  if (shift && hit) { removeLightPoint(hit.d, hit.kind, hit.index); return; }
+  const d = lightDev();
+  if (lightAdd && d) {
+    const p = lightMount(lightAdd, wx, wz);
+    pushHistory();
+    const l = ensureLighting(d);
+    const pt = { x: p.x, z: p.z, y: p.y, rot: p.rot, floor: p.floor };
+    if (lightAdd.what === 'fixture') l.fixtures.push({ model: lightAdd.model, ...pt });
+    else l.switches.push({ kind: lightAdd.kind, ...pt });
+    syncPrimary(d);
+    if (lightAdd.what === 'fixture' && l.fixtures.length === 1) assignDeviceRoom(d);
+    if (!p.ok) toast(lightLabel(lightAdd), `${p.note}. Ficou no ponto clicado.`, 'info');
+    lightHover = null;
+    buildLightPanel();
+    draw();
+    return;
+  }
+  if (hit) {
+    lightSel = hit.d.id;
+    lightAdd = null;
+    toggleLightPanel(true);
+    draw();
+    return;
+  }
+  toggleLightPanel(true);
+  toast('Escolha um circuito', 'No painel Iluminação, escolha o circuito e o que inserir (luminária ou ponto de comando); depois clique na planta.', 'info');
+}
+
+function removeLightPoint(d, kind, index) {
+  pushHistory();
+  const l = ensureLighting(d);
+  (kind === 'fixture' ? l.fixtures : l.switches).splice(index, 1);
+  syncPrimary(d);
+  if (lightSel !== d.id) lightSel = d.id;
+  buildLightPanel();
+  draw();
+}
+
+function drawFixtureSymbol(f, color, letter, label) {
+  const x = w2sx(f.x), y = w2sz(f.z);
+  const r = Math.max(6, Math.min(13, 0.16 * view.scale));
+  const a = ((Number(f.rot) || 0) * Math.PI) / 180;
+  const fx = -Math.sin(a), fz = Math.cos(a);           // frente (para dentro do cômodo)
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = 'rgba(12,16,23,0.88)';
+  const circle = (rr, fill = true) => { ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); if (fill) ctx.fill(); ctx.stroke(); };
+  switch (f.model) {
+    case 'spot':
+      circle(r * 0.55);
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r * 0.22, 0, Math.PI * 2); ctx.fill();
+      break;
+    case 'led_strip': {
+      const ux = Math.cos(a), uz = Math.sin(a), half = 0.8 * view.scale;   // 1,6 m ao longo da parede
+      ctx.lineWidth = Math.max(3, r * 0.45); ctx.lineCap = 'round';
+      line(x - ux * half, y - uz * half, x + ux * half, y + uz * half);
+      ctx.lineCap = 'butt';
+      break;
+    }
+    case 'sconce': case 'outdoor_light': {
+      const base = Math.atan2(fz, fx);
+      ctx.beginPath(); ctx.arc(x, y, r * 0.85, base - Math.PI / 2, base + Math.PI / 2); ctx.closePath(); ctx.fill(); ctx.stroke();
+      break;
+    }
+    case 'pendant':
+      circle(r); circle(r * 0.4, false);
+      break;
+    case 'lamp': case 'floor_lamp': case 'garden_light':
+      circle(r * 0.75);
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r * 0.18, 0, Math.PI * 2); ctx.fill();
+      break;
+    default: {                                          // plafon / ponto de luz no teto: ⊗
+      circle(r);
+      const k = r * 0.7;
+      line(x - k, y - k, x + k, y + k); line(x - k, y + k, x + k, y - k);
+    }
+  }
+  ctx.font = "700 10.5px 'IBM Plex Sans', sans-serif";
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  if (letter) { ctx.fillStyle = color; ctx.fillText(letter, x + r + 3, y - r * 0.7); }
+  if (label) {
+    ctx.font = "600 10.5px 'IBM Plex Sans', sans-serif";
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = 'rgba(12,16,23,0.85)';
+    ctx.fillRect(x - tw / 2 - 5, y + r + 5, tw + 10, 15);
+    ctx.fillStyle = '#e2e8f0'; ctx.textAlign = 'center';
+    ctx.fillText(label, x, y + r + 12.5);
+  }
+}
+
+function drawSwitchSymbol(s, letter, color = '#38bdf8') {
+  const x = w2sx(s.x), y = w2sz(s.z);
+  const sym = SWITCH_BY_KIND[s.kind]?.sym || 'S';
+  ctx.font = "800 10px 'IBM Plex Sans', sans-serif";
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const w = Math.max(16, ctx.measureText(sym).width + 8), h = 15;
+  ctx.fillStyle = 'rgba(12,16,23,0.92)';
+  ctx.strokeStyle = color; ctx.lineWidth = 1.6;
+  if (s.kind === 'presenca') { ctx.beginPath(); ctx.arc(x, y, w / 2 + 1, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+  else { ctx.fillRect(x - w / 2, y - h / 2, w, h); ctx.strokeRect(x - w / 2, y - h / 2, w, h); }
+  ctx.fillStyle = color;
+  ctx.fillText(sym, x, y + 0.5);
+  if (letter) { ctx.font = "700 9.5px 'IBM Plex Sans', sans-serif"; ctx.textAlign = 'left'; ctx.fillText(letter, x + w / 2 + 2, y + h / 2); }
+}
+
+function drawLighting() {
+  const inTool = tool === 'light';
+  const live = new Map(state.devices.map((x) => [x.id, x]));
+  lightCircuits().forEach((d) => {
+    // fora da ferramenta: só os circuitos com mais de um ponto (a 1ª luminária já é o marcador do dispositivo)
+    if (!inTool && !d.lighting) return;
+    const fx = circuitFixtures(d).map((f, i) => ({ ...f, i })).filter((f) => f.floor === currentFloor && (inTool || f.i > 0));
+    const sw = inTool ? circuitSwitches(d).filter((p) => p.floor === currentFloor) : [];
+    if (!fx.length && !sw.length) return;
+    const sel = d.id === lightSel;
+    const on = !!live.get(d.id)?.status?.on;
+    const color = on ? LIGHT_ON : (sel ? '#f59e0b' : '#94a3b8');
+    const letter = inTool ? commandLetter(devDraft, d) : '';
+    ctx.save();
+    ctx.globalAlpha = inTool ? (lightSel && !sel ? 0.4 : 1) : 0.55;
+    if (inTool) {
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = sel ? 1.8 : 1.2;
+      wiringSegments(d, currentFloor).forEach((sg) => {
+        ctx.strokeStyle = sg.kind === 'comando' ? '#38bdf8' : color;
+        line(w2sx(sg.x1), w2sz(sg.z1), w2sx(sg.x2), w2sz(sg.z2));
+      });
+      ctx.setLineDash([]);
+    }
+    fx.forEach((f) => drawFixtureSymbol(f, color, letter, inTool && f.i === 0 && (sel || view.scale > 60) ? d.name : ''));
+    sw.forEach((p) => drawSwitchSymbol(p, letter));
+    ctx.restore();
+  });
+  if (inTool && lightAdd && lightHover) {
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    if (lightAdd.what === 'fixture') drawFixtureSymbol({ ...lightHover, model: lightAdd.model }, LIGHT_ON, '', '');
+    else drawSwitchSymbol({ ...lightHover, kind: lightAdd.kind }, '');
+    ctx.restore();
+  }
+}
+
+function toggleLightPanel(open) {
+  const el = document.getElementById('fp-light-panel');
+  if (!el) return;
+  el.classList.toggle('hidden', !open);
+  if (open) { buildLightPanel(); hidePresets(); hideBgPanel(); toggleFurnPanel(false); toggleDevPanel(false); }
+}
+
+function lightSelectedHtml(d) {
+  const q = quadroPoint(d.id);
+  const mode = controlModeFor(d);
+  const warns = lightingWarnings(d);
+  const fx = circuitFixtures(d), sw = circuitSwitches(d);
+  const chip = (attr, val, label, extra = '') => {
+    const on = lightAdd && ((attr === 'fix' && lightAdd.what === 'fixture' && lightAdd.model === val) || (attr === 'sw' && lightAdd.what === 'switch' && lightAdd.kind === val));
+    return `<button type="button" class="fp-lib-btn ${on ? 'fp-lib-on' : ''}" data-${attr}="${val}">${extra}${escapeHtml(label)}</button>`;
+  };
+  const floorTag = (p) => (p.floor === currentFloor ? '' : ` · ${floorLabel(p.floor)}`);
+  return `
+    <div class="fp-light-sel">
+      <div class="fp-light-title"><b class="fp-light-letter">${commandLetter(devDraft, d)}</b><span>${escapeHtml(d.name)}</span></div>
+      <small class="fp-light-sub">${escapeHtml(d.room || 'sem cômodo')} · ${escapeHtml(lightingSummary(d))}</small>
+      <label class="fp-light-row">Acionamento
+        <select class="form-input" data-ctl="mode">${CONTROL_MODES.map((m) => `<option value="${m.mode}" ${m.mode === mode ? 'selected' : ''} ${m.mode === 'quadro' && !q ? 'disabled' : ''}>${escapeHtml(m.label)}</option>`).join('')}</select>
+      </label>
+      <p class="fp-light-desc">${escapeHtml(CONTROL_BY_MODE[mode].desc)}${mode === 'quadro' && q ? ` Ponto <b>${q.ponto}</b>: relé ${q.rele}, canal ${q.canal}, retorno ${q.kr}.` : ''}</p>
+      ${warns.length ? `<ul class="fp-light-warn">${warns.map((w) => `<li>${escapeHtml(w)}</li>`).join('')}</ul>` : ''}
+      <p class="fp-furn-group">Inserir luminária</p>
+      <div class="fp-lib-grid">${FIXTURE_TYPES.map((c) => chip('fix', c.model, c.label)).join('')}</div>
+      <p class="fp-furn-group">Inserir ponto de comando</p>
+      <div class="fp-lib-grid">${SWITCH_KINDS.map((k) => chip('sw', k.kind, k.label, `<b class="fp-light-sym">${k.sym}</b>`)).join('')}</div>
+      <p class="fp-light-tip">${lightAdd ? `Clique na planta para inserir <b>${escapeHtml(lightLabel(lightAdd).toLowerCase())}</b>. Esc para.` : 'Escolha o que inserir e clique na planta.'} Shift+clique num ponto apaga.</p>
+      ${fx.length || sw.length ? `<ul class="fp-light-items">
+        ${fx.map((f, i) => `<li><span>${escapeHtml(CATALOG_BY_MODEL[f.model]?.label || f.model)}${i === 0 ? ' · principal' : ''}${floorTag(f)}</span><button type="button" class="fp-icon-btn" data-del="fixture:${i}" title="Apagar luminária">×</button></li>`).join('')}
+        ${sw.map((p, i) => `<li><span><b class="fp-light-sym">${SWITCH_BY_KIND[p.kind].sym}</b>${escapeHtml(SWITCH_BY_KIND[p.kind].label)}${floorTag(p)}</span><button type="button" class="fp-icon-btn" data-del="switch:${i}" title="Apagar ponto de comando">×</button></li>`).join('')}
+      </ul>` : ''}
+    </div>`;
+}
+
+function buildLightPanel() {
+  const el = document.getElementById('fp-light-panel');
+  if (!el || el.classList.contains('hidden')) return;
+  const circuits = lightCircuits();
+  if (lightSel && !lightDev()) lightSel = null;
+  const d = lightDev();
+  const roomNames = [...new Set(floorRooms().map((r) => r.name))];
+  const keep = el.querySelector('[data-form="new"]:not(.hidden)') ? { name: el.querySelector('[name="lname"]')?.value || '' } : null;
+  el.innerHTML = `
+    <div class="fp-dev-head">
+      <p class="fp-presets-title">Iluminação</p>
+      <button type="button" class="fp-dev-new" data-act="new">+ Novo circuito</button>
+    </div>
+    <form class="fp-dev-form ${keep ? '' : 'hidden'}" data-form="new">
+      <input class="form-input" name="lname" maxlength="40" placeholder="Nome (ex.: Spots da sala)" />
+      <select class="form-input" name="lroom">${roomNames.map((n) => `<option>${escapeHtml(n)}</option>`).join('') || '<option value="">Crie um cômodo primeiro</option>'}</select>
+      <select class="form-input" name="lmode">${CONTROL_MODES.filter((m) => m.mode !== 'quadro').map((m) => `<option value="${m.mode}">${escapeHtml(m.label)}</option>`).join('')}</select>
+      <p class="fp-dev-mount">Os pontos L01–L10 do Quadro de Automação já estão na lista abaixo: para usar o relé do quadro, edite um deles.</p>
+      <button type="submit" class="fp-dev-new fp-dev-new-go">Criar e inserir luminárias</button>
+    </form>
+    ${d ? lightSelectedHtml(d) : `<p class="fp-light-tip">${circuits.length ? 'Escolha um circuito para inserir luminárias e pontos de comando.' : 'Nenhum circuito de iluminação ainda: crie o primeiro.'}</p>`}`;
+  if (keep) el.querySelector('[name="lname"]').value = keep.name;
+  // lista de circuitos por cômodo
+  const rooms = [...new Set(circuits.map((x) => x.room || 'Sem cômodo'))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  rooms.forEach((room) => {
+    const h = document.createElement('p');
+    h.className = 'fp-furn-group';
+    h.textContent = room;
+    el.appendChild(h);
+    const grid = document.createElement('div');
+    grid.className = 'fp-dev-grid';
+    circuits.filter((x) => (x.room || 'Sem cômodo') === room).forEach((x) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `fp-dev-btn${x.id === lightSel ? ' fp-furn-active' : ''}`;
+      const warn = lightingWarnings(x).length;
+      btn.innerHTML = `<span class="fp-dev-name"><b class="fp-light-letter">${commandLetter(devDraft, x)}</b><span>${escapeHtml(x.name)}</span></span>
+        <small>${warn ? '<b class="fp-light-warn-dot">!</b> ' : ''}${escapeHtml(lightingSummary(x))}</small>`;
+      btn.addEventListener('click', () => { lightSel = x.id; lightAdd = null; buildLightPanel(); draw(); });
+      grid.appendChild(btn);
+    });
+    el.appendChild(grid);
+  });
+  el.querySelector('[data-act="new"]').addEventListener('click', () => el.querySelector('[data-form="new"]').classList.toggle('hidden'));
+  el.querySelector('[data-form="new"]').addEventListener('submit', (e) => { e.preventDefault(); createLightCircuit(e.currentTarget); });
+  el.querySelector('[data-ctl="mode"]')?.addEventListener('change', (e) => {
+    const cur = lightDev(); if (!cur) return;
+    pushHistory();
+    ensureLighting(cur).control.mode = e.target.value;
+    buildLightPanel(); draw();
+  });
+  el.querySelectorAll('[data-fix]').forEach((b) => b.addEventListener('click', () => {
+    lightAdd = lightAdd?.what === 'fixture' && lightAdd.model === b.dataset.fix ? null : { what: 'fixture', model: b.dataset.fix };
+    buildLightPanel(); draw();
+  }));
+  el.querySelectorAll('[data-sw]').forEach((b) => b.addEventListener('click', () => {
+    lightAdd = lightAdd?.what === 'switch' && lightAdd.kind === b.dataset.sw ? null : { what: 'switch', kind: b.dataset.sw };
+    buildLightPanel(); draw();
+  }));
+  el.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => {
+    const cur = lightDev(); if (!cur) return;
+    const [kind, i] = b.dataset.del.split(':');
+    removeLightPoint(cur, kind, Number(i));
+  }));
+}
+
+/** "+ Novo circuito": cria o dispositivo "light" (sem posição) e já entra no modo de inserir luminárias. */
+async function createLightCircuit(form) {
+  const room = form.lroom.value;
+  if (!room) { toast('Crie um cômodo primeiro', 'O circuito pertence a um cômodo da planta.', 'warning'); return; }
+  const name = form.lname.value.trim() || `Luz — ${room}`;
+  const mode = form.lmode.value;
+  const client = await getClient?.();
+  if (!client) return;
+  const btn = form.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try {
+    const lighting = { fixtures: [], switches: [], control: { mode } };
+    const row0 = { name, type: 'light', room, status: defaultStatus('light'), is_online: false, model: 'plafon', lighting };
+    let saved = true;
+    let { data, error } = await client.from('devices').insert(row0).select();
+    if (error && /lighting/.test(error.message || '')) {
+      saved = false;   // sem a migração 026: cria o dispositivo; o circuito fica no rascunho e o salvar avisa de novo
+      ({ data, error } = await client.from('devices').insert({ ...row0, lighting: undefined }).select());
+      if (!error) toast('Execute a migração 026', 'O circuito foi criado, mas as luminárias e os pontos de comando só são gravados depois da 026_iluminacao.sql.', 'warning');
+    }
+    if (error && /model/.test(error.message || '')) ({ data, error } = await client.from('devices').insert({ ...row0, model: undefined, lighting: saved ? lighting : undefined }).select());
+    if (error) throw new Error(error.message);
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new Error('o banco não devolveu o circuito criado');
+    upsertDevice({ ...row, lighting: saved ? lighting : null });
+    const r = devRow({ ...row, model: 'plafon', lighting });
+    devBaseline.push({ ...r, lighting: saved ? JSON.parse(JSON.stringify(lighting)) : null });
+    devDraft.push(r);
+    lightSel = r.id;
+    lightAdd = { what: 'fixture', model: 'plafon' };
+    buildLightPanel();
+    toast(`${name} criado`, 'Escolha o tipo de luminária e clique na planta; depois insira os pontos de comando.', 'success');
+    draw();
+  } catch (err) {
+    toast('Não foi possível criar o circuito', err.message, 'critical');
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -4116,10 +4476,11 @@ async function savePlan() {
       const base = new Map(devBaseline.map((d) => [d.id, d]));
       const changedDevs = devDraft.filter((d) => {
         const b = base.get(d.id);
-        return b && (b.pos_x !== d.pos_x || b.pos_z !== d.pos_z || b.pos_floor !== d.pos_floor || b.room !== d.room || b.pos_y !== d.pos_y || b.pos_rot !== d.pos_rot || b.model !== d.model);
+        return b && (b.pos_x !== d.pos_x || b.pos_z !== d.pos_z || b.pos_floor !== d.pos_floor || b.room !== d.room || b.pos_y !== d.pos_y || b.pos_rot !== d.pos_rot || b.model !== d.model || JSON.stringify(b.lighting ?? null) !== JSON.stringify(d.lighting ?? null));
       });
       let posDropped = false;
       let catalogDropped = false;
+      let lightingDropped = false;
       let pinsFailed = '';
       for (const d of changedDevs.filter((x) => x.virtual)) {
         const b = base.get(d.id) || {};
@@ -4136,8 +4497,15 @@ async function savePlan() {
       if (pinsFailed) toast('Posição dos integrados não gravada', `${pinsFailed} — execute as migrações 020_device_pins.sql e 021_device_catalog.sql no Supabase e salve de novo.`, 'warning');
       for (const d of changedDevs.filter((x) => !x.virtual)) {
         const full = { pos_x: d.pos_x, pos_z: d.pos_z, pos_floor: d.pos_floor, room: d.room, pos_y: d.pos_y, pos_rot: d.pos_rot, model: d.model };
-        let patch = full;
+        const withLight = JSON.stringify(base.get(d.id)?.lighting ?? null) !== JSON.stringify(d.lighting ?? null);
+        let patch = withLight ? { ...full, lighting: d.lighting } : full;
         let { error: e10 } = await client.from('devices').update(patch).eq('id', d.id);
+        if (e10 && withLight && /lighting/.test(e10.message || '')) {
+          // migração 026 ainda não aplicada: grava a posição sem os circuitos de iluminação e avisa
+          lightingDropped = true;
+          patch = full;
+          ({ error: e10 } = await client.from('devices').update(patch).eq('id', d.id));
+        }
         if (e10 && /pos_y|pos_rot|model/.test(e10.message || '')) {
           catalogDropped = true;
           const { pos_y: _y, pos_rot: _r, model: _m, ...rest } = full;
@@ -4151,8 +4519,9 @@ async function savePlan() {
         }
         if (e10) throw new Error(e10.message);
         const cur = state.devices.find((x) => x.id === d.id);
-        if (cur) upsertDevice({ ...cur, ...full });
+        if (cur) upsertDevice({ ...cur, ...full, ...(lightingDropped ? {} : { lighting: d.lighting ?? null }) });
       }
+      if (lightingDropped) toast('Circuitos de iluminação não gravados', 'Execute a migração 026_iluminacao.sql no Supabase e salve de novo. A posição da 1ª luminária de cada circuito foi gravada.', 'warning');
       if (catalogDropped) toast('Altura/giro dos dispositivos não gravados', 'Execute a migração 021_device_catalog.sql no Supabase e salve de novo.', 'warning');
       if (posDropped) toast('Posição dos dispositivos não gravada', 'Execute a migração 015_device_positions.sql no Supabase e salve de novo. O cômodo de cada dispositivo foi atualizado.', 'warning');
       devBaseline = devDraft.map((d) => ({ ...d }));
