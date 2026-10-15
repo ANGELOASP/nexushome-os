@@ -71,12 +71,14 @@ npm run build
 
 ## Estado do banco (out/2026)
 
-Migrações **001 a 024 aplicadas** pelo usuário no Supabase (a **025** do quadro unificado é da v2.16), **incluindo a 018** (isolamento por dono: tabelas com
-`owner_id`). Seeds rodados: `supabase/seeds/eletrica.sql` (34 dispositivos `b2000000-…`, out/2026).
+Migrações **001 a 025 aplicadas** pelo usuário no Supabase (a 025 é do quadro unificado, v2.16), **incluindo a 018** (isolamento por dono: tabelas com
+`owner_id`). Seeds rodados: `supabase/seeds/eletrica.sql` (34 dispositivos `b2000000-…`) e `supabase/seeds/unificado.sql`
+(segurança/iluminação `b3…` e nobreak `b4…`), out/2026.
 
 ## Pendências conhecidas (do lado do usuário)
 
-- Edge Functions publicadas pelo conector em 14/out/2026: `iot-gateway` v10 (comandos, fila offline, lote) e
+- Edge Functions publicadas pelo conector: `iot-gateway` em 15/out/2026 (versão 14 no Supabase, código v2.16: `/panel`,
+  `/panel/plan` com assinatura da planta, `/panel/command`; `verify_jwt` desligado) e, em 14/out/2026,
   `notify-alert` v7 (Telegram + push). O push só sai com as chaves VAPID configuradas nos secrets.
 - Reinstalar o firmware com `scripts/instalar-arduino.ps1` para ativar a fila offline do ESP32.
 - v2.11 (automação elétrica): 023 e seed já rodados; falta gravar o firmware quando a 2ª placa 4.3B chegar
