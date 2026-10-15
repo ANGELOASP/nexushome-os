@@ -9,7 +9,18 @@
 
 import { parseReadingTs } from "./ts.ts";
 
-export const ALLOWED_METRICS = new Set(["energy_watts", "water_flow_lph", "temperature", "humidity", "water_level_pct"]);  // water_level_pct: migração 005
+export const ALLOWED_METRICS = new Set([
+  "energy_watts", "water_flow_lph", "temperature", "humidity", "water_level_pct",  // water_level_pct: migração 005
+  ...["battery_soc", "battery_voltage", "gas_lel", "grid_voltage", "power_backup_w"],  // v2.16: migração 025
+]);
+/** Métricas que só existem depois da migração 025 (sem ela o banco recusa a linha). */
+export const METRICS_025 = new Set(["battery_soc", "battery_voltage", "gas_lel", "grid_voltage", "power_backup_w"]);
+/** Módulos que podem levantar alertas pelo lote (v2.16): cada tela do quadro manda o seu. */
+export const ALERT_SOURCES = new Set(["eletrica", "agua", "seguranca", "nobreak"]);
+export function alertSource(source: unknown): string {
+  const s = String(source ?? "").trim().toLowerCase();
+  return ALERT_SOURCES.has(s) ? s : "eletrica";
+}
 export const MAX_BATCH = 100;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

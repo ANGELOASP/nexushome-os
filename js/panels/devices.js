@@ -5,6 +5,7 @@
 // ============================================================
 
 import { state, on, emit, getRoomNames, getDevice, upsertDevice, removeDevice } from '../state.js';
+import { sensorReadings, batteryView } from '../sensor-readings.js';
 import { toast, escapeHtml } from '../toasts.js';
 import { SOURCES, LEGACY_TYPES, defaultStatus } from '../device-catalog.js';
 import { ARMED_LABEL } from '../device-actions.js';
@@ -189,7 +190,14 @@ function renderDevice(d) {
   const s = d.status || {};
 
   let controls = '';
-  if (d.type === 'light') {
+  if (d.type === 'light' && d.hw) {
+    // v2.16: luz em three-way pelo quadro (relé + interruptor de parede): só liga/desliga, estado real
+    controls = `
+      <div class="flex items-center justify-between gap-3 mt-2">
+        <label class="switch"><input type="checkbox" data-ctl="power" ${s.on ? 'checked' : ''}><span class="slider-ui"></span></label>
+        <span class="text-[11px] text-slate-500">${s.on ? 'acesa' : 'apagada'} · interruptor de parede ativo</span>
+      </div>`;
+  } else if (d.type === 'light') {
     controls = `
       <div class="flex items-center justify-between gap-3 mt-2">
         <label class="switch"><input type="checkbox" data-ctl="power" ${s.on ? 'checked' : ''}><span class="slider-ui"></span></label>
@@ -239,6 +247,17 @@ function renderDevice(d) {
         <span class="text-xs ${cleaning ? 'text-sky-300' : 'text-slate-400'}">${cleaning ? 'Limpando' : 'Na base'}${s.battery != null ? ` · ${Math.round(s.battery)}%` : ''}</span>
         <button type="button" data-ctl="vacuum" class="dev-seg ${cleaning ? '' : 'dev-seg-on'}">${cleaning ? 'Voltar à base' : 'Iniciar limpeza'}</button>
       </div>`;
+  } else if (d.type === 'solar' && batteryView(s)) {
+    // v2.16: nobreak / banco de baterias (tela T4 do quadro)
+    const b = batteryView(s);
+    const bar = b.level === 'crit' ? 'bg-red-400' : b.level === 'warn' ? 'bg-amber-400' : 'bg-emerald-400';
+    controls = `
+      <div class="mt-2 flex items-center gap-3">
+        <span class="text-2xl font-bold tabular-nums ${b.level === 'ok' ? 'text-emerald-300' : b.level === 'warn' ? 'text-amber-300' : 'text-red-300'}">${b.soc ?? '—'}%</span>
+        <div class="flex-1 h-2 rounded-full bg-white/10 overflow-hidden"><span class="block h-full ${bar}" style="width:${b.soc ?? 0}%"></span></div>
+      </div>
+      ${b.onBattery ? '<p class="mt-1.5 text-[11px] font-semibold text-amber-300">FALTA DE ENERGIA</p>' : ''}
+      <p class="mt-1 text-[11px] text-slate-400 tabular-nums">${b.lines.map(escapeHtml).join(' · ')}</p>`;
   } else if (d.type === 'tablet' || d.type === 'network') {
     const info = [];
     if (s.battery != null) info.push(`bateria ${Math.round(s.battery)}%`);
@@ -252,11 +271,15 @@ function renderDevice(d) {
         ${s.watts != null ? `<span class="text-sm font-semibold text-cyan-300 tabular-nums">${Math.round(s.watts)} W</span>` : `<span class="text-[11px] text-slate-500">${s.on ? 'ligado' : 'desligado'}</span>`}
       </div>`;
   } else if (d.type === 'sensor') {
-    controls = `
-      <div class="mt-2 grid grid-cols-2 gap-2 text-center">
-        <div class="rounded-lg bg-white/5 py-1.5"><p class="text-[10px] text-slate-500">Temperatura</p><p class="text-sm font-semibold text-slate-200" data-lbl="temperature">—</p></div>
-        <div class="rounded-lg bg-white/5 py-1.5"><p class="text-[10px] text-slate-500">Umidade</p><p class="text-sm font-semibold text-slate-200" data-lbl="humidity">—</p></div>
-      </div>`;
+    // v2.16: o que a tela do quadro publica (temperatura, umidade, presença, fumaça, gás, nível...)
+    const rd = sensorReadings(s);
+    controls = rd.length
+      ? `<div class="mt-2 grid grid-cols-2 gap-1.5 text-center">${rd.map((r) => `
+          <div class="rounded-lg py-1.5 ${r.alarm ? 'bg-red-500/15 ring-1 ring-red-400/50' : 'bg-white/5'}">
+            <p class="text-[10px] text-slate-500">${r.label}</p>
+            <p class="text-sm font-semibold tabular-nums ${r.alarm ? 'text-red-300' : 'text-slate-200'}">${escapeHtml(r.value)}</p>
+          </div>`).join('')}</div>`
+      : `<p class="mt-2 text-xs text-slate-500">Aguardando a primeira leitura</p>`;
   } else {
     controls = `<p class="mt-2 text-xs text-slate-500">Dispositivo monitorado</p>`;
   }

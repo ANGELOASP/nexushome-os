@@ -18,7 +18,13 @@
 //        painel sem gravar histórico. Usado pelo ESP32 elétrico (33 circuitos). Resposta:
 //        { ok, rows, statuses, alerts, errors: [{index, error}] }  (itens inválidos não derrubam o lote)
 //        "alerts": [{severity: info|warning|critical, message}] (opcional, até 10) → tabela alerts
+//        "source": "eletrica|agua|seguranca|nobreak" (v2.16) → alerts.source_module
+//        métricas da 025 (battery_soc, gas_lel...) sem a migração: o status grava e a
+//        resposta avisa "execute a migração 025" (o histórico novo fica de fora)
 //
+// GET  /iot-gateway/panel?room=&limit=   (v2.16) → resumo para as telas de parede (P4 10,1" e 7")
+// POST /iot-gateway/panel/command          (v2.16) → {device_id, action, value} — aciona um aparelho
+//        (aparelhos com hw: o gatilho da 013/024/025 enfileira o comando para a tela do quadro)
 // GET  /iot-gateway/health    → status simples
 // GET  /iot-gateway/commands  → comandos pendentes para o ESP32 (x-device-key; migração 013)
 //        resposta: { commands: [{ id, device_id, command: { open: true|false } | { on: true|false } }] }
@@ -43,7 +49,8 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { parseReadingTs } from "./ts.ts";
-import { ALLOWED_METRICS, parseAlerts, splitBatch } from "./batch.ts";
+import { ALLOWED_METRICS, METRICS_025, alertSource, parseAlerts, splitBatch } from "./batch.ts";
+import { buildSnapshot, validateCommand, type Device } from "./panel.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -73,10 +80,12 @@ serve(async (req: Request) => {
 
   const url = new URL(req.url);
   const wantsCommands = req.method === "GET" && url.pathname.endsWith("/commands");
-  if (req.method === "GET" && !wantsCommands) {
-    return json({ ok: true, service: "nexushome-iot-gateway", path: url.pathname });
+  const wantsPanel = req.method === "GET" && url.pathname.endsWith("/panel");
+  const wantsPanelCommand = req.method === "POST" && url.pathname.endsWith("/panel/command");
+  if (req.method === "GET" && !wantsCommands && !wantsPanel) {
+    return json({ ok: true, service: "nexushome-iot-gateway", version: 11, path: url.pathname });
   }
-  if (req.method !== "POST" && !wantsCommands) return json({ error: "Método não suportado" }, 405);
+  if (req.method !== "POST" && !wantsCommands && !wantsPanel) return json({ error: "Método não suportado" }, 405);
 
   // --- autenticação simples por segredo compartilhado ---------
   // Fail-closed: sem IOT_DEVICE_SECRET configurado a função recusa tudo,
@@ -94,6 +103,10 @@ serve(async (req: Request) => {
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
   );
+
+  // --- telas de parede (v2.16): resumo da casa e comandos ---------
+  if (wantsPanel) return await handlePanel(supabase, url);
+  if (wantsPanelCommand) return await handlePanelCommand(supabase, req);
 
   // --- comandos pendentes para o ESP32 (app → válvulas) ---------
   if (wantsCommands) {
@@ -127,7 +140,7 @@ serve(async (req: Request) => {
     return json({ error: "JSON inválido" }, 400);
   }
 
-  if (Array.isArray(body.readings)) return await handleBatch(supabase, body.readings, body.alerts);
+  if (Array.isArray(body.readings)) return await handleBatch(supabase, body.readings, body.alerts, body.source);
 
   const deviceId = String(body.device_id ?? "");
   const metricType = String(body.metric_type ?? "");
@@ -147,7 +160,10 @@ serve(async (req: Request) => {
     .from("telemetry_logs")
     .insert({ device_id: deviceId, metric_type: metricType, value, ...(createdAt ? { created_at: createdAt } : {}) });
 
-  if (telErr) return json({ error: `Falha ao gravar telemetria: ${telErr.message}` }, 500);
+  if (telErr) {
+    const hint = telErr.code === "23514" && METRICS_025.has(metricType) ? " — execute a migração 025" : "";
+    return json({ error: `Falha ao gravar telemetria: ${telErr.message}${hint}` }, hint ? 422 : 500);
+  }
 
   // opcional: o firmware pode atualizar o status do dispositivo
   // (ex.: medidor publica {"watts": X} para o painel 3D reagir)
@@ -179,15 +195,22 @@ serve(async (req: Request) => {
 
 // ---- envio em lote (v2.11) -------------------------------------------------
 // deno-lint-ignore no-explicit-any
-async function handleBatch(supabase: any, readings: unknown[], alerts?: unknown): Promise<Response> {
+async function handleBatch(supabase: any, readings: unknown[], alerts?: unknown, source?: unknown): Promise<Response> {
   const { rows, statuses, errors } = splitBatch(readings);
   if (errors.length && errors[0].index === -1) return json({ error: errors[0].error }, 400);
 
+  let rowsSaved = rows;
   if (rows.length) {
-    const { error } = await supabase.from("telemetry_logs").insert(rows);
+    let { error } = await supabase.from("telemetry_logs").insert(rows);
+    if (error?.code === "23514" && rows.some((r) => METRICS_025.has(r.metric_type))) {
+      // sem a migração 025 o banco recusa as métricas novas: grava o resto e avisa
+      rowsSaved = rows.filter((r) => !METRICS_025.has(r.metric_type));
+      errors.push({ index: -1, error: "histórico de bateria/gás/rede ignorado: execute a migração 025" });
+      error = rowsSaved.length ? (await supabase.from("telemetry_logs").insert(rowsSaved)).error : null;
+    }
     if (error?.code === "23503") {
       // algum device_id não existe (seed não rodado / aparelho excluído): grava os demais um a um
-      for (const row of rows) {
+      for (const row of rowsSaved) {
         const { error: e1 } = await supabase.from("telemetry_logs").insert(row);
         if (e1) errors.push({ index: -1, error: `telemetria de ${row.device_id}: ${e1.message}` });
       }
@@ -201,10 +224,42 @@ async function handleBatch(supabase: any, readings: unknown[], alerts?: unknown)
   results.forEach((r: { error?: { message: string } | null }, i: number) => {
     if (r.error) errors.push({ index: -1, error: `status de ${statuses[i].device_id}: ${r.error.message}` });
   });
-  const alertRows = parseAlerts(alerts);
+  const alertRows = parseAlerts(alerts, alertSource(source));
   if (alertRows.length) {
     const { error } = await supabase.from("alerts").insert(alertRows);
     if (error) errors.push({ index: -1, error: `alertas: ${error.message}` });
   }
-  return json({ ok: true, rows: rows.length, statuses: statuses.length, alerts: alertRows.length, errors }, errors.length ? 207 : 200);
+  return json({ ok: true, rows: rowsSaved.length, statuses: statuses.length, alerts: alertRows.length, errors }, errors.length ? 207 : 200);
+}
+
+// ---- telas de parede (v2.16) -------------------------------------------------
+// deno-lint-ignore no-explicit-any
+async function handlePanel(supabase: any, url: URL): Promise<Response> {
+  const room = url.searchParams.get("room") ?? "";
+  const limit = Number(url.searchParams.get("limit") ?? "80");
+  const [devs, alerts] = await Promise.all([
+    supabase.from("devices").select("id, name, type, room, status, is_online"),
+    supabase.from("alerts").select("severity, message, created_at, resolved")
+      .eq("resolved", false).gte("created_at", new Date(Date.now() - 86400000).toISOString())
+      .order("created_at", { ascending: false }).limit(20),
+  ]);
+  if (devs.error) return json({ error: `Falha ao ler dispositivos: ${devs.error.message}` }, 500);
+  return json(buildSnapshot(devs.data ?? [], alerts.data ?? [], { room, limit: Number.isFinite(limit) ? limit : 80 }));
+}
+
+// deno-lint-ignore no-explicit-any
+async function handlePanelCommand(supabase: any, req: Request): Promise<Response> {
+  let body: Record<string, unknown>;
+  try { body = await req.json(); } catch { return json({ error: "JSON inválido" }, 400); }
+  const id = String(body?.device_id ?? "");
+  const { data: dev } = /^[0-9a-f-]{36}$/i.test(id)
+    ? await supabase.from("devices").select("id, name, type, room, status, is_online").eq("id", id).maybeSingle()
+    : { data: null };
+  const v = validateCommand(body, dev as Device | null);
+  if (v.error) return json({ error: v.error }, v.status ?? 400);
+  const status = { ...((dev as Device).status ?? {}), ...v.patch };
+  // update comum (não device_report_status): o gatilho enfileira o comando para a tela do quadro
+  const { error } = await supabase.from("devices").update({ status }).eq("id", id);
+  if (error) return json({ error: `Falha ao acionar: ${error.message}` }, 500);
+  return json({ ok: true, device_id: id, status });
 }

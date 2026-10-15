@@ -113,6 +113,25 @@ export const DEMO_DEVICES = [
     status: { watts: 0 },
     is_online: true,
   },
+  // v2.16: exemplos do quadro unificado (sensores do cômodo e nobreak) — docs/projeto-unificado.md
+  {
+    id: 'b3000000-0000-4000-8000-000000000021',
+    name: 'Sensores — Sala de Estar',
+    type: 'sensor',
+    model: 'presence',
+    room: 'Sala de Estar',
+    status: { temp: 24.6, hum: 58, presence: true, smoke: false },
+    is_online: true,
+  },
+  {
+    id: 'b4000000-0000-4000-8000-000000000001',
+    name: 'Nobreak — banco LiFePO4',
+    type: 'solar',
+    model: 'battery',
+    room: 'Área Externa',
+    status: { soc: 86, batt_v: 26.6, batt_a: 2.4, grid_v: 221, grid_fail: false, out_w: 0 },
+    is_online: true,
+  },
 ];
 
 const DEMO_AUTOMATIONS = [

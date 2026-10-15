@@ -482,6 +482,40 @@ int postTelemetry(const char* deviceId, const char* metric, float value, const c
 // Falha de rede ou do servidor (5xx) vale tentar de novo; 4xx (dado recusado) não.
 static bool retryable(int code) { return code <= 0 || code >= 500; }
 
+// v2.16: alarmes viram alertas no NexusHome (tabela alerts → push e Telegram).
+// Lote só com "alerts" (readings vazio); "source":"agua" identifica o módulo.
+int postAlert(const char* severity, const char* message) {
+  if (WiFi.status() != WL_CONNECTED) return -1;
+  HTTPClient http;
+  http.begin(GATEWAY_URL);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("x-device-key", DEVICE_SECRET);
+  http.setTimeout(5000);
+  char body[360];
+  snprintf(body, sizeof(body), "{\"readings\":[],\"alerts\":[{\"severity\":\"%s\",\"message\":\"%s\"}],\"source\":\"agua\"}",
+           severity, message);
+  int code = http.POST(body);
+  if (code != 200) Serial.printf("[iot] alerta → HTTP %d\n", code);
+  http.end();
+  return code;
+}
+
+// Borda de subida de cada alarme: avisa uma vez; sem rede, tenta de novo no próximo ciclo.
+void publishAlarmEdges(bool burst, bool external, bool panic) {   // (bools: o protótipo do Arduino vem antes do Snapshot)
+  static bool sentBurst = false, sentExternal = false, sentPanic = false;
+  struct { bool active; bool* sent; const char* msg; } al[] = {
+    { burst,    &sentBurst,    "Água: rompimento detectado (nível caiu sem consumo nos ramais) — válvula geral FECHADA. Rearme na tela do quadro." },
+    { external, &sentExternal, "Água: vazamento na área externa (fluxo contínuo por 60 min) — válvula externa FECHADA." },
+    { panic,    &sentPanic,    "Água: PÂNICO acionado — todas as válvulas FECHADAS." },
+  };
+  for (auto& a : al) {
+    if (!a.active) { *a.sent = false; continue; }
+    if (*a.sent) continue;
+    int code = postAlert("critical", a.msg);
+    if (code == 200 || (code > 0 && !retryable(code))) *a.sent = true;
+  }
+}
+
 // ------------------------------------------------------------
 // Fila offline (v2.7): sem Wi-Fi as leituras ficam na RAM com o millis()
 // da medida; quando a rede e o relógio (NTP) voltam, são reenviadas com o
@@ -600,6 +634,7 @@ void telemetryTask(void*) {
              s.valveOpen[VALVE_GERAL] ? "true" : "false", s.alarmBurst ? "true" : "false",
              s.alarmExternal ? "true" : "false", s.panic ? "true" : "false");
     sendOrQueue(DEVICE_VALVE_GERAL, "water_flow_lph", sumFlow, st);
+    if (online) publishAlarmEdges(s.alarmBurst, s.alarmExternal, s.panic);
   }
 }
 
