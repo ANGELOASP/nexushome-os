@@ -2479,7 +2479,8 @@
 <rect x="820" y="3481.8" width="12" height="18" fill="#ec0" stroke="#111" stroke-width="1"/>
 <text x="838" y="3495.8" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">6 amarelo</text>
 <text x="40" y="3521.8" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Dois fios num borne: ilhós duplo. Anilhas nas duas pontas no formato régua.borne (ex.: &quot;X4.31&quot; no QAU / &quot;L03-P1&quot; na caixa).</text>
-<text x="40" y="3539.8" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Bornes push-in 2,5 mm² (sinais/24 V) e 4 mm² (entradas); bornes-fusível 5 × 20 com LED; bornes de terra verde-amarelo.</text>
+<text x="40" y="3539.8" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Bornes push-in: R5 (X0–X4) 2,5 mm² (24 V e comando) e 4 mm² (entradas CA); R6 (X5–X9) 1,5 mm² com largura ≤ 4,2 mm (§6.2, §7.2);</text>
+<text x="40" y="3557.8" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">bornes-fusível 5 × 20 com LED; bornes de terra verde-amarelo.</text>
 <g id="carimbo">
 <rect x="980" y="3505" width="600" height="132" fill="#fff" stroke="#111" stroke-width="2"/>
 <line x1="980" y1="3537" x2="1580" y2="3537" stroke="#111" stroke-width="1"/>

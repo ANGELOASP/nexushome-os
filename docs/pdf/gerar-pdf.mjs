@@ -133,7 +133,8 @@ const corpo = memorial.replace(/^# .*\n/, '');                       // o títul
 const secoes = [...corpo.matchAll(/^## (.*)$/gm)].map((m) => m[1]);
 
 // passo a passo (§17): cada item de 1º nível vira um cartão com os desenhos que ele usa
-const DESENHO_DO_PASSO = { 1: ['04', '03'], 2: ['06'], 3: ['05', '09'], 4: ['06', '09'], 5: ['07', '09'], 6: ['08', '09'], 7: ['11'], 8: ['01'], 9: ['10', '05'] };
+// os desenhos de cada passo saem do próprio texto do §17 (`04-qau-interior.svg`, "desenho 09")
+const desenhosCitados = (txt) => [...new Set([...txt.matchAll(/\b(\d\d)-[\w-]+\.svg|desenhos? (\d\d)\b/g)].map((m) => m[1] || m[2]))];
 const p17 = (corpo.match(/## 17\.[^\n]*\n([\s\S]*?)\n---/) || [, ''])[1];
 const passos = [];
 for (const linha of p17.split('\n')) {
@@ -141,13 +142,14 @@ for (const linha of p17.split('\n')) {
   const m2 = linha.match(/^\s{2,}(?:\d+\.|-)\s+(.*)$/);
   if (m1) {
     // "**Título:** instrução" → título curto no cartão e a instrução vira o primeiro item
-    const t = m1[2].replace(/\*\*/g, '');
+    const t = m1[2].replace(/\*\*/g, '').replace(/\s*\(desenhos? [^)]*\)/, '');
     const k = t.indexOf(':');
     const resto = k > 0 ? t.slice(k + 1).trim() : '';
-    passos.push({ n: Number(m1[1]), titulo: k > 0 ? t.slice(0, k) : t, itens: resto && !/^faça:?$/i.test(resto) ? [resto] : [] });
+    passos.push({ n: Number(m1[1]), titulo: k > 0 ? t.slice(0, k) : t, itens: resto && !/faça:?$/i.test(resto) ? [resto] : [] });
     if (resto && /faça:?$/i.test(resto)) passos.at(-1).titulo += ` (${resto.replace(/,?\s*faça:?$/i, '')})`.replace(' ()', '');
   }
   else if (m2 && passos.length) passos.at(-1).itens.push(m2[1]);
+  if (passos.length && (m1 || m2)) passos.at(-1).texto = (passos.at(-1).texto || '') + ' ' + linha;
 }
 const tituloDesenho = Object.fromEntries(DESENHOS.map(([n, , t]) => [n, t]));
 
@@ -283,11 +285,11 @@ ${paginasDesenho.join('\n')}
 <section class="bloco" id="passo-a-passo">
   <div class="parte">Parte 2</div>
   <h1>Montagem, passo a passo</h1>
-  <div class="alerta">Faça na ordem. Só ligue o 220 V (passo 5) com tudo desligado no QDG e depois que o 24 V e os barramentos estiverem testados.</div>
+  <div class="alerta">Faça na ordem. Só ligue o 220 V${(() => { const z = passos.find((p) => /220 V/.test(p.titulo)); return z ? ` (passo ${z.n})` : ''; })()} com tudo desligado no QDG e depois que o 24 V e os barramentos estiverem testados.</div>
   ${passos.map((p) => `<div class="passo"><div class="n">${p.n}</div><div>
     <h3>${inline(p.titulo)}</h3>
     ${p.itens.length ? `<ul>${p.itens.map((t) => `<li>${inline(t)}</li>`).join('')}</ul>` : ''}
-    ${DESENHO_DO_PASSO[p.n] ? `<div class="ref">Desenhos: ${DESENHO_DO_PASSO[p.n].map((d) => `<a href="#des-${d}">${d} · ${esc(tituloDesenho[d])}</a>`).join('')}</div>` : ''}
+    ${(p.des = desenhosCitados(p.texto)).length ? `<div class="ref">Desenhos: ${p.des.map((d) => `<a href="#des-${d}">${d} · ${esc(tituloDesenho[d])}</a>`).join('')}</div>` : ''}
   </div></div>`).join('')}
 </section>
 
