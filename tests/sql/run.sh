@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Testa as migrações 007 (automações), 023 (circuitos elétricos), 024 (biblioteca ampliada) e 025 (quadro unificado) num Postgres descartável.
+# Testa as migrações 007 (automações), 023 (circuitos elétricos), 024 (biblioteca ampliada), 025 (quadro unificado) e 026 (iluminação) num Postgres descartável.
 # Uso: DATABASE_URL=postgres://... tests/sql/run.sh   (use um banco VAZIO de teste,
 # NUNCA o de produção: o script cria tabelas e insere dados).
 set -euo pipefail
@@ -36,6 +36,11 @@ $P -f tests/sql/biblioteca.test.sql
 for m in 025_quadro_unificado 025_quadro_unificado; do
   $P -f "supabase/migrations/$m.sql" 2>&1 | grep -v NOTICE || true
 done
+# 026 (iluminação): coluna lighting nos dispositivos (2x: idempotente)
+for m in 026_iluminacao 026_iluminacao; do
+  $P -f "supabase/migrations/$m.sql" 2>&1 | grep -v NOTICE || true
+done
+$P -f tests/sql/iluminacao.test.sql
 for s in eletrica unificado unificado; do
   $P -f "supabase/seeds/$s.sql" > /dev/null
 done

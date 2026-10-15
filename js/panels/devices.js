@@ -5,6 +5,7 @@
 // ============================================================
 
 import { state, on, emit, getRoomNames, getDevice, upsertDevice, removeDevice } from '../state.js';
+import { lightingSummary, controlModeFor } from '../lighting.js';
 import { sensorReadings, batteryView } from '../sensor-readings.js';
 import { toast, escapeHtml } from '../toasts.js';
 import { SOURCES, LEGACY_TYPES, defaultStatus } from '../device-catalog.js';
@@ -190,13 +191,17 @@ function renderDevice(d) {
   const s = d.status || {};
 
   let controls = '';
+  // v2.17: circuito de iluminação desenhado no Editor de Planta (luminárias + pontos de comando)
+  const circuitInfo = d.type === 'light' && d.lighting
+    ? `<p class="text-[10px] text-slate-500 mt-1.5 leading-snug">${escapeHtml(lightingSummary(d))}${controlModeFor(d) === 'parede' ? ' — o app não comanda este circuito' : ''}</p>`
+    : '';
   if (d.type === 'light' && d.hw) {
     // v2.16: luz em three-way pelo quadro (relé + interruptor de parede): só liga/desliga, estado real
     controls = `
       <div class="flex items-center justify-between gap-3 mt-2">
         <label class="switch"><input type="checkbox" data-ctl="power" ${s.on ? 'checked' : ''}><span class="slider-ui"></span></label>
         <span class="text-[11px] text-slate-500">${s.on ? 'acesa' : 'apagada'} · interruptor de parede ativo</span>
-      </div>`;
+      </div>${circuitInfo}`;
   } else if (d.type === 'light') {
     controls = `
       <div class="flex items-center justify-between gap-3 mt-2">
@@ -206,7 +211,7 @@ function renderDevice(d) {
       <div class="mt-2 flex items-center gap-2">
         <span class="text-[10px] text-slate-500 w-14">Brilho <span data-lbl="brightness">${s.brightness ?? 70}</span>%</span>
         <input type="range" min="1" max="100" value="${s.brightness ?? 70}" data-ctl="brightness" class="range-input flex-1">
-      </div>`;
+      </div>${circuitInfo}`;
   } else if (d.type === 'ac') {
     controls = `
       <div class="flex items-center justify-between gap-3 mt-2">

@@ -5,7 +5,7 @@
 //  · notificações: push do servidor (notify-alert) e avisos locais
 // ============================================================
 
-const VERSION = 'nh-2.16.1';
+const VERSION = 'nh-2.17.0';
 const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {

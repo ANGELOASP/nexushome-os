@@ -658,6 +658,9 @@
           <button id="btn-fp-tool-dev" type="button" class="fp-tool" title="Dispositivos (X): escolha um dispositivo e clique onde ele está instalado">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.6-6-10.5A6 6 0 0 1 18 10.5C18 15.4 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.2"/></svg><span class="fp-tool-label">Dispositivos</span><kbd>X</kbd>
           </button>
+          <button id="btn-fp-tool-light" type="button" class="fp-tool" title="Iluminação (L): circuitos de luz — luminárias, interruptores e como cada circuito é acionado">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.3 1.1 2.2h5c0-.9.4-1.6 1.1-2.2A6 6 0 0 0 12 3z"/></svg><span class="fp-tool-label">Iluminação</span><kbd>L</kbd>
+          </button>
           <button id="btn-fp-tool-erase" type="button" class="fp-tool" title="Apagar parede (E)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21 9.5-9.5a2.1 2.1 0 0 0-3-3L4 18z"/><path d="M13 7.5l3 3"/><path d="M16 21h5"/></svg><span class="fp-tool-label">Apagar</span><kbd>E</kbd>
           </button>
@@ -712,6 +715,7 @@
             <button id="fp-furn-del" type="button" class="fp-icon-btn" title="Apagar (Delete)">Apagar</button>
           </div>
           <div id="fp-dev-panel" class="fp-presets fp-furn-panel hidden"></div>
+          <div id="fp-light-panel" class="fp-presets fp-furn-panel fp-light-panel hidden" aria-label="Iluminação"></div>
           <div id="fp-dev-sel" class="fp-wall-panel fp-furn-sel hidden">
             <strong id="fp-dev-title">Dispositivo</strong>
             <span class="fp-dev-room" id="fp-dev-room"></span>
@@ -720,7 +724,7 @@
             <button id="fp-dev-move" type="button" class="fp-icon-btn" title="Clique no novo ponto da planta">Mover</button>
             <button id="fp-dev-del" type="button" class="fp-icon-btn" title="Retirar da planta (Delete)">Retirar da planta</button>
           </div>
-          <p class="fp-hint">Arraste uma parede para movê-la · Porta (D), Janela (J), Dispositivos (X) · Ctrl+C / Ctrl+V copia para outro andar · Shift+clique soma · Shift+arraste seleciona uma área · alças esticam · Espaço ou botão direito movem a vista</p>
+          <p class="fp-hint">Arraste uma parede para movê-la · Porta (D), Janela (J), Dispositivos (X), Iluminação (L) · Ctrl+C / Ctrl+V copia para outro andar · Shift+clique soma · Shift+arraste seleciona uma área · alças esticam · Espaço ou botão direito movem a vista</p>
           <div id="fp-presets" class="fp-presets hidden"></div>
           <div id="fp-bg-panel" class="fp-presets fp-bg-panel hidden">
             <p class="fp-presets-title">Fundo de referência (planta CAD)</p>

@@ -1303,3 +1303,21 @@ body.m-ui.room-open #rail-right > .card { pointer-events: auto; }
 .m-ui .modal-open:not(#editor-planta) .modal-card { transform: none; }
 /* campos com 16 px: o iOS não dá zoom ao tocar */
 .m-ui .form-input { font-size: 16px; }
+
+/* ---- Editor de Planta: Iluminação (v2.17) ---- */
+.fp-light-panel .fp-lib-grid { margin-bottom: 0.2rem; }
+.fp-light-sel { display: grid; gap: 0.4rem; padding: 0.55rem 0.6rem; margin: 0.2rem 0 0.4rem; border: 1px solid rgba(251, 191, 36, 0.35); border-radius: 0.7rem; background: rgba(251, 191, 36, 0.06); }
+.fp-light-title { display: flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; font-weight: 700; color: #f8fafc; min-width: 0; }
+.fp-light-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-light-sub { font-size: 0.64rem; color: var(--muted); line-height: 1.35; }
+.fp-light-letter { display: inline-grid; place-items: center; min-width: 1.15rem; height: 1.15rem; padding: 0 0.2rem; border-radius: 0.35rem; background: #fbbf24; color: #1c1404; font-size: 0.68rem; font-weight: 800; flex: none; }
+.fp-light-row { display: grid; gap: 0.25rem; font-size: 0.66rem; font-weight: 600; color: var(--muted); }
+.fp-light-desc { font-size: 0.64rem; line-height: 1.4; color: #cbd5e1; margin: 0; }
+.fp-light-warn { margin: 0; padding: 0.4rem 0.55rem 0.4rem 1.3rem; border-radius: 0.5rem; background: rgba(245, 158, 11, 0.12); color: #fcd34d; font-size: 0.64rem; line-height: 1.4; }
+.fp-light-warn-dot { display: inline-grid; place-items: center; width: 0.85rem; height: 0.85rem; border-radius: 50%; background: #f59e0b; color: #1c1404; font-size: 0.55rem; font-weight: 800; }
+.fp-light-sym { display: inline-block; min-width: 1.6rem; margin-right: 0.15rem; padding: 0 0.15rem; border: 1px solid #38bdf8; border-radius: 0.25rem; color: #7dd3fc; font-size: 0.58rem; font-weight: 800; text-align: center; line-height: 1.25; }
+.fp-light-tip { font-size: 0.64rem; line-height: 1.4; color: var(--muted); margin: 0.1rem 0; }
+.fp-light-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; max-height: 9rem; overflow: auto; }
+.fp-light-items li { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; font-size: 0.66rem; color: #e2e8f0; padding: 0.15rem 0.1rem 0.15rem 0.35rem; border-radius: 0.4rem; background: rgba(255, 255, 255, 0.03); }
+.fp-light-items li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-light-items .fp-icon-btn { padding: 0.05rem 0.45rem; }

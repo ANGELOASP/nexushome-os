@@ -88,6 +88,21 @@ export const DEMO_DEVICES = [
     room: 'Sala de Estar',
     status: { on: false, brightness: 70, color: '#ffd9a0' },
     is_online: true,
+    // v2.17: circuito de iluminação de exemplo — 4 spots e um par de paralelos (ferramenta Iluminação)
+    model: 'spot', pos_x: -2.3, pos_z: 0.9, pos_floor: 0, pos_y: 2.5, pos_rot: null,
+    lighting: {
+      fixtures: [
+        { model: 'spot', x: -2.3, z: 0.9, y: 2.5, rot: null, floor: 0 },
+        { model: 'spot', x: -0.9, z: 0.9, y: 2.5, rot: null, floor: 0 },
+        { model: 'spot', x: -2.3, z: 2.3, y: 2.5, rot: null, floor: 0 },
+        { model: 'spot', x: -0.9, z: 2.3, y: 2.5, rot: null, floor: 0 },
+      ],
+      switches: [
+        { kind: 'paralelo', x: -0.2, z: 0.5, y: 1.1, rot: 90, floor: 0 },
+        { kind: 'paralelo', x: -3.0, z: 2.7, y: 1.1, rot: 270, floor: 0 },
+      ],
+      control: { mode: 'inteligente' },
+    },
   },
   {
     id: 'a2222222-2222-4222-8222-222222222222',
