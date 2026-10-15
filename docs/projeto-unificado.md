@@ -170,7 +170,7 @@ Desenhos (pasta [`docs/img/unificado/`](img/unificado/)):
 | DPS1 | DPS classe II 275 V 20 kA, F-N + N-PE | — | entrada do QAU | fusível/disjuntor de retaguarda conforme o fabricante |
 | F1 | **Mean Well SDR-120-24** (24 V, 5 A, DIN) | +24 V "geral" | telas Água, Energia e Nobreak; relés de energia e hidráulica; hubs; gateway | bornes-fusível FU1–FU10 |
 | F2 | **Mean Well DRC-100B** (27,6 V, 100 W, carregador) + 2 × VRLA 12 V 7 Ah em série | +24 V "segurança" | tela Segurança, módulos do barramento B, transmissores de gás, detectores, sirenes, válvula de gás | bornes-fusível FU11–FU18 |
-| BAT | 2 × bateria VRLA 12 V 7 Ah (série = 24 V) | — | reserva da F2 (≈ 3 h com 38 W) | fusível 5 A no positivo da bateria (FU-BAT) |
+| BAT | 2 × bateria VRLA 12 V 7 Ah (série = 24 V) | — | reserva da F2 (≈ 3 h com os 40 W do consumo normal) | fusível 5 A no positivo da bateria (FU-BAT) |
 | TS | Tomada DIN 2P+T 10 A | 220 V | notebook de manutenção | — |
 
 **Orçamento de 24 V (pior caso)**
@@ -247,7 +247,7 @@ Nós por barramento: A = 36 + mestre (dividido em 3 ramos pelo hub); B = 14 + me
   - P2: QDG fileiras 1 e 2 (PZEM 7–21).
   - P3: QDG fileira 3 (PZEM 23–40).
   - P4: reserva.
-  - Terminação: na tela e em cada porta do hub (jumper). O trecho tela → entrada do hub também é um barramento: se o hub tiver jumper na entrada, ligue-o; trechos internos curtos (< 2 m) funcionam sem. Depois, e no **último PZEM de cada ramo**: PZEM 21 no P2 (as fileiras 1 e 2 ficam em série, o PZEM 16 **não** leva resistor) e PZEM 40 no P3.
+  - Terminação (duas por ramo, §5.1): jumper 120R na tela; jumper na entrada do hub, se houver (o trecho tela → hub também é um barramento, mas com menos de 2 m funciona sem); jumper em cada porta usada do hub; e 120 Ω no **último aparelho de cada ramo**: relé 22 no P1, PZEM 21 no P2 (as fileiras 1 e 2 ficam em série, o PZEM 16 **não** leva resistor) e PZEM 40 no P3.
 - **B (Segurança):** T3 → X5-B → **HUB-B**.
   - P1: módulos 90–93 no QAU.
   - P2: ala íntima: XY-MD02 82, 83, 84, 85, 86.
@@ -256,7 +256,7 @@ Nós por barramento: A = 36 + mestre (dividido em 3 ramos pelo hub); B = 14 + me
 - **C (Água):** T1 → X5-C:
   - contadoras 1 e 2 e relé 4 no QAU;
   - sai para a sonda 3 no reservatório (cabo F/UTP; DPS de sinal RS-485 se passar pela área externa).
-- **D (Nobreak):** T4 → X5-D → PZEM-043 (QDC) → PZEM-042 (QDG) → PZEM-017 (junto ao banco). Trecho curto, dentro da sala.
+- **D (Nobreak):** T4 → X5-D → PZEM-016 43 (QDC) → PZEM-016 42 (QDG) → PZEM-017 41 (junto ao banco, leva o 120 Ω). Trecho curto, dentro da sala.
 
 ### 5.4 Gateway Waveshare RS485 TO WIFI/ETH
 
@@ -388,7 +388,7 @@ Bornes ímpares = +24 V (fio **marrom**); bornes pares = 0 V (fio **azul-escuro*
 
 ### X3 — comando dos contatores (230 V CA, zona 220 V)
 
-Um borne por circuito com relé. A fase de comando vem do QDG (disjuntor de comando 1P 2 A, fio vermelho 1,0 mm²), passa pelo **contato NF** do canal do relé e volta para a bobina A1 do contator no QDG. O A2 de todas as bobinas vai ao neutro no QDG.
+Um borne por circuito com relé (22 circuitos + o comum X3.0 = **23 bornes**). A fase de comando vem do QDG (disjuntor de comando 1P 2 A, fio vermelho 1,0 mm²), passa pelo **contato NF** do canal do relé e volta para a bobina A1 do contator no QDG. O A2 de todas as bobinas vai ao neutro no QDG.
 
 | Borne | Relé (endereço / canal) | Circuito (tabela do firmware de energia) |
 |---|---|---|
@@ -530,9 +530,9 @@ Cabo de cada cômodo até o QAU: **Cat.6 U/UTP em home-run**.
 | X8.6 | +24 V (FU18) → COM do Relay 91 / CH5; o NA vai à sirene interna (+) |
 | X8.7 | +24 V (FU18) → COM do Relay 91 / CH6; o NA vai à sirene externa (+) |
 | X8.8 | AL2 dos transmissores em paralelo (NA) → sirene interna (+). A sirene toca mesmo com a automação desligada |
+| X8.9 / X8.10 | Relay 91 / CH3 e CH4: comando dos exaustores dos banheiros. O contato NA comanda um **relé de interface 24 V** (KE1/KE2) na zona 220 V, que liga a fase do exaustor |
 | X8.11 | +24 V (FU18) → comum dos contatos AL2 NA em paralelo (alimenta o X8.8) |
-| X2.16 | 0 V das duas sirenes (−) |
-| X8.9 / X8.10 | Relay 91 / CH3 e CH4: comando dos exaustores dos banheiros. O contato NA comanda um **relé de interface 24 V** na zona 220 V, que liga a fase do exaustor |
+| X2.16 | 0 V das duas sirenes (−) (borne da régua X2, não da X8) |
 
 ### X9 — nobreak
 
@@ -592,7 +592,7 @@ Cabo de cada cômodo até o QAU: **Cat.6 U/UTP em home-run**.
   - `off`: desarmado;
   - `home`: só as portas;
   - `away`: portas e presença.
-- Disparo: depois de **30 s** de atraso na porta de entrada (para desarmar), liga as sirenes por **3 min** e gera alerta *critical*.
+- Ao armar, há **60 s** de atraso de saída. Disparo: depois de **30 s** de atraso na porta de entrada (para desarmar), liga as sirenes por **3 min** e gera alerta *critical*.
 - Arma e desarma pelo app, pelo P4, pela tela de 7" ou pela T3.
 - **Botão de pânico:** alerta *critical* imediato e sirenes, mesmo com o alarme desarmado.
 
@@ -739,6 +739,8 @@ Status publicado pelos sensores (chaves): `temp`, `hum`, `presence`, `smoke`, `h
 
 ## 16. Lista de compras (especificações)
 
+> Os 33 PZEM-016 do barramento A e os contatores de potência do QDG (com supressor RC) estão no `docs/automacao-eletrica.md` (§3 e §5); aqui fica o resto.
+
 ### 16.1 Quadro e montagem
 
 | Qtd | Item | Especificação mínima |
@@ -788,7 +790,7 @@ Status publicado pelos sensores (chaves): `temp`, `hum`, `presence`, `smoke`, `h
 | 8 | Sensores de temperatura/umidade | **XY-MD02** (SHT20, RS-485 Modbus) |
 | 2 | Transmissores de gás | RS-485 Modbus + 2 relés AL1/AL2, 24 V, calibrados para GLP **ou** gás natural |
 | 1 | Válvula de gás | solenoide NF com rearme manual, 24 V CC, certificada |
-| 5 | Detectores de fumaça | óptico autônomo com saída a relé, 12–24 V (salas e quartos: X6.25–X6.40) |
+| 5 | Detectores de fumaça | óptico autônomo com saída a relé, 12–24 V (salas e quartos: X6.25–X6.30 e X6.34–X6.42) |
 | 1 | Detector térmico | termovelocimétrico com saída a relé (cozinha) |
 | 8 | Sensores de presença | mmWave 24 GHz ou PIR de teto, **saída a relé**, 12–24 V |
 | 2 | Contatos magnéticos | de sobrepor/embutir, NF |
@@ -817,7 +819,7 @@ Status publicado pelos sensores (chaves): `temp`, `hum`, `presence`, `smoke`, `h
 | 160 | Bornes push-in 1,5 mm² | R6 (X5–X9): cinza, **largura ≤ 4,2 mm** (148 + reserva) + tampas, batentes e pontes |
 | 20 | Bornes push-in 4 mm² | cinza (entradas CA) |
 | 1 rolo | Anilhas de identificação | letras e números para 0,5–2,5 mm² + etiquetas de borne |
-| 10 | Resistores de terminação | 120 Ω ¼ W (um por ponta de ramo) |
+| 10 | Resistores de terminação | 120 Ω ¼ W, um no último aparelho de cada ramo (9 ramos: A-P1/P2/P3, B-P1…P4, C, D) + 1 reserva |
 | 1 | Alicate de crimpar | catraca, quadrado, 0,25–6 mm² |
 
 ### 16.5 Banco e inversor
@@ -831,46 +833,52 @@ Status publicado pelos sensores (chaves): `temp`, `hum`, `presence`, `smoke`, `h
 | 2 | Barramentos DC | cobre, M8, isolados (+ e −) |
 | 1 | Chave reversora 1-0-2 | 2 polos, 40 A (bypass do inversor no QDC) |
 | 2 | DPS classe II | 275 V (QDG e QDC) |
+| 3 | Porta-fusível + fusível 1 A | medição do nobreak (§8 X9): + do banco para o PZEM-017 (X9.3, junto ao barramento DC) e fase de cada PZEM-016 42/43 |
 
 ---
 
 ## 17. Montagem, passo a passo
 
 1. **Bancada (antes de levar para a parede):**
-   1. Fixe os trilhos e as canaletas nas cotas do §6.2.
-   2. Monte os módulos na ordem do desenho `04-qau-interior.svg`.
-   3. Cole as etiquetas.
-2. **Endereçamento Modbus:** ligue **um aparelho por vez** na bancada (24 V + A/B) e grave o endereço do §5.2 com `scripts/enderecar-modbus.ps1`. Escreva o endereço com caneta no aparelho.
-3. **Alimentação:**
+   1. Fixe os trilhos R1–R6, as canaletas C1–C6, a barreira isolante e a barra PE nas cotas do §6.2 (desenho `04-qau-interior.svg`).
+   2. Monte os módulos na ordem do desenho 04. Use bornes de R6 com no máximo 4,2 mm (§6.2).
+   3. Na porta: faça os 4 recortes de 108 × 70 mm, coloque as molduras, as telas, os sinaleiros, a botoeira CORTE DE GÁS e a cordoalha de 6 mm² (desenho `03-qau-tampa.svg`).
+   4. Monte os chicotes PP 6 × 0,5 mm² das telas com o laço de dobradiça de 300 mm até X5 e X1/X2 (§6.2).
+   5. Faça a fiação interna das réguas X0–X9 (desenho `09-reguas-bornes.svg`) e cole as etiquetas e anilhas (§7.2).
+2. **Endereçamento Modbus:** ligue **um aparelho por vez** na bancada (24 V + A/B) e grave o endereço do §5.2 com `scripts/enderecar-modbus.ps1` (PZEM-017 em 8N2). Escreva o endereço com caneta no aparelho.
+3. **Fixação na sala técnica** (desenho `02-sala-tecnica.svg`): base do QAU a 0,50 m do piso, centro das telas a 1,50 m, 1,0 m livre à frente e ≥ 0,5 m do banco de baterias (§6.1, §4.1). Entrada de cabos por prensa-cabos: 220 V à esquerda, dados à direita.
+4. **Alimentação** (desenho `05-alimentacao.svg`):
    1. Ligue X0 → Q2 → DPS → F1/F2.
-   2. Ligue as baterias da F2 **por último**.
-   3. Meça 24 V em cada borne-fusível com os fusíveis **tirados**.
-   4. Coloque os fusíveis um a um e veja cada módulo acender.
-4. **Barramentos:**
-   1. Ligue A, B e GND com o par trançado até o borne.
-   2. Coloque a terminação (jumper na tela, jumper no hub, resistor no último aparelho).
+   2. Meça 24 V em cada borne-fusível com os fusíveis **tirados**.
+   3. Coloque os fusíveis um a um e veja cada módulo acender.
+   4. Ligue as baterias da F2 (FU-BAT) **por último**.
+5. **Barramentos** (desenho `06-barramentos-rs485.svg`, régua X5):
+   1. Ligue A, B e GND com o par trançado até o borne; a malha só no SH do QAU.
+   2. Coloque a terminação (jumper na tela, jumper no hub, resistor no último aparelho de cada ramo, §5.3).
    3. Grave os firmwares (`scripts/gravar-firmware.ps1`).
-   4. Rode `scan` em cada tela (Monitor Serial ou `scripts/monitor-serial.ps1`). Todos os endereços do §5.2 precisam responder.
-5. **Zona 220 V:** com **tudo desligado** no QDG, faça:
-   1. X3 (comando dos contatores);
-   2. X4 (luzes): um ponto por vez;
+   4. Rode `scan` nas telas T2, T3 e T4 (Monitor Serial ou `scripts/monitor-serial.ps1`); na T1 Água use `status` e `dump 1`…`dump 4`. Todos os endereços do §5.2 precisam responder.
+6. **Campo SELV** (desenho 09): sensores em X6 (um cômodo por vez, conferindo a entrada na tela T3), válvulas e medidores em X7 (cada válvula abre e fecha no canal certo) e as sirenes em X8.
+7. **Zona 220 V:** com **tudo desligado** no QDG, faça:
+   1. X3 (comando dos contatores; desenho 09);
+   2. X4 (luzes): um ponto por vez (desenho `07-three-way.svg`);
    3. o teste do three-way: a parede acende e apaga; a tela acende e apaga; o app mostra o estado certo.
-6. **Segurança:**
+8. **Segurança** (desenho `08-gas-intertravamento.svg`):
    1. Teste a cadeia de gás antes de abrir o gás: aperte a botoeira (a válvula fecha); simule AL2 tirando o fio (a válvula fecha e a sirene toca).
    2. Teste com **gás-padrão** (spray de calibração) no transmissor.
-7. **Rede:**
-   1. Reserve os IPs do §14.
-   2. Ligue o P4 no PoE.
-   3. Configure as telas de 7" com o nome exato do cômodo.
-   4. Rode `scripts/quiosque-nexushome.ps1 -Instalar` no servidor.
-8. **NexusHome:**
-   1. Rode a migração 025 e o seed `unificado.sql` no SQL Editor.
-   2. Publique o `iot-gateway` (`scripts/publicar-funcoes.ps1`).
-   3. Confira os dispositivos no app.
-9. **Teste de falta de energia:**
-   1. Desligue a rede no QDG. O inversor assume; a T4 mostra "Casa no inversor" e o celular recebe o push.
-   2. Desligue também o inversor pela chave 1-0-2. A F2 mantém a segurança (T3 ligada).
-   3. Religue tudo.
+9. **Banco e inversor** (desenho `10-nobreak.svg`): packs com fusível classe T, cabos de mesmo comprimento, shunt no negativo, seccionadora; parametrize o inversor (§4.1) e ligue X9 (PZEM-017 e TCs dos PZEM 42/43).
+10. **Rede** (desenho `11-rede.svg`):
+    1. Reserve os IPs do §14.
+    2. Ligue o P4 no PoE.
+    3. Configure as telas de 7" com o nome exato do cômodo.
+    4. Rode `scripts/quiosque-nexushome.ps1 -Instalar` no servidor.
+11. **NexusHome:**
+    1. Rode a migração 025 e o seed `unificado.sql` no SQL Editor (já feitos no projeto NexusHome em out/2026; só num banco novo).
+    2. Publique o `iot-gateway` (`scripts/publicar-funcoes.ps1`; já publicado em 15/out/2026).
+    3. Confira os dispositivos no app.
+12. **Teste de falta de energia:**
+    1. Desligue a rede no QDG. O inversor assume; a T4 mostra "Casa no inversor" e o celular recebe o push.
+    2. Desligue também o inversor pela chave 1-0-2. A F2 mantém a segurança (T3 ligada).
+    3. Religue tudo.
 
 ---
 
@@ -908,3 +916,12 @@ Status publicado pelos sensores (chaves): `temp`, `hum`, `presence`, `smoke`, `h
 3. Gás usado (GLP ou natural).
 4. Modelos comprados dos transmissores de gás, sensores de presença e hubs: confirmar os mapas de registradores e as entradas.
 5. Manual do inversor: bitolas, parametrização e ligação N-PE da saída.
+
+**Pendências de projeto (confirmar com o material comprado, revisão de 15/out/2026):**
+1. **Orçamento de 24 V:** o HUB-B é alimentado pela F2 (FU12), não pela F1; refazer a soma com o consumo do hub comprado.
+2. **Iluminação da Oficina:** o circuito 32 saiu do barramento A, mas ainda não tem ponto Lnn (L01–L10). Definir se entra no three-way (L11) ou volta para o relé do barramento A.
+3. **Medidores de vazão (X7.25–X7.45):** definir o borne-fusível de X1 que alimenta o +24 V deles.
+4. **Relés de retorno KR1–KR10:** conferir no catálogo Finder o código da série 38.51 com bobina 230 V CA.
+5. **Bornes do R5 (§16.4):** recontar azuis (neutro) e verde-amarelo (terra) depois do quadro de cargas.
+6. **Datasheets:** registradores do Relay (D), do IO 8CH e dos transmissores de gás (CONFIRMAR no firmware); PZEM-016 em 8N2 (testar na bancada); polarização do RS-485 da 4.3B; entradas do Relay (D) (fonte ou dreno); tensão dos medidores BT01; recorte de 108 × 70 mm das telas.
+
