@@ -1,0 +1,281 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200" font-family="Arial, Helvetica, sans-serif">
+<title>01 — Arquitetura geral</title>
+<defs>
+  <marker id="dimA" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#333"/></marker>
+  <marker id="arrK" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker>
+  <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f3a93"/></marker>
+  <marker id="arrO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f28c28"/></marker>
+  <marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2a8a2a"/></marker>
+  <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d32"/></marker>
+  <pattern id="hatch" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="10" stroke="#999" stroke-width="1.2"/></pattern>
+  <pattern id="hatchR" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="10" stroke="#e8a59a" stroke-width="2"/></pattern>
+  <pattern id="slots" patternUnits="userSpaceOnUse" width="12" height="12"><rect x="3" y="0" width="6" height="12" fill="#cfcfcf"/></pattern>
+  <pattern id="grelha" patternUnits="userSpaceOnUse" width="8" height="8"><line x1="0" y1="4" x2="8" y2="4" stroke="#555" stroke-width="2"/></pattern>
+</defs>
+<rect x="0" y="0" width="1600" height="1200" fill="#ffffff"/>
+<rect x="10" y="10" width="1580" height="1180" fill="none" stroke="#111" stroke-width="1"/>
+<rect x="20" y="20" width="1560" height="1160" fill="none" stroke="#111" stroke-width="2.5"/>
+<text x="40" y="52" font-family="Arial, Helvetica, sans-serif" font-size="22" text-anchor="start" fill="#111" font-weight="bold">Arquitetura geral — quem fala com quem</text>
+<text x="40" y="74" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="start" fill="#333">Sem escala. Endereços Modbus únicos na casa toda (§5.2). Um único mestre por barramento: a tela 4,3&quot; do QAU.</text>
+<path d="M 130.5 242 C 36.5 242 41.2 159.5 125.80000000000001 164.0 C 116.4 99.5 257.4 84.5 295.0 125.0 C 342.0 89.0 483.0 99.5 464.2 159.5 C 548.8 159.5 548.8 242 459.5 242 Z" fill="#eef3fb" stroke="#1f3a93" stroke-width="2" stroke-linejoin="round"/>
+<text x="295" y="165" font-family="Arial, Helvetica, sans-serif" font-size="18" text-anchor="middle" fill="#1f3a93" font-weight="bold">NexusHome OS na nuvem</text>
+<text x="295" y="186" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111">Supabase: banco, realtime, iot-gateway, push</text>
+<text x="295" y="204" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#333">app (navegador) · alertas (push e Telegram)</text>
+<rect x="600" y="92" width="960" height="150" rx="6" fill="#fafafa" stroke="#999" stroke-width="1"/>
+<text x="614" y="114" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="start" fill="#111" font-weight="bold">Quem decide o quê (§3)</text>
+<text x="614" y="136" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="start" fill="#111">• Proteção (sobrecarga, demanda, rompimento de cano, gás, alarme): a tela 4,3&quot; do barramento, localmente, sem internet.</text>
+<text x="614" y="156" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="start" fill="#111">• Comandos do usuário (app, P4, 7&quot;): o NexusHome grava em devices.status; o gatilho queue_device_command cria o</text>
+<text x="614" y="176" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="start" fill="#111">   comando e a tela do barramento busca a cada 5 s (/iot-gateway/commands).</text>
+<text x="614" y="196" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="start" fill="#111">• Exibição: todas as telas e o app leem o mesmo banco. P4 e 7&quot; usam /iot-gateway/panel (resumo compacto).</text>
+<text x="614" y="216" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="start" fill="#111">• Segurança de vida por fio, não por software: o gás corta a válvula pelos próprios contatos (desenho 08).</text>
+<ellipse cx="150" cy="320" rx="88" ry="30" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="150" y="325" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="middle" fill="#111" font-weight="bold">INTERNET</text>
+<line x1="150" y1="290" x2="150" y2="246" stroke="#1f3a93" stroke-width="2.5" stroke-dasharray="8 5" marker-end="url(#arrB)" marker-start="url(#arrB)"/>
+<text x="166" y="272" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#1f3a93" font-weight="bold">HTTPS</text>
+<rect x="290" y="290" width="210" height="60" rx="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="395" y="308" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">ONU / roteador</text>
+<text x="395" y="324" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111">operadora + Wi-Fi 6 · 192.168.1.1</text>
+<line x1="238" y1="320" x2="290" y2="320" stroke="#555" stroke-width="2.5"/>
+<rect x="600" y="290" width="220" height="60" rx="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="710" y="308" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">Switch PoE (rack 12U)</text>
+<text x="710" y="324" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111">gerenciável · .2 · 4+ portas PoE</text>
+<line x1="500" y1="320" x2="600" y2="320" stroke="#555" stroke-width="2.5"/>
+<text x="550" y="314" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#555">Ethernet</text>
+<rect x="960" y="290" width="250" height="60" rx="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="1085" y="308" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">Servidor NexusHome</text>
+<text x="1085" y="324" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111">mini PC · .10</text>
+<line x1="820" y1="320" x2="960" y2="320" stroke="#555" stroke-width="2.5"/>
+<text x="890" y="314" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#555">Ethernet</text>
+<text x="890" y="338" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#1f3a93">HTTPS (navegador)</text>
+<rect x="1290" y="290" width="270" height="60" rx="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="1425" y="308" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">Monitor do servidor (quiosque)</text>
+<text x="1425" y="324" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111">HDMI 21&quot;–24&quot; · quiosque-nexushome.ps1</text>
+<line x1="1210" y1="320" x2="1290" y2="320" stroke="#111" stroke-width="2.5"/>
+<text x="1250" y="314" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">HDMI</text>
+<rect x="560" y="395" width="300" height="62" rx="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="710" y="413" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">P4 10,1&quot; do corredor · .20</text>
+<text x="710" y="429" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">ESP32-P4-NANO + 10.1-DSI-TOUCH-A</text>
+<text x="710" y="445" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">nexus_painel (PAINEL_MODO_CORREDOR)</text>
+<line x1="710" y1="350" x2="710" y2="395" stroke="#f28c28" stroke-width="4"/>
+<text x="718" y="372" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#b85d00" font-weight="bold">PoE 802.3af</text>
+<text x="718" y="387" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#1f3a93">HTTPS /iot-gateway/panel</text>
+<rect x="930" y="395" width="330" height="62" rx="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="1095" y="413" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">Telas 7&quot; dos cômodos · .21–.30</text>
+<text x="1095" y="429" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">ESP32-S3-Touch-LCD-7 · fonte local 5 V 2 A</text>
+<text x="1095" y="445" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">nexus_painel (PAINEL_MODO_COMODO)</text>
+<path d="M 440 350 L 440 375 L 1095 375 L 1095 395" fill="none" stroke="#333" stroke-width="2" stroke-dasharray="2 5" stroke-linejoin="round"/>
+<text x="1105" y="370" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#1f3a93">Wi-Fi · HTTPS /iot-gateway/panel</text>
+<rect x="1280" y="395" width="280" height="62" rx="4" fill="#fff7ec" stroke="#c77700" stroke-width="1"/>
+<text x="1292" y="413" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">P4 e 7&quot; são CLIENTES do NexusHome:</text>
+<text x="1292" y="429" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">leem e comandam pela internet.</text>
+<text x="1292" y="445" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Nunca entram no RS-485.</text>
+<path d="M 360 350 L 360 492" fill="none" stroke="#333" stroke-width="2" stroke-dasharray="2 5" stroke-linejoin="round"/>
+<text x="370" y="470" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#1f3a93">Wi-Fi · HTTPS (x-device-key) → iot-gateway: telemetria em lote; comandos a cada 5 s</text>
+<text x="370" y="486" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">T1 .40 · T2 .41 · T3 .42 · T4 .43</text>
+<rect x="40" y="496" width="1520" height="540" rx="8" fill="#fcfcfc" stroke="#111" stroke-width="2.5"/>
+<text x="56" y="520" font-family="Arial, Helvetica, sans-serif" font-size="17" text-anchor="start" fill="#111" font-weight="bold">QAU — Quadro de Automação Unificado</text>
+<text x="400" y="520" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="start" fill="#333">tampa: 4 telas Waveshare ESP32-S3-Touch-LCD-4.3B (24 V) · cada tela = mestre do seu barramento RS-485 · 9600 baud</text>
+<rect x="56" y="538" width="368" height="64" rx="5" fill="#e9f1fb" stroke="#1f3a93" stroke-width="2"/>
+<rect x="66" y="548" width="60" height="40" fill="#20324f" stroke="#111" stroke-width="1"/>
+<text x="96" y="573" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#fff">4,3&quot;</text>
+<text x="138" y="562" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111" font-weight="bold">T1 Água  ·  .40</text>
+<text x="138" y="580" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">firmware esp32s3_hidraulica</text>
+<text x="138" y="595" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#333">mestre RS-485 C · 8N1 · 4 nós + mestre</text>
+<text x="86" y="618" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111" font-weight="bold">RS-485 C → X5-C (daisy-chain)</text>
+<line x1="78" y1="628" x2="78" y2="645" stroke="#111" stroke-width="3.5"/>
+<line x1="78" y1="645" x2="94" y2="645" stroke="#111" stroke-width="2"/>
+<rect x="94" y="632" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="102" y="648" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">1</text>
+<text x="154" y="648" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Contadora FT-PFC-04 nº 1 — ramais 1–4</text>
+<line x1="78" y1="655" x2="78" y2="672" stroke="#111" stroke-width="3.5"/>
+<line x1="78" y1="672" x2="94" y2="672" stroke="#111" stroke-width="2"/>
+<rect x="94" y="659" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="102" y="675" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">2</text>
+<text x="154" y="675" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Contadora FT-PFC-04 nº 2 — ramais 5–7</text>
+<line x1="78" y1="682" x2="78" y2="699" stroke="#111" stroke-width="3.5"/>
+<line x1="78" y1="699" x2="94" y2="699" stroke="#111" stroke-width="2"/>
+<rect x="94" y="686" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="102" y="702" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">4</text>
+<text x="154" y="702" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Relay 8CH — 8 válvulas motorizadas</text>
+<line x1="78" y1="709" x2="78" y2="726" stroke="#111" stroke-width="3.5"/>
+<line x1="78" y1="726" x2="94" y2="726" stroke="#111" stroke-width="2"/>
+<rect x="94" y="713" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="102" y="729" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">3</text>
+<text x="154" y="729" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Sonda QDY30A — reservatório (nível)</text>
+<text x="60" y="754" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">1, 2 e 4 dentro do QAU; sai para a sonda 3.</text>
+<text x="60" y="769.2" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">Cabo F/UTP; DPS de sinal RS-485 se</text>
+<text x="60" y="784.4" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">passar pela área externa.</text>
+<rect x="434" y="538" width="368" height="64" rx="5" fill="#e9f1fb" stroke="#1f3a93" stroke-width="2"/>
+<rect x="444" y="548" width="60" height="40" fill="#20324f" stroke="#111" stroke-width="1"/>
+<text x="474" y="573" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#fff">4,3&quot;</text>
+<text x="516" y="562" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111" font-weight="bold">T2 Energia  ·  .41</text>
+<text x="516" y="580" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">firmware esp32s3_eletrica</text>
+<text x="516" y="595" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#333">mestre RS-485 A · 8N1 · 36 nós + mestre</text>
+<line x1="456" y1="602" x2="456" y2="624" stroke="#111" stroke-width="3.5"/>
+<text x="464" y="618" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111" font-weight="bold">RS-485 A → X5-A</text>
+<rect x="434" y="624" width="368" height="26" rx="3" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="618" y="642" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="middle" fill="#111" font-weight="bold">HUB-A (isolado, 4 portas)</text>
+<line x1="456" y1="650" x2="456" y2="666" stroke="#111" stroke-width="3.5"/>
+<text x="466" y="669" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#1f3a93" font-weight="bold">P1 — no QAU</text>
+<line x1="456" y1="672" x2="456" y2="689" stroke="#111" stroke-width="3.5"/>
+<line x1="456" y1="689" x2="472" y2="689" stroke="#111" stroke-width="2"/>
+<rect x="472" y="676" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="480" y="692" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">5</text>
+<text x="532" y="692" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Relay 32CH — grupo Íntimo</text>
+<line x1="456" y1="699" x2="456" y2="716" stroke="#111" stroke-width="3.5"/>
+<line x1="456" y1="716" x2="472" y2="716" stroke="#111" stroke-width="2"/>
+<rect x="472" y="703" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="480" y="719" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">6</text>
+<text x="532" y="719" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Relay 16CH — grupo Social</text>
+<line x1="456" y1="726" x2="456" y2="743" stroke="#111" stroke-width="3.5"/>
+<line x1="456" y1="743" x2="472" y2="743" stroke="#111" stroke-width="2"/>
+<rect x="472" y="730" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="480" y="746" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">22</text>
+<text x="532" y="746" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Relay 32CH — grupo Serviços</text>
+<line x1="456" y1="753" x2="456" y2="769" stroke="#111" stroke-width="3.5"/>
+<text x="466" y="772" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#1f3a93" font-weight="bold">P2 — QDG fileiras 1 e 2</text>
+<line x1="456" y1="775" x2="456" y2="792" stroke="#111" stroke-width="3.5"/>
+<line x1="456" y1="792" x2="472" y2="792" stroke="#111" stroke-width="2"/>
+<rect x="472" y="779" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="480" y="795" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">7–16</text>
+<text x="532" y="795" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">PZEM-016 × 10 — circuitos 1–10</text>
+<line x1="456" y1="802" x2="456" y2="819" stroke="#111" stroke-width="3.5"/>
+<line x1="456" y1="819" x2="472" y2="819" stroke="#111" stroke-width="2"/>
+<rect x="472" y="806" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="480" y="822" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">17–21</text>
+<text x="532" y="822" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">PZEM-016 × 5 — circuitos 11–15</text>
+<line x1="456" y1="829" x2="456" y2="845" stroke="#111" stroke-width="3.5"/>
+<text x="466" y="848" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#1f3a93" font-weight="bold">P3 — QDG fileira 3</text>
+<line x1="456" y1="851" x2="456" y2="868" stroke="#111" stroke-width="3.5"/>
+<line x1="456" y1="868" x2="472" y2="868" stroke="#111" stroke-width="2"/>
+<rect x="472" y="855" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="480" y="871" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">23–40</text>
+<text x="532" y="871" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">PZEM-016 × 18 — circuitos 16–33</text>
+<line x1="456" y1="878" x2="456" y2="894" stroke="#111" stroke-width="3.5"/>
+<text x="466" y="897" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#1f3a93" font-weight="bold">P4 — reserva</text>
+<text x="576" y="896" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#666" font-style="italic">(ramo livre)</text>
+<rect x="812" y="538" width="368" height="64" rx="5" fill="#e9f1fb" stroke="#1f3a93" stroke-width="2"/>
+<rect x="822" y="548" width="60" height="40" fill="#20324f" stroke="#111" stroke-width="1"/>
+<text x="852" y="573" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#fff">4,3&quot;</text>
+<text x="894" y="562" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111" font-weight="bold">T3 Segurança  ·  .42</text>
+<text x="894" y="580" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">firmware esp32s3_seguranca</text>
+<text x="894" y="595" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#333">mestre RS-485 B · 8N1 · 14 nós + mestre</text>
+<line x1="834" y1="602" x2="834" y2="624" stroke="#111" stroke-width="3.5"/>
+<text x="842" y="618" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111" font-weight="bold">RS-485 B → X5-B</text>
+<rect x="812" y="624" width="368" height="26" rx="3" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="996" y="642" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="middle" fill="#111" font-weight="bold">HUB-B (isolado, 4 portas)</text>
+<line x1="834" y1="650" x2="834" y2="666" stroke="#111" stroke-width="3.5"/>
+<text x="844" y="669" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#1f3a93" font-weight="bold">P1 — no QAU</text>
+<line x1="834" y1="672" x2="834" y2="689" stroke="#111" stroke-width="3.5"/>
+<line x1="834" y1="689" x2="850" y2="689" stroke="#111" stroke-width="2"/>
+<rect x="850" y="676" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="858" y="692" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">90</text>
+<text x="910" y="692" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Relay (D) 8CH+8DI — luzes L01–L08</text>
+<line x1="834" y1="699" x2="834" y2="716" stroke="#111" stroke-width="3.5"/>
+<line x1="834" y1="716" x2="850" y2="716" stroke="#111" stroke-width="2"/>
+<rect x="850" y="703" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="858" y="719" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">91</text>
+<text x="910" y="719" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Relay (D) — L09–L10, exaust., sirenes, gás</text>
+<line x1="834" y1="726" x2="834" y2="743" stroke="#111" stroke-width="3.5"/>
+<line x1="834" y1="743" x2="850" y2="743" stroke="#111" stroke-width="2"/>
+<rect x="850" y="730" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="858" y="746" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">92</text>
+<text x="910" y="746" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">IO 8CH — presença × 8</text>
+<line x1="834" y1="753" x2="834" y2="770" stroke="#111" stroke-width="3.5"/>
+<line x1="834" y1="770" x2="850" y2="770" stroke="#111" stroke-width="2"/>
+<rect x="850" y="757" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="858" y="773" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">93</text>
+<text x="910" y="773" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">IO 8CH — fumaça/térmico × 6 + portas × 2</text>
+<line x1="834" y1="780" x2="834" y2="796" stroke="#111" stroke-width="3.5"/>
+<text x="844" y="799" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#1f3a93" font-weight="bold">P2 — ala íntima</text>
+<line x1="834" y1="802" x2="834" y2="819" stroke="#111" stroke-width="3.5"/>
+<line x1="834" y1="819" x2="850" y2="819" stroke="#111" stroke-width="2"/>
+<rect x="850" y="806" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="858" y="822" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">82–86</text>
+<text x="910" y="822" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">XY-MD02 × 5</text>
+<line x1="834" y1="829" x2="834" y2="845" stroke="#111" stroke-width="3.5"/>
+<text x="844" y="848" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#1f3a93" font-weight="bold">P3 — ala social e cozinha</text>
+<line x1="834" y1="851" x2="834" y2="868" stroke="#111" stroke-width="3.5"/>
+<line x1="834" y1="868" x2="850" y2="868" stroke="#111" stroke-width="2"/>
+<rect x="850" y="855" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="858" y="871" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">80, 81</text>
+<text x="910" y="871" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">XY-MD02 × 2</text>
+<line x1="834" y1="878" x2="834" y2="895" stroke="#111" stroke-width="3.5"/>
+<line x1="834" y1="895" x2="850" y2="895" stroke="#111" stroke-width="2"/>
+<rect x="850" y="882" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="858" y="898" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">50</text>
+<text x="910" y="898" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Transmissor de gás — Cozinha</text>
+<line x1="834" y1="905" x2="834" y2="921" stroke="#111" stroke-width="3.5"/>
+<text x="844" y="924" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#1f3a93" font-weight="bold">P4 — serviço</text>
+<line x1="834" y1="927" x2="834" y2="944" stroke="#111" stroke-width="3.5"/>
+<line x1="834" y1="944" x2="850" y2="944" stroke="#111" stroke-width="2"/>
+<rect x="850" y="931" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="858" y="947" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">87</text>
+<text x="910" y="947" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">XY-MD02 — Lavanderia</text>
+<line x1="834" y1="954" x2="834" y2="971" stroke="#111" stroke-width="3.5"/>
+<line x1="834" y1="971" x2="850" y2="971" stroke="#111" stroke-width="2"/>
+<rect x="850" y="958" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="858" y="974" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">51</text>
+<text x="910" y="974" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Transmissor de gás — Lavanderia</text>
+<rect x="1190" y="538" width="368" height="64" rx="5" fill="#e9f1fb" stroke="#1f3a93" stroke-width="2"/>
+<rect x="1200" y="548" width="60" height="40" fill="#20324f" stroke="#111" stroke-width="1"/>
+<text x="1230" y="573" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#fff">4,3&quot;</text>
+<text x="1272" y="562" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111" font-weight="bold">T4 Nobreak  ·  .43</text>
+<text x="1272" y="580" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">firmware esp32s3_nobreak</text>
+<text x="1272" y="595" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#333">mestre RS-485 D · 8N2 · 3 nós + mestre</text>
+<text x="1220" y="618" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111" font-weight="bold">RS-485 D → X5-D (daisy-chain)</text>
+<line x1="1212" y1="628" x2="1212" y2="645" stroke="#111" stroke-width="3.5"/>
+<line x1="1212" y1="645" x2="1228" y2="645" stroke="#111" stroke-width="2"/>
+<rect x="1228" y="632" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="1236" y="648" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">43</text>
+<text x="1288" y="648" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">PZEM-016 TC 100 A — QDC (saída inv.)</text>
+<line x1="1212" y1="655" x2="1212" y2="672" stroke="#111" stroke-width="3.5"/>
+<line x1="1212" y1="672" x2="1228" y2="672" stroke="#111" stroke-width="2"/>
+<rect x="1228" y="659" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="1236" y="675" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">42</text>
+<text x="1288" y="675" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">PZEM-016 TC 100 A — QDG (entrada rede)</text>
+<line x1="1212" y1="682" x2="1212" y2="699" stroke="#111" stroke-width="3.5"/>
+<line x1="1212" y1="699" x2="1228" y2="699" stroke="#111" stroke-width="2"/>
+<rect x="1228" y="686" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1"/>
+<text x="1236" y="702" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">41</text>
+<text x="1288" y="702" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">PZEM-017 + shunt 300 A — banco 24 V</text>
+<line x1="1212" y1="709" x2="1212" y2="726" stroke="#111" stroke-width="3.5"/>
+<line x1="1212" y1="726" x2="1228" y2="726" stroke="#111" stroke-width="2"/>
+<rect x="1228" y="713" width="330" height="23" rx="3" fill="#fff" stroke="#555" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="1236" y="729" font-family="monospace" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">44–49</text>
+<text x="1288" y="729" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">reservado — BMS / inversor (futuro)</text>
+<text x="1194" y="754" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">Ordem: X5-D → 43 → 42 → 41.</text>
+<text x="1194" y="769.2" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#333">Trecho curto, dentro da sala técnica.</text>
+<rect x="1190" y="896" width="368" height="64" rx="4" fill="#fff" stroke="#777" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="1200" y="916" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Gateway Waveshare RS485 TO WIFI/ETH · .200</text>
+<text x="1200" y="932" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">SÓ DIAGNÓSTICO: desligado do barramento.</text>
+<text x="1200" y="948" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Para usar, desligue antes a tela (mestre) — §5.4.</text>
+<text x="40" y="1058" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="start" fill="#111" font-weight="bold">Legenda das ligações</text>
+<line x1="40" y1="1080" x2="86" y2="1080" stroke="#111" stroke-width="3.5"/>
+<text x="94" y="1084" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">RS-485 Modbus RTU (Cat.6 F/UTP: A azul, B branco-azul, GND laranja)</text>
+<line x1="500" y1="1080" x2="546" y2="1080" stroke="#1f3a93" stroke-width="2.5" stroke-dasharray="8 5"/>
+<text x="554" y="1084" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">HTTPS (rede local → internet → Supabase)</text>
+<line x1="40" y1="1102" x2="86" y2="1102" stroke="#333" stroke-width="2" stroke-dasharray="2 5"/>
+<text x="94" y="1106" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Wi-Fi</text>
+<line x1="500" y1="1102" x2="546" y2="1102" stroke="#555" stroke-width="2.5"/>
+<text x="554" y="1106" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Ethernet Cat.6</text>
+<line x1="40" y1="1124" x2="86" y2="1124" stroke="#f28c28" stroke-width="4"/>
+<text x="94" y="1128" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">PoE 802.3af (dados + alimentação)</text>
+<g id="carimbo">
+<rect x="980" y="1048" width="600" height="132" fill="#fff" stroke="#111" stroke-width="2"/>
+<line x1="980" y1="1080" x2="1580" y2="1080" stroke="#111" stroke-width="1"/>
+<line x1="980" y1="1124" x2="1580" y2="1124" stroke="#111" stroke-width="1"/>
+<line x1="980" y1="1152" x2="1580" y2="1152" stroke="#111" stroke-width="1"/>
+<line x1="1130" y1="1124" x2="1130" y2="1152" stroke="#111" stroke-width="1"/>
+<line x1="1270" y1="1124" x2="1270" y2="1152" stroke="#111" stroke-width="1"/>
+<line x1="1310" y1="1152" x2="1310" y2="1180" stroke="#111" stroke-width="1"/>
+<text x="992" y="1070" font-family="Arial, Helvetica, sans-serif" font-size="16" text-anchor="start" fill="#111" font-weight="bold">NexusHome OS — Projeto de Automação Unificado</text>
+<text x="992" y="1109" font-family="Arial, Helvetica, sans-serif" font-size="20" text-anchor="start" fill="#111" font-weight="bold">Arquitetura geral</text>
+<text x="992" y="1144" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111" font-weight="bold">Folha 1/11</text>
+<text x="1142" y="1144" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111">Rev. v2.16</text>
+<text x="1282" y="1144" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="start" fill="#111">Escala: sem escala</text>
+<text x="992" y="1171" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Fonte: docs/projeto-unificado.md</text>
+<text x="1322" y="1171" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Arquivo: 01-arquitetura.svg</text>
+</g>
+</svg>

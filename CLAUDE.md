@@ -22,9 +22,11 @@ painel controla e mostra dispositivos sobre ela. Versão atual: ver `package.jso
 - **Supabase**: Postgres + RLS + Realtime + Edge Functions (`supabase/functions`: `iot-gateway`,
   `notify-alert`, `smartthings-proxy`, `tuya-proxy`).
 - **Vercel**: deploy automático de `main` (preview por PR). Produção: https://nexushome-os.vercel.app
-- **Firmware ESP32-S3** em `firmware/` (Arduino): `esp32s3_hidraulica` (válvulas/vazão/nível) e `esp32s3_eletrica`
-  (33 PZEM-016 + relés dos subquadros, v2.11 — ver `docs/automacao-eletrica.md`); instalador em
-  `scripts/instalar-arduino.ps1` (`-Firmware eletrica`).
+- **Firmware** em `firmware/` (Arduino): quatro telas ESP32-S3 4,3" na tampa do Quadro de Automação Unificado,
+  cada uma mestre do seu RS-485 — `esp32s3_hidraulica` (C), `esp32s3_eletrica` (A), `esp32s3_seguranca` (B: luzes
+  three-way, gás, fumaça, alarme) e `esp32s3_nobreak` (D: banco/inversor) — e o painel de parede `nexus_painel`
+  (ESP32-P4 10,1" do corredor e 7" dos cômodos, cliente do `/iot-gateway/panel`). **Projeto e endereços:
+  `docs/projeto-unificado.md`** (a fonte da verdade do hardware). Scripts PowerShell em `scripts/` (ver `scripts/LEIA-ME.md`).
 - PWA (`public/sw.js`, manifest) com notificações push de alertas críticos.
 
 ## Mapa do código
@@ -43,6 +45,8 @@ painel controla e mostra dispositivos sobre ela. Versão atual: ver `package.jso
 | `js/device-actions.js` | ações por tipo (automações/cenas/cartão do cômodo) — espelha as ações do `run_automations` (024) |
 | `js/scene-devices-extra.js` | modelos 3D da biblioteca ampliada (v2.13: áudio, vídeo, computadores, eletrodomésticos...) |
 | `js/mobile-nav.js` | celular (< 900 px, v2.15): abas Casa/Aparelhos/Rotinas/Monitor/Mais; cada painel diz sua aba em `data-mtab`; `body.m-ui` liga o CSS |
+| `js/sensor-readings.js` | cartões dos sensores do quadro (temperatura, umidade, presença, fumaça, gás, nível) e do nobreak (v2.16) |
+| `supabase/functions/iot-gateway/panel.ts` / `plan.ts` | telas de parede (v2.16): `GET /panel` (resumo compacto), `POST /panel/command` e `GET /panel/plan` (a planta do app para o P4 desenhar; `sig`/`ps` = assinatura: o P4 rebaixa a planta assim que ela muda no app) |
 
 Convenções: medidas em **metros**; giro em graus, frente do objeto = `(-sin rot, cos rot)`; no 3D
 `rotation.y = -rot` e a escala é `METER = 1.9` unidades de cena por metro.
@@ -61,11 +65,13 @@ npm run build
 - Ganchos de teste (só em dev): `window.__fp` (editor), `window.__nh = { state, selectRoom }`,
   `window.__three = { renderer, scene }`.
 - SQL: `tests/sql/run.sh` e `tests/sql/run_isolation.sh` (Postgres local).
+- Firmware: `arduino-cli compile` (FQBNs em `scripts/nexus-comum.ps1`); tela do painel sem placa:
+  `firmware/nexus_painel/simulador/rodar.sh` (LVGL no PC → PNG). Scripts PowerShell: `pwsh -File scripts/testes/rodar-testes.ps1`.
 - Navegador headless no contêiner: Playwright com Chromium em `/opt/pw-browsers` (`--use-gl=swiftshader`).
 
 ## Estado do banco (out/2026)
 
-Migrações **001 a 024 aplicadas** pelo usuário no Supabase, **incluindo a 018** (isolamento por dono: tabelas com
+Migrações **001 a 024 aplicadas** pelo usuário no Supabase (a **025** do quadro unificado é da v2.16), **incluindo a 018** (isolamento por dono: tabelas com
 `owner_id`). Seeds rodados: `supabase/seeds/eletrica.sql` (34 dispositivos `b2000000-…`, out/2026).
 
 ## Pendências conhecidas (do lado do usuário)

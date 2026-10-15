@@ -8,7 +8,7 @@ import { state, on, emit, upsertDevice, prependAlert, allDevicesOff, getDevice }
 import { toast, escapeHtml } from '../toasts.js';
 import { Sparkline, animateNumber } from '../charts.js';
 import { updateStatus } from './devices.js';
-import { houseWatts, energyBands, energyBand } from '../energy.js';
+import { houseWatts, houseWaterFlow, energyBands, energyBand } from '../energy.js';
 
 const LEAK_WINDOW_MS = 30000;
 
@@ -17,6 +17,7 @@ let sparkEnergy, sparkWater;
 let currentBand = 'ok';           // 'ok' | 'warn' | 'crit'
 let flowHistory = [];             // [{t, v}] para detecção de vazamento
 const energyLatest = new Map();   // deviceId -> {w, t}: o painel mostra a SOMA dos medidores (v2.11)
+const waterLatest = new Map();    // deviceId -> {v, t}: vazão por ramal (v2.16)
 let leakAlertActive = false;
 
 export function initMonitorPanel(nexusClient) {
@@ -51,6 +52,12 @@ function handleTelemetry(metric, value, deviceId) {
     animateNumber(document.getElementById('stat-energy'), value, { suffix: ' W' });
     checkEnergyThresholds(value);
   } else if (metric === 'water_flow_lph') {
+    // vários ramais (hidráulica) + total na válvula geral: soma sem contar duas vezes (v2.16)
+    if (deviceId) {
+      waterLatest.set(deviceId, { v: value, t: Date.now() });
+      value = houseWaterFlow(waterLatest);
+      state.lastTelemetry.water_flow_lph = value;
+    }
     sparkWater.push(value);
     animateNumber(document.getElementById('stat-water'), value, { suffix: ' L/h' });
     checkLeak(value);

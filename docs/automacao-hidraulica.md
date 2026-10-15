@@ -90,7 +90,7 @@ fila — a segurança hidráulica não depende dela. O comando serial `status` m
 `iot-gateway` atualizado (deploy de novo).
 
 O `iot-gateway` passou a aceitar `water_level_pct` (a coluna já existia desde a migração 005) — **faça o deploy
-da função** (`supabase functions deploy iot-gateway`).
+da função** (`supabase functions deploy iot-gateway --no-verify-jwt`).
 
 ## Instalar o ambiente e compilar (Windows)
 

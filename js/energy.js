@@ -44,3 +44,17 @@ export function energyBand(watts, bands) {
   if (!bands) return 'ok';
   return watts > bands.critical ? 'crit' : watts > bands.warning ? 'warn' : 'ok';
 }
+
+// ---- água (v2.16) ----------------------------------------------------------
+// A hidráulica manda a vazão de cada ramal e a SOMA na válvula geral; o Tuya manda
+// a leitura do medidor da entrada na mesma válvula. Enquanto a geral estiver
+// reportando, ela é o total da casa; senão, soma os ramais.
+export const WATER_TOTAL_ID = 'a3333333-3333-4333-8333-333333333333';
+
+/** @param {Map<string,{v:number,t:number}>} latest última leitura de water_flow_lph por dispositivo */
+export function houseWaterFlow(latest, now = Date.now()) {
+  const fresh = [...latest].filter(([, r]) => Number.isFinite(r.v) && now - r.t <= ENERGY_STALE_MS);
+  const total = fresh.find(([id]) => id === WATER_TOTAL_ID);
+  if (total) return total[1].v;
+  return fresh.reduce((sum, [, r]) => sum + r.v, 0);
+}

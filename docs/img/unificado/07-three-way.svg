@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1150" viewBox="0 0 1600 1150" font-family="Arial, Helvetica, sans-serif">
+<title>07 — Luz em three-way com relé e retorno</title>
+<defs>
+  <marker id="dimA" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#333"/></marker>
+  <marker id="arrK" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker>
+  <marker id="arrB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f3a93"/></marker>
+  <marker id="arrO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f28c28"/></marker>
+  <marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2a8a2a"/></marker>
+  <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d32"/></marker>
+  <pattern id="hatch" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="10" stroke="#999" stroke-width="1.2"/></pattern>
+  <pattern id="hatchR" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="10" stroke="#e8a59a" stroke-width="2"/></pattern>
+  <pattern id="slots" patternUnits="userSpaceOnUse" width="12" height="12"><rect x="3" y="0" width="6" height="12" fill="#cfcfcf"/></pattern>
+  <pattern id="grelha" patternUnits="userSpaceOnUse" width="8" height="8"><line x1="0" y1="4" x2="8" y2="4" stroke="#555" stroke-width="2"/></pattern>
+</defs>
+<rect x="0" y="0" width="1600" height="1150" fill="#ffffff"/>
+<rect x="10" y="10" width="1580" height="1130" fill="none" stroke="#111" stroke-width="1"/>
+<rect x="20" y="20" width="1560" height="1110" fill="none" stroke="#111" stroke-width="2.5"/>
+<text x="40" y="52" font-family="Arial, Helvetica, sans-serif" font-size="22" text-anchor="start" fill="#111" font-weight="bold">Iluminação — ponto de luz Ln em three-way com relé e relé de retorno (§9, §8 X4)</text>
+<text x="40" y="74" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="start" fill="#333">Sem escala. Contatos desenhados em repouso (automação desligada: canal do Relay (D) no NF). Exemplo: L03 Cozinha = 90 / canal 3, KR3 → 90 / DI3.</text>
+<rect x="60" y="100" width="230" height="64" rx="4" fill="#f3f3f3" stroke="#111" stroke-width="1.8"/>
+<text x="175" y="122" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="middle" fill="#111" font-weight="bold">QDG</text>
+<text x="175" y="139" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">circuito de iluminação</text>
+<text x="175" y="154" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">(fase + neutro)</text>
+<path d="M 120 164 L 120 360 L 140 360" stroke="#111" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="112" y="250" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="end" fill="#111">fase (preto)</text>
+<path d="M 240 164 L 240 190 L 1200 190 L 1200 600" stroke="#4aa3df" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="700" y="183" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#1f6fa8" font-weight="bold">neutro do circuito de iluminação (azul-claro)</text>
+<rect x="80" y="270" width="230" height="200" fill="none" stroke="#555" stroke-width="1.2" stroke-dasharray="7 4"/>
+<text x="195" y="290" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="middle" fill="#111" font-weight="bold">Interruptor three-way</text>
+<text x="195" y="305" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">(caixa de parede)</text>
+<circle cx="150" cy="360" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="150" y="385" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">C</text>
+<circle cx="250" cy="330" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<circle cx="250" cy="400" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="262" y="326" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">P1</text>
+<text x="262" y="416" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111" font-weight="bold">P2</text>
+<line x1="150" y1="360" x2="246" y2="333" stroke="#111" stroke-width="2.5"/>
+<line x1="150" y1="360" x2="246" y2="397" stroke="#999" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="195" y="455" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#555">muda P1 ↔ P2</text>
+<path d="M 254 330 L 300 330 L 300 320 L 530 320" stroke="#f28c28" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 254 400 L 300 400 L 300 410 L 530 410" stroke="#f28c28" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="400" y="313" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#b35f00" font-weight="bold">P1 laranja 1,5 mm² · anilha &quot;Ln-P1&quot;</text>
+<text x="400" y="432" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#b35f00" font-weight="bold">P2 laranja 1,5 mm² · anilha &quot;Ln-P2&quot;</text>
+<rect x="500" y="220" width="560" height="520" fill="none" stroke="#1f3a93" stroke-width="1.8" stroke-dasharray="10 5"/>
+<text x="516" y="242" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="start" fill="#1f3a93" font-weight="bold">QAU</text>
+<text x="560" y="242" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#1f3a93">(régua X4 = bornes Ln: n1 P1, n2 P2, n3 R, n4 N — zona 220 V)</text>
+<rect x="531" y="311" width="18" height="18" fill="#ddd" stroke="#111" stroke-width="1.2"/>
+<text x="540" y="345" font-family="monospace" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">X4.n1</text>
+<rect x="531" y="401" width="18" height="18" fill="#ddd" stroke="#111" stroke-width="1.2"/>
+<text x="540" y="435" font-family="monospace" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">X4.n2</text>
+<rect x="610" y="280" width="210" height="170" rx="4" fill="#fff8e8" stroke="#b8860b" stroke-width="1.5" stroke-dasharray="6 3"/>
+<text x="715" y="300" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="middle" fill="#111" font-weight="bold">Relay (D) — canal n</text>
+<path d="M 549 320 L 660 320" stroke="#f28c28" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 549 410 L 660 410" stroke="#f28c28" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="664" cy="320" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<circle cx="664" cy="410" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="664" y="342" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111" font-weight="bold">NA</text>
+<text x="664" y="432" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111" font-weight="bold">NF</text>
+<circle cx="770" cy="365" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="770" y="390" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111" font-weight="bold">COM</text>
+<line x1="766" y1="367" x2="668" y2="407" stroke="#111" stroke-width="2.5"/>
+<line x1="766" y1="363" x2="668" y2="323" stroke="#999" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="715" y="466" font-family="Arial, Helvetica, sans-serif" font-size="10.5" text-anchor="middle" fill="#111">contato 10 A 250 V CA (verificar)</text>
+<path d="M 774 365 L 960 365" stroke="#888" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="880" cy="365" r="4.5" fill="#888" stroke="#888" stroke-width="1"/>
+<rect x="1031" y="356" width="18" height="18" fill="#ddd" stroke="#111" stroke-width="1.2"/>
+<text x="1040" y="390" font-family="monospace" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">X4.n3</text>
+<path d="M 960 365 L 1031 365" stroke="#888" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 880 365 L 880 470" stroke="#888" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="862" y="470" width="36" height="56" fill="#fde3df" stroke="#111" stroke-width="1.8"/>
+<line x1="862" y1="470" x2="898" y2="526" stroke="#111" stroke-width="1"/>
+<text x="906" y="486" font-family="Arial, Helvetica, sans-serif" font-size="12.5" text-anchor="start" fill="#111" font-weight="bold">KRn</text>
+<text x="906" y="501" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111">bobina 230 V CA</text>
+<text x="906" y="516" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111">Finder 38.51</text>
+<text x="852" y="482" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#111">A1</text>
+<text x="852" y="524" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#111">A2</text>
+<path d="M 880 526 L 880 600 L 1031 600" stroke="#4aa3df" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="1031" y="591" width="18" height="18" fill="#ddd" stroke="#111" stroke-width="1.2"/>
+<text x="1040" y="625" font-family="monospace" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">X4.n4</text>
+<path d="M 1049 365 L 1110 365" stroke="#888" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="1082" y="357" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#555" font-weight="bold">R cinza</text>
+<circle cx="1130" cy="365" r="20" fill="#fffbe0" stroke="#111" stroke-width="2"/>
+<line x1="1116" y1="351" x2="1144" y2="379" stroke="#111" stroke-width="1.8"/>
+<line x1="1144" y1="351" x2="1116" y2="379" stroke="#111" stroke-width="1.8"/>
+<text x="1130" y="335" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111" font-weight="bold">lâmpada</text>
+<path d="M 1150 365 L 1200 365" stroke="#4aa3df" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="1200" cy="365" r="4.5" fill="#4aa3df" stroke="#4aa3df" stroke-width="1"/>
+<path d="M 1049 600 L 1200 600" stroke="#4aa3df" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="1200" cy="600" r="0.1" fill="#4aa3df" stroke="#4aa3df" stroke-width="1"/>
+<text x="1124" y="593" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#1f6fa8" font-weight="bold">N (azul-claro)</text>
+<line x1="880" y1="526" x2="880" y2="545" stroke="#111" stroke-width="1"/>
+<line x1="880" y1="545" x2="790" y2="545" stroke="#111" stroke-width="1" stroke-dasharray="4 3"/>
+<line x1="790" y1="545" x2="790" y2="658" stroke="#111" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="796" y="560" font-family="Arial, Helvetica, sans-serif" font-size="10.5" text-anchor="start" fill="#555">acoplamento</text>
+<path d="M 540 670 L 760 670" stroke="#8b4513" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="540" y="660" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#8b4513" font-weight="bold">+24 V segurança (X2, marrom)</text>
+<circle cx="764" cy="670" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<circle cx="820" cy="670" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="768" y1="670" x2="812" y2="654" stroke="#111" stroke-width="2.5"/>
+<text x="792" y="692" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">NA do KRn</text>
+<path d="M 824 670 L 930 670" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="877" y="662" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">preto 0,5 mm²</text>
+<rect x="930" y="648" width="110" height="44" rx="3" fill="#fff8e8" stroke="#b8860b" stroke-width="1.5"/>
+<text x="985" y="666" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="middle" fill="#111" font-weight="bold">DIn</text>
+<text x="985" y="682" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">Relay (D)</text>
+<text x="985" y="708" font-family="Arial, Helvetica, sans-serif" font-size="10.5" text-anchor="middle" fill="#1f3a93">comum das entradas → 0 V</text>
+<text x="985" y="722" font-family="Arial, Helvetica, sans-serif" font-size="10.5" text-anchor="middle" fill="#a3221a">(fonte/dreno: verificar)</text>
+<rect x="80" y="500" width="400" height="150" rx="6" fill="#eaf7ea" stroke="#2a8a2a" stroke-width="2"/>
+<text x="280" y="526" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="middle" fill="#1d6b1d" font-weight="bold">SEM AUTOMAÇÃO O INTERRUPTOR</text>
+<text x="280" y="546" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="middle" fill="#1d6b1d" font-weight="bold">CONTINUA FUNCIONANDO</text>
+<text x="96" y="572" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Canal parado no NF: a parede alterna P1/P2</text>
+<text x="96" y="589" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">e acende/apaga a lâmpada normalmente.</text>
+<text x="96" y="606" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">A lâmpada recebe a fase ATRAVÉS do relé</text>
+<text x="96" y="623" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">ou do interruptor (three-way).</text>
+<rect x="40" y="790" width="1040" height="200" rx="6" fill="#fbfbfb" stroke="#555" stroke-width="1.2"/>
+<text x="54" y="812" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="start" fill="#111" font-weight="bold">Variante: mais de um interruptor no mesmo ponto — intermediário (four-way) entre os paralelos</text>
+<circle cx="110" cy="900" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="110" y="924" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="middle" fill="#111" font-weight="bold">C</text>
+<path d="M 70 900 L 106 900" stroke="#111" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="66" y="892" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="start" fill="#111">fase</text>
+<circle cx="190" cy="870" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<circle cx="190" cy="930" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="114" y1="900" x2="186" y2="873" stroke="#111" stroke-width="2.5"/>
+<text x="150" y="965" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">three-way (parede 1)</text>
+<path d="M 194 870 L 370 870" stroke="#f28c28" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 194 930 L 370 930" stroke="#f28c28" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<rect x="370" y="848" width="130" height="104" fill="none" stroke="#555" stroke-width="1.2" stroke-dasharray="6 3"/>
+<circle cx="380" cy="870" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<circle cx="490" cy="870" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<circle cx="380" cy="930" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<circle cx="490" cy="930" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<line x1="384" y1="870" x2="486" y2="870" stroke="#111" stroke-width="2.2"/>
+<line x1="384" y1="930" x2="486" y2="930" stroke="#111" stroke-width="2.2"/>
+<line x1="384" y1="873" x2="486" y2="927" stroke="#999" stroke-width="1.4" stroke-dasharray="4 3"/>
+<line x1="384" y1="927" x2="486" y2="873" stroke="#999" stroke-width="1.4" stroke-dasharray="4 3"/>
+<text x="435" y="965" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">intermediário four-way (parede 2)</text>
+<text x="435" y="840" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#555">direto ↔ cruzado</text>
+<path d="M 494 870 L 680 870" stroke="#f28c28" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<path d="M 494 930 L 680 930" stroke="#f28c28" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="585" y="862" font-family="monospace" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">P1 → X4.n1</text>
+<text x="585" y="948" font-family="monospace" font-size="11.5" text-anchor="middle" fill="#111" font-weight="bold">P2 → X4.n2</text>
+<rect x="670" y="844" width="170" height="112" rx="4" fill="#fff8e8" stroke="#b8860b" stroke-width="1.2" stroke-dasharray="6 3"/>
+<circle cx="700" cy="870" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<circle cx="700" cy="930" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<circle cx="800" cy="900" r="4" fill="#fff" stroke="#111" stroke-width="1.5"/>
+<text x="700" y="860" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111" font-weight="bold">NA</text>
+<text x="700" y="950" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111" font-weight="bold">NF</text>
+<line x1="796" y1="902" x2="704" y2="928" stroke="#111" stroke-width="2.5"/>
+<text x="755" y="965" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="middle" fill="#111">Relay (D) canal n (no QAU)</text>
+<path d="M 804 900 L 940 900" stroke="#888" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<circle cx="960" cy="900" r="18" fill="#fffbe0" stroke="#111" stroke-width="2"/>
+<line x1="947" y1="887" x2="973" y2="913" stroke="#111" stroke-width="1.6"/>
+<line x1="973" y1="887" x2="947" y2="913" stroke="#111" stroke-width="1.6"/>
+<path d="M 978 900 L 1050 900" stroke="#4aa3df" stroke-width="3" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="870" y="892" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#111">R cinza</text>
+<text x="1052" y="892" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="end" fill="#111" font-weight="bold">N</text>
+<text x="990" y="850" font-family="Arial, Helvetica, sans-serif" font-size="11" text-anchor="middle" fill="#555">KRn e DIn: igual ao esquema acima</text>
+<rect x="1238" y="80" width="334" height="630" rx="6" fill="#fff" stroke="#999" stroke-width="1"/>
+<text x="1250" y="100" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="start" fill="#111" font-weight="bold">Pontos de luz (§8 X4)</text>
+<text x="1250" y="122" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#555" font-weight="bold">Ponto · Cômodo · relé · retorno</text>
+<rect x="1246" y="129" width="318" height="19" fill="#f3f6fa" stroke="none" stroke-width="0"/>
+<text x="1250" y="142" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">L01</text>
+<text x="1286" y="142" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Sala de Estar</text>
+<text x="1410" y="142" font-family="monospace" font-size="12" text-anchor="start" fill="#111">90/1</text>
+<text x="1456" y="142" font-family="monospace" font-size="11.5" text-anchor="start" fill="#111">KR1→90/DI1</text>
+<text x="1250" y="161" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">L02</text>
+<text x="1286" y="161" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Sala de TV</text>
+<text x="1410" y="161" font-family="monospace" font-size="12" text-anchor="start" fill="#111">90/2</text>
+<text x="1456" y="161" font-family="monospace" font-size="11.5" text-anchor="start" fill="#111">KR2→90/DI2</text>
+<rect x="1246" y="167" width="318" height="19" fill="#f3f6fa" stroke="none" stroke-width="0"/>
+<text x="1250" y="180" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">L03</text>
+<text x="1286" y="180" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Cozinha</text>
+<text x="1410" y="180" font-family="monospace" font-size="12" text-anchor="start" fill="#111">90/3</text>
+<text x="1456" y="180" font-family="monospace" font-size="11.5" text-anchor="start" fill="#111">KR3→90/DI3</text>
+<text x="1250" y="199" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">L04</text>
+<text x="1286" y="199" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Quarto Principal</text>
+<text x="1410" y="199" font-family="monospace" font-size="12" text-anchor="start" fill="#111">90/4</text>
+<text x="1456" y="199" font-family="monospace" font-size="11.5" text-anchor="start" fill="#111">KR4→90/DI4</text>
+<rect x="1246" y="205" width="318" height="19" fill="#f3f6fa" stroke="none" stroke-width="0"/>
+<text x="1250" y="218" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">L05</text>
+<text x="1286" y="218" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Quarto 2</text>
+<text x="1410" y="218" font-family="monospace" font-size="12" text-anchor="start" fill="#111">90/5</text>
+<text x="1456" y="218" font-family="monospace" font-size="11.5" text-anchor="start" fill="#111">KR5→90/DI5</text>
+<text x="1250" y="237" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">L06</text>
+<text x="1286" y="237" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Quarto 3</text>
+<text x="1410" y="237" font-family="monospace" font-size="12" text-anchor="start" fill="#111">90/6</text>
+<text x="1456" y="237" font-family="monospace" font-size="11.5" text-anchor="start" fill="#111">KR6→90/DI6</text>
+<rect x="1246" y="243" width="318" height="19" fill="#f3f6fa" stroke="none" stroke-width="0"/>
+<text x="1250" y="256" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">L07</text>
+<text x="1286" y="256" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Banheiro 1</text>
+<text x="1410" y="256" font-family="monospace" font-size="12" text-anchor="start" fill="#111">90/7</text>
+<text x="1456" y="256" font-family="monospace" font-size="11.5" text-anchor="start" fill="#111">KR7→90/DI7</text>
+<text x="1250" y="275" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">L08</text>
+<text x="1286" y="275" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Banheiro 2</text>
+<text x="1410" y="275" font-family="monospace" font-size="12" text-anchor="start" fill="#111">90/8</text>
+<text x="1456" y="275" font-family="monospace" font-size="11.5" text-anchor="start" fill="#111">KR8→90/DI8</text>
+<rect x="1246" y="281" width="318" height="19" fill="#f3f6fa" stroke="none" stroke-width="0"/>
+<text x="1250" y="294" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">L09</text>
+<text x="1286" y="294" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Lavanderia</text>
+<text x="1410" y="294" font-family="monospace" font-size="12" text-anchor="start" fill="#111">91/1</text>
+<text x="1456" y="294" font-family="monospace" font-size="11.5" text-anchor="start" fill="#111">KR9→91/DI1</text>
+<text x="1250" y="313" font-family="monospace" font-size="12" text-anchor="start" fill="#111" font-weight="bold">L10</text>
+<text x="1286" y="313" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Área Externa</text>
+<text x="1410" y="313" font-family="monospace" font-size="12" text-anchor="start" fill="#111">91/2</text>
+<text x="1456" y="313" font-family="monospace" font-size="11.5" text-anchor="start" fill="#111">KR10→91/DI2</text>
+<text x="1250" y="346" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="start" fill="#111" font-weight="bold">Funcionamento (§9)</text>
+<text x="1250" y="367" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">• O firmware lê o retorno (DIn = lâmpada</text>
+<text x="1250" y="383.5" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">   acesa). Se o estado pedido for diferente,</text>
+<text x="1250" y="400" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">   inverte o canal (three-way). O app mostra</text>
+<text x="1250" y="416.5" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">   o estado REAL, mesmo após uso da parede.</text>
+<text x="1250" y="433" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">• P1, P2 e R do mesmo ponto vão juntos no</text>
+<text x="1250" y="449.5" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">   mesmo eletroduto (NBR 5410).</text>
+<text x="1250" y="466" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">• Mais de 1000 W de LED no ponto: usar</text>
+<text x="1250" y="482.5" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">   contator de iluminação comandado pelo relé.</text>
+<text x="1250" y="499" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">• Anilhas: &quot;X4.n1&quot; na ponta do QAU e</text>
+<text x="1250" y="515.5" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">   &quot;Ln-P1&quot; na caixa de parede (§7.2).</text>
+<text x="1250" y="532" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">• Numeração X4.n1…n4 com n = 1…10 (§8):</text>
+<text x="1250" y="548.5" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">   o ponto L03 usa X4.31–X4.34; o fio X4.32</text>
+<text x="1250" y="565" font-family="Arial, Helvetica, sans-serif" font-size="11.5" text-anchor="start" fill="#111">   leva a anilha &quot;L03-P2&quot; na caixa (§7.2).</text>
+<text x="40" y="1010" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="start" fill="#111" font-weight="bold">Legenda de cores (§7.1)</text>
+<path d="M 40 1032 L 86 1032" stroke="#111" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="94" y="1036" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">fase</text>
+<path d="M 340 1032 L 386 1032" stroke="#4aa3df" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="394" y="1036" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">neutro</text>
+<path d="M 640 1032 L 686 1032" stroke="#f28c28" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="694" y="1036" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">paralelos P1/P2 (1,5 mm²)</text>
+<path d="M 40 1056 L 86 1056" stroke="#888" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="94" y="1060" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">retorno da lâmpada (1,5 mm²)</text>
+<path d="M 340 1056 L 386 1056" stroke="#8b4513" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="394" y="1060" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">+24 V segurança</text>
+<path d="M 640 1056 L 686 1056" stroke="#111" stroke-width="2" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+<text x="694" y="1060" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">sinal DI 0,5 mm²</text>
+<g id="carimbo">
+<rect x="980" y="998" width="600" height="132" fill="#fff" stroke="#111" stroke-width="2"/>
+<line x1="980" y1="1030" x2="1580" y2="1030" stroke="#111" stroke-width="1"/>
+<line x1="980" y1="1074" x2="1580" y2="1074" stroke="#111" stroke-width="1"/>
+<line x1="980" y1="1102" x2="1580" y2="1102" stroke="#111" stroke-width="1"/>
+<line x1="1130" y1="1074" x2="1130" y2="1102" stroke="#111" stroke-width="1"/>
+<line x1="1270" y1="1074" x2="1270" y2="1102" stroke="#111" stroke-width="1"/>
+<line x1="1310" y1="1102" x2="1310" y2="1130" stroke="#111" stroke-width="1"/>
+<text x="992" y="1020" font-family="Arial, Helvetica, sans-serif" font-size="16" text-anchor="start" fill="#111" font-weight="bold">NexusHome OS — Projeto de Automação Unificado</text>
+<text x="992" y="1059" font-family="Arial, Helvetica, sans-serif" font-size="20" text-anchor="start" fill="#111" font-weight="bold">Luz em three-way com relé e retorno</text>
+<text x="992" y="1094" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111" font-weight="bold">Folha 7/11</text>
+<text x="1142" y="1094" font-family="Arial, Helvetica, sans-serif" font-size="15" text-anchor="start" fill="#111">Rev. v2.16</text>
+<text x="1282" y="1094" font-family="Arial, Helvetica, sans-serif" font-size="13" text-anchor="start" fill="#111">Escala: sem escala</text>
+<text x="992" y="1121" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Fonte: docs/projeto-unificado.md</text>
+<text x="1322" y="1121" font-family="Arial, Helvetica, sans-serif" font-size="12" text-anchor="start" fill="#111">Arquivo: 07-three-way.svg</text>
+</g>
+</svg>

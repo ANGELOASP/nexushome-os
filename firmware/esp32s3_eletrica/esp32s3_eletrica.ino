@@ -127,6 +127,10 @@ const int BOARD_COUNT = sizeof(BOARDS) / sizeof(BOARDS[0]);
 const char* const GROUP_NAMES[] = { "Íntimo", "Social", "Serviços" };
 const int GROUP_COUNT = sizeof(GROUP_NAMES) / sizeof(GROUP_NAMES[0]);
 struct Circuit { const char* uuid; const char* name; uint8_t meter; int8_t board; uint8_t ch; float breakerA; uint8_t shed; uint8_t group; };
+// v2.16 (projeto unificado, docs/projeto-unificado.md): a iluminação (25 e 32) saiu deste
+// barramento — o liga/desliga das luzes é three-way no barramento B (tela Segurança);
+// tomadas de 20 A ficam em disjuntor de 20 A (tomada NBR 14136 de 20 A com disjuntor de
+// 25 A ficava sem proteção contra sobrecarga).
 Circuit CIRCUITS[] = {
   // ---- Subquadro 1 (Íntimo) · relés slave 5 · PZEM 7–16 ----
   { "b2000000-0000-4000-8000-000000000001", "Chuveiro — Banheiro 1",            7, 0,  1, 40, 3, 0 },
@@ -146,7 +150,7 @@ Circuit CIRCUITS[] = {
   { "b2000000-0000-4000-8000-000000000014", "Iluminação — Salas",              20, -1, 0, 10, 0, 1 },
   { "b2000000-0000-4000-8000-000000000015", "Iluminação — Copa e Corredor Social", 21, -1, 0, 10, 0, 1 },
   // ---- Subquadro 3 (Serviços/Oficina) · relés slave 22 · PZEM 23–40 ----
-  { "b2000000-0000-4000-8000-000000000016", "Tomadas 20 A — Cozinha (forno/micro-ondas)", 23, 2, 1, 25, 1, 2 },
+  { "b2000000-0000-4000-8000-000000000016", "Tomadas 20 A — Cozinha (forno/micro-ondas)", 23, 2, 1, 20, 1, 2 },
   { "b2000000-0000-4000-8000-000000000017", "Tomadas 10 A — Cozinha (bancada)", 24, 2,  2, 16, 0, 2 },
   { "b2000000-0000-4000-8000-000000000018", "Geladeira",                       25, -1, 0, 16, 0, 2 },
   { "b2000000-0000-4000-8000-000000000019", "Lava-louças",                     26, 2,  3, 16, 1, 2 },
@@ -155,14 +159,14 @@ Circuit CIRCUITS[] = {
   { "b2000000-0000-4000-8000-000000000022", "Tomadas 10 A — Lavanderia",       29, 2,  5, 16, 0, 2 },
   { "b2000000-0000-4000-8000-000000000023", "Iluminação — Lavanderia",         30, -1, 0, 10, 0, 2 },
   { "b2000000-0000-4000-8000-000000000024", "Tomadas — Área Externa",          31, 2,  6, 16, 0, 2 },
-  { "b2000000-0000-4000-8000-000000000025", "Iluminação — Área Externa",       32, 2,  7, 10, 0, 2 },
+  { "b2000000-0000-4000-8000-000000000025", "Iluminação — Área Externa",       32, -1, 0, 10, 0, 2 },
   { "b2000000-0000-4000-8000-000000000026", "Portão eletrônico",               33, -1, 0, 10, 0, 2 },
   { "b2000000-0000-4000-8000-000000000027", "Bomba / pressurizador",           34, 2,  8, 16, 1, 2 },
-  { "b2000000-0000-4000-8000-000000000028", "Tomadas 20 A — Oficina (bancada 1)", 35, 2, 9, 25, 1, 2 },
-  { "b2000000-0000-4000-8000-000000000029", "Tomadas 20 A — Oficina (bancada 2)", 36, 2, 10, 25, 1, 2 },
+  { "b2000000-0000-4000-8000-000000000028", "Tomadas 20 A — Oficina (bancada 1)", 35, 2, 9, 20, 1, 2 },
+  { "b2000000-0000-4000-8000-000000000029", "Tomadas 20 A — Oficina (bancada 2)", 36, 2, 10, 20, 1, 2 },
   { "b2000000-0000-4000-8000-000000000030", "Compressor — Oficina",            37, 2, 11, 25, 1, 2 },
   { "b2000000-0000-4000-8000-000000000031", "Tomadas 10 A — Oficina",          38, 2, 12, 16, 0, 2 },
-  { "b2000000-0000-4000-8000-000000000032", "Iluminação — Oficina",            39, 2, 13, 10, 0, 2 },
+  { "b2000000-0000-4000-8000-000000000032", "Iluminação — Oficina",            39, -1, 0, 10, 0, 2 },
   { "b2000000-0000-4000-8000-000000000033", "Circuito reserva — Subquadro 3",  40, -1, 0, 16, 0, 2 },
 };
 const int CIRCUIT_COUNT = sizeof(CIRCUITS) / sizeof(CIRCUITS[0]);
