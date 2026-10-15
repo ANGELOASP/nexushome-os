@@ -6,6 +6,8 @@
 // (docs/projeto-unificado.md) e as telas do painel.
 //
 // uso:  node docs/pdf/gerar-pdf.mjs [saida.pdf]        (padrão: docs/projeto-unificado.pdf)
+//       node docs/pdf/gerar-pdf.mjs --web [saida.html] página única para celular/navegador (sem Playwright):
+//       desenhos com botão Ampliar, passo a passo com caixas de marcar, memorial e telas
 // precisa: Node 18+ e Playwright com Chromium (npm i -g playwright && npx playwright install chromium)
 // ============================================================
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -15,7 +17,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const DOCS = join(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT = process.argv[2] || join(DOCS, 'projeto-unificado.pdf');
+const WEB = process.argv.includes('--web');
+const ARGS = process.argv.slice(2).filter((a) => a !== '--web');
+const OUT = ARGS[0] || join(DOCS, WEB ? 'projeto-unificado.html' : 'projeto-unificado.pdf');
 const pkg = JSON.parse(readFileSync(join(DOCS, '..', 'package.json'), 'utf8'));
 
 // ---------- desenhos ----------
@@ -116,7 +120,7 @@ function md(src) {
       const cells = (r) => r.replace(/^\||\|\s*$/g, '').split(/(?<!\\)\|/).map((c) => inline(c.trim().replace(/\\\|/g, '|')));
       const head = cells(rows[0]);
       const body = rows.slice(2).map(cells);
-      out.push(`<table><thead><tr>${head.map((c) => `<th>${c}</th>`).join('')}</tr></thead><tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
+      out.push(`<div class="tabela"><table><thead><tr>${head.map((c) => `<th>${c}</th>`).join('')}</tr></thead><tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
       continue;
     }
     if (/^\s*([-*]|\d+\.)\s/.test(l)) { out.push(lista(l.match(/^\s*/)[0].length)); continue; }
@@ -307,6 +311,175 @@ ${telas.length ? `<section class="bloco" id="telas">
   <div class="telas">${telas.map(([f, t]) => `<figure><img src="${png(f)}" alt=""><figcaption>${esc(t)}</figcaption></figure>`).join('')}</div>
 </section>` : ''}
 </body></html>`;
+
+// ---------- página web (--web) ----------
+if (WEB) {
+  const PDF_URL = 'https://github.com/ANGELOASP/nexushome-os/blob/main/docs/projeto-unificado.pdf';
+  const svgs = Object.fromEntries(DESENHOS.map(([n, arq]) => [n, readFileSync(join(DOCS, 'img', 'unificado', arq), 'utf8')]));
+  const zona = passos.find((p) => /220 V/.test(p.titulo));
+  const pagina = `<title>Quadro de Automação NexusHome</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: caderno de obra — capa curta, índice em chips, folhas de desenho em papel branco, checklist e memorial em coluna de leitura */
+:root {
+  --bg: #eef1f3; --papel: #ffffff; --fg: #17212b; --suave: #56636f; --linha: #d3d9df;
+  --acento: #c2410c; --acento-suave: #fde7da; --ok: #15803d; --chip: #e2e7eb;
+  --f-titulo: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+  --f-texto: Barlow, "Segoe UI", Roboto, Arial, sans-serif;
+  --f-mono: "JetBrains Mono", Consolas, "DejaVu Sans Mono", monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11171c; --papel: #1a2229; --fg: #e6ebef; --suave: #9aa8b4; --linha: #2c3842;
+  --acento: #fb923c; --acento-suave: #3a2416; --ok: #4ade80; --chip: #24303a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11171c; --papel: #1a2229; --fg: #e6ebef; --suave: #9aa8b4; --linha: #2c3842;
+  --acento: #fb923c; --acento-suave: #3a2416; --ok: #4ade80; --chip: #24303a; color-scheme: dark }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 16px/1.55 var(--f-texto);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 48px; }
+main { max-width: 1100px; margin: 0 auto; display: grid; gap: 40px; min-width: 0; }
+main > *, .topo > *, .folhas > *, .passos > *, .passo > div, .memorial, .memorial > * { min-width: 0; }
+.memorial p, .memorial li, .passo span { overflow-wrap: anywhere; }
+a { color: var(--acento); }
+a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid var(--acento); outline-offset: 2px; }
+h1, h2, h3 { font-family: var(--f-titulo); line-height: 1.1; text-wrap: balance; margin: 0; }
+code { font-family: var(--f-mono); font-size: .85em; background: var(--chip); padding: .05em .35em; border-radius: 3px; overflow-wrap: anywhere; }
+.topo { padding-block: 36px 8px; display: grid; gap: 14px; }
+.selo { font-family: var(--f-mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--acento); }
+.topo h1 { font-size: clamp(36px, 7vw, 64px); font-weight: 700; }
+.topo p { margin: 0; max-width: 62ch; color: var(--suave); }
+.acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.acoes a { text-decoration: none; font-weight: 600; font-size: 14px; padding: 8px 14px; border-radius: 999px; background: var(--chip); color: var(--fg); }
+.acoes a.pdf { background: var(--acento); color: var(--papel); }
+.aviso { border-left: 4px solid var(--acento); background: var(--acento-suave); padding: 12px 16px; border-radius: 0 8px 8px 0; font-size: 15px; max-width: 75ch; }
+section > h2 { font-size: clamp(28px, 4.5vw, 40px); font-weight: 700; display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+section > h2 small { font-family: var(--f-mono); font-size: 13px; font-weight: 400; color: var(--suave); letter-spacing: .08em; text-transform: uppercase; }
+.indice { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+.indice a { font-family: var(--f-mono); font-size: 12.5px; text-decoration: none; color: var(--fg); background: var(--chip); padding: 5px 10px; border-radius: 6px; }
+.folhas { display: grid; gap: 28px; }
+.folha { background: var(--papel); border: 1px solid var(--linha); border-radius: 10px; overflow: hidden; scroll-margin-top: 12px; }
+.folha header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 16px 10px; }
+.folha .n { font-family: var(--f-mono); font-weight: 600; font-size: 13px; color: var(--papel); background: var(--acento); border-radius: 4px; padding: 2px 8px; }
+.folha h3 { font-size: 24px; font-weight: 600; flex: 1 1 220px; min-width: 0; }
+.folha button { font: 600 14px var(--f-texto); border: 1px solid var(--linha); background: var(--chip); color: var(--fg); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.folha .leg { margin: 0; padding: 0 16px 12px; color: var(--suave); font-size: 15px; max-width: 80ch; }
+.prancha { background: #ffffff; border-top: 1px solid var(--linha); overflow: auto; max-height: 85vh; }
+.prancha img { display: block; width: 100%; height: auto; max-width: 100%; }
+.folha.ampla .prancha img { width: 1600px; max-width: none; }
+.dica { font-size: 13px; color: var(--suave); padding: 8px 16px; border-top: 1px solid var(--linha); }
+.passos { display: grid; gap: 14px; counter-reset: p; }
+.passo { background: var(--papel); border: 1px solid var(--linha); border-radius: 10px; padding: 16px; display: grid; grid-template-columns: 44px 1fr; gap: 14px; }
+.passo .num { font-family: var(--f-titulo); font-size: 30px; font-weight: 700; color: var(--acento); line-height: 1; }
+.passo > div { min-width: 0; }
+.passo h3 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+.passo ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.passo label { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; cursor: pointer; }
+.passo input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--ok); }
+.passo input:checked + span { color: var(--suave); text-decoration: line-through; }
+.passo .ref { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; font-size: 13px; }
+.passo .ref a { font-family: var(--f-mono); text-decoration: none; background: var(--chip); color: var(--fg); padding: 3px 8px; border-radius: 5px; }
+.progresso { font-family: var(--f-mono); font-size: 13px; color: var(--suave); margin: -6px 0 14px; }
+.memorial { background: var(--papel); border: 1px solid var(--linha); border-radius: 10px; padding: 8px max(16px, 3vw) 24px; }
+.memorial > * { max-width: 78ch; }
+.memorial .tabela, .memorial pre, .memorial blockquote { max-width: none; }
+.memorial h2 { font-size: 28px; font-weight: 700; margin: 34px 0 10px; padding-top: 18px; border-top: 2px solid var(--linha); scroll-margin-top: 12px; }
+.memorial h3 { font-size: 21px; font-weight: 600; margin: 24px 0 8px; color: var(--acento); }
+.memorial h4 { font-family: var(--f-titulo); font-size: 18px; margin: 18px 0 6px; }
+.memorial p, .memorial li { font-size: 15.5px; }
+.memorial ul, .memorial ol { padding-left: 22px; }
+.memorial blockquote { margin: 14px 0; padding: 10px 16px; border-left: 4px solid var(--acento); background: var(--acento-suave); border-radius: 0 8px 8px 0; }
+.memorial hr { border: 0; border-top: 1px solid var(--linha); margin: 24px 0; }
+.tabela { overflow-x: auto; margin: 10px 0 16px; border: 1px solid var(--linha); border-radius: 8px; }
+.tabela table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+.tabela th, .tabela td { border-bottom: 1px solid var(--linha); padding: 7px 10px; text-align: left; vertical-align: top; }
+.tabela th { background: var(--chip); font-weight: 600; white-space: nowrap; }
+.tabela tr:last-child td { border-bottom: 0; }
+pre { font-family: var(--f-mono); font-size: 12.5px; line-height: 1.4; background: var(--chip); border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
+.telas { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
+.telas figure { margin: 0; background: var(--papel); border: 1px solid var(--linha); border-radius: 10px; overflow: hidden; }
+.telas img { display: block; width: 100%; height: auto; }
+.telas figcaption { padding: 10px 14px; font-size: 14px; color: var(--suave); }
+@media (max-width: 560px) { .passo { grid-template-columns: 1fr; gap: 4px; } .passo .num { font-size: 24px; } }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<main>
+  <header class="topo">
+    <div class="selo">NexusHome OS · v${esc(pkg.version)} · ${esc(hoje)}</div>
+    <h1>Projeto de Automação Unificado</h1>
+    <p>Quadro de Automação Unificado (QAU) com quatro telas na tampa, barramentos RS-485, iluminação em three-way,
+      segurança, nobreak e o painel ESP32-P4 do corredor. Desenhos, ligações borne a borne, lista de compras e montagem passo a passo.</p>
+    <nav class="acoes" aria-label="Partes do projeto">
+      <a href="#desenhos">Desenhos</a><a href="#montagem">Montagem</a><a href="#memorial">Memorial</a>${telas.length ? '<a href="#telas">Telas</a>' : ''}
+      <a class="pdf" href="${PDF_URL}" target="_blank" rel="noopener">Baixar o PDF (GitHub)</a>
+    </nav>
+    <div class="aviso"><b>Itens "(verificar)"</b> dependem do datasheet do produto comprado: confira antes de montar.
+      Este projeto não substitui o projeto elétrico de potência (quadro de cargas, unifilar e ART, NBR 5410 / NR-10).</div>
+  </header>
+
+  <section id="desenhos" aria-labelledby="t-des">
+    <h2 id="t-des">Desenhos <small>11 folhas</small></h2>
+    <div class="indice">${DESENHOS.map(([n, , t]) => `<a href="#des-${n}">${n} ${esc(t)}</a>`).join('')}</div>
+    <div class="folhas">${DESENHOS.map(([n, , t, leg]) => `
+      <article class="folha" id="des-${n}">
+        <header><span class="n">${n}</span><h3>${esc(t)}</h3><button type="button" id="amp-${n}" aria-pressed="false">Ampliar</button></header>
+        <p class="leg">${esc(leg)}</p>
+        <div class="prancha"><img src="${dataUri(svgs[n])}" alt="Desenho ${n}: ${esc(t)}" loading="lazy"></div>
+        <div class="dica">Ampliar mostra o desenho em tamanho real: arraste para os lados para ler cada borne.</div>
+      </article>`).join('')}
+    </div>
+  </section>
+
+  <section id="montagem" aria-labelledby="t-mon">
+    <h2 id="t-mon">Montagem <small>${passos.length} etapas</small></h2>
+    <p class="progresso" id="progresso"></p>
+    ${zona ? `<div class="aviso" style="margin-bottom:16px">Faça na ordem. Só ligue o 220 V (etapa ${zona.n}) com tudo desligado no QDG e depois que o 24 V e os barramentos estiverem testados.</div>` : ''}
+    <div class="passos">${passos.map((p) => {
+      const itens = p.itens.length ? p.itens : [p.titulo];
+      const des = desenhosCitados(p.texto || '');
+      return `<div class="passo"><div class="num">${p.n}</div><div>
+        <h3>${inline(p.titulo)}</h3>
+        <ul>${itens.map((t, k) => `<li><label><input type="checkbox" id="p${p.n}-${k}"><span>${inline(t)}</span></label></li>`).join('')}</ul>
+        ${des.length ? `<div class="ref">${des.map((d) => `<a href="#des-${d}">desenho ${d} · ${esc(tituloDesenho[d])}</a>`).join('')}</div>` : ''}
+      </div></div>`; }).join('')}
+    </div>
+  </section>
+
+  <section id="memorial" aria-labelledby="t-mem">
+    <h2 id="t-mem">Memorial técnico <small>texto completo</small></h2>
+    <div class="indice">${secoes.map((x) => `<a href="#m-${slug(x)}">${inline(x)}</a>`).join('')}</div>
+    <article class="memorial">${md(corpo)}</article>
+  </section>
+
+  ${telas.length ? `<section id="telas" aria-labelledby="t-tel">
+    <h2 id="t-tel">Telas do painel <small>simulador</small></h2>
+    <div class="telas">${telas.map(([f, t]) => `<figure><img src="${png(f)}" alt="${esc(t)}" loading="lazy"><figcaption>${esc(t)}</figcaption></figure>`).join('')}</div>
+  </section>` : ''}
+</main>
+
+<script>
+  // Ampliar: o desenho vai para o tamanho real (1600 px) dentro da própria folha
+  document.querySelectorAll('.folha button').forEach((b) => b.addEventListener('click', () => {
+    const f = b.closest('.folha'); const on = f.classList.toggle('ampla');
+    b.setAttribute('aria-pressed', String(on)); b.textContent = on ? 'Ajustar à tela' : 'Ampliar';
+  }));
+  // Checklist da montagem: fica salvo só neste navegador
+  const caixas = [...document.querySelectorAll('.passo input')];
+  const prog = document.getElementById('progresso');
+  const conta = () => { const n = caixas.filter((c) => c.checked).length; prog.textContent = n + ' de ' + caixas.length + ' itens feitos'; };
+  let salvo = {};
+  try { salvo = JSON.parse(localStorage.getItem('qau-checklist') || '{}'); } catch (e) { salvo = {}; }
+  caixas.forEach((c) => { c.checked = !!salvo[c.id]; c.addEventListener('change', () => {
+    salvo[c.id] = c.checked; try { localStorage.setItem('qau-checklist', JSON.stringify(salvo)); } catch (e) {} conta(); }); });
+  conta();
+</script>
+`;
+  writeFileSync(OUT, pagina);
+  console.log('Página:', OUT, `(${(pagina.length / 1048576).toFixed(1)} MB)`);
+  process.exit(0);
+}
 
 // ---------- Playwright ----------
 const require = createRequire(import.meta.url);
