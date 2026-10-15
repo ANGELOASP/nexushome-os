@@ -73,7 +73,7 @@ npm run build
 
 ## Estado do banco (out/2026)
 
-Migrações **001 a 025 aplicadas** pelo usuário no Supabase (a 025 é do quadro unificado, v2.16; a **026** — iluminação, v2.17 — ainda não), **incluindo a 018** (isolamento por dono: tabelas com
+Migrações **001 a 026 aplicadas** pelo usuário no Supabase (025 = quadro unificado, v2.16; 026 = iluminação, `devices.lighting`, v2.17), **incluindo a 018** (isolamento por dono: tabelas com
 `owner_id`). Seeds rodados: `supabase/seeds/eletrica.sql` (34 dispositivos `b2000000-…`) e `supabase/seeds/unificado.sql`
 (segurança/iluminação `b3…` e nobreak `b4…`), out/2026.
 
