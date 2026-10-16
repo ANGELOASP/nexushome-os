@@ -981,7 +981,7 @@ button.from-indigo-500.to-cyan-500.text-white { color: var(--accent-ink); }
 .fp-dev-name .fp-dev-dot { flex-shrink: 0; margin: 0.25rem 0 0; }
 .fp-dev-btn small { font-size: 0.6rem; color: var(--muted); padding-left: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .fp-dev-vendor { font-weight: 700; color: #93c5fd; }
-#fp-dev-panel { max-height: min(70vh, 34rem); overflow-y: auto; }
+#fp-dev-panel { max-height: calc(100% - 1.5rem); overflow-y: auto; }
 .fp-dev-room { font-size: 0.68rem; color: var(--muted); }
 
 /* ---------- painel do cômodo (câmera dentro do ambiente) — v2.6.0 ---------- */
@@ -1317,7 +1317,18 @@ body.m-ui.room-open #rail-right > .card { pointer-events: auto; }
 .fp-light-warn-dot { display: inline-grid; place-items: center; width: 0.85rem; height: 0.85rem; border-radius: 50%; background: #f59e0b; color: #1c1404; font-size: 0.55rem; font-weight: 800; }
 .fp-light-sym { display: inline-block; min-width: 1.6rem; margin-right: 0.15rem; padding: 0 0.15rem; border: 1px solid #38bdf8; border-radius: 0.25rem; color: #7dd3fc; font-size: 0.58rem; font-weight: 800; text-align: center; line-height: 1.25; }
 .fp-light-tip { font-size: 0.64rem; line-height: 1.4; color: var(--muted); margin: 0.1rem 0; }
-.fp-light-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; max-height: 9rem; overflow: auto; }
+.fp-light-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; max-height: 16rem; overflow: auto; }
 .fp-light-items li { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; font-size: 0.66rem; color: #e2e8f0; padding: 0.15rem 0.1rem 0.15rem 0.35rem; border-radius: 0.4rem; background: rgba(255, 255, 255, 0.03); }
 .fp-light-items li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fp-light-items .fp-icon-btn { padding: 0.05rem 0.45rem; }
+
+/* ---- Editor de Planta em tela inteira (v2.17.1): ocupa a janela toda; "Tela cheia" esconde também o navegador ---- */
+#editor-planta { padding: 0; }
+#editor-planta .fp-card {
+  width: 100vw; height: 100vh; height: 100dvh; max-height: none;
+  border: 0; border-radius: 0 !important;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+#editor-planta:fullscreen { background: var(--surface); }
+#editor-planta:fullscreen .fp-card { width: 100%; height: 100%; }
+#btn-fp-full[aria-pressed="true"] { border-color: rgba(242, 178, 74, 0.55); color: #f6cf8a; }
