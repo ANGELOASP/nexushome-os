@@ -326,6 +326,7 @@ export function initFloorplan({ getClient: gc } = {}) {
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   window.addEventListener('resize', () => { if (isOpen()) { sizeCanvas(); draw(); } });
+  initFullscreen();
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', (e) => {
     if (e.key === ' ' && spaceDown) { spaceDown = false; if (canvas && !drag) canvas.style.cursor = 'default'; }
@@ -531,8 +532,33 @@ function openEditor() {
   }
 }
 
+// ------------------------------------------------------------
+// Tela cheia (v2.17.1): o editor já ocupa a janela inteira; o botão esconde também
+// as barras do navegador (Fullscreen API). Sem suporte (ex.: Safari do iPhone), o botão some.
+// ------------------------------------------------------------
+function initFullscreen() {
+  const btn = document.getElementById('btn-fp-full');
+  if (!btn || !document.fullscreenEnabled || !modal?.requestFullscreen) return;
+  btn.classList.remove('hidden');
+  btn.addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await modal.requestFullscreen({ navigationUI: 'hide' });
+    } catch (err) {
+      toast('Tela cheia indisponível', err?.message || 'O navegador recusou o modo tela cheia.', 'warning');
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const on = document.fullscreenElement === modal;
+    btn.setAttribute('aria-pressed', String(on));
+    btn.querySelector('span').textContent = on ? 'Sair da tela cheia' : 'Tela cheia';
+    if (isOpen()) requestAnimationFrame(() => { sizeCanvas(); draw(); });
+  });
+}
+
 function closeEditor() {
   if (saving) return;
+  if (document.fullscreenElement === modal) document.exitFullscreen().catch(() => {});
   modal.classList.remove('modal-open');
   emit('editor-open', false);
   stopLoop();
