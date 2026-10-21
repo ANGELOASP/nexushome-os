@@ -10,7 +10,8 @@ struct UiState {
   float flowLpm[7];        // vazão por ramal (L/min); índice 6 = Área Externa
   float totalL;            // total medido desde que ligou
   float levelPct, volumeL; // reservatórios
-  bool  sondaOk, countersOk, relaysOk, wifiOk;
+  bool  sondaOk, countersOk, wifiOk;
+  bool  relaysOk;          // última escrita dos relés aceita E confirmada lendo as bobinas (função 01)
   bool  valveOpen[8];      // 0–5 ramais, 6 geral, 7 área externa
   bool  blocked[8];        // travada por alarme/pânico (só reabre com "Rearmar")
   bool  alarmBurst, alarmExternal, panic;
