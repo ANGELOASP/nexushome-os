@@ -49,6 +49,9 @@ painel controla e mostra dispositivos sobre ela. Versão atual: ver `package.jso
 | `js/lighting.js` | circuitos de iluminação (v2.17): luminárias + pontos de comando + modo de acionamento em `devices.lighting` (026); ferramenta Iluminação (L) do Editor de Planta e luminárias extras no 3D |
 | `js/sensor-readings.js` | cartões dos sensores do quadro (temperatura, umidade, presença, fumaça, gás, nível) e do nobreak (v2.16) |
 | `supabase/functions/iot-gateway/panel.ts` / `plan.ts` | telas de parede (v2.16): `GET /panel` (resumo compacto), `POST /panel/command` e `GET /panel/plan` (a planta do app para o P4 desenhar; `sig`/`ps` = assinatura: o P4 rebaixa a planta assim que ela muda no app) |
+| `supabase/functions/iot-gateway/owner.ts` / `notify-alert/route.ts` | dono da casa (v2.18): secret `IOT_OWNER_ID` (sem ele, a única conta com dispositivos); `/panel*` e alertas do lote filtram por dono; push/Telegram só para o dono |
+| `js/device-status.js` | `patchDeviceStatus`: grava só o patch do `status` (RPC `device_patch_status`, 027) com fallback para o update antigo |
+| `firmware/*/nh_tls.h` | HTTPS com o pacote de CAs do core (v2.18; cópias idênticas por sketch, `NEXUS_TLS_INSEGURO 1` só para diagnóstico) |
 
 Convenções: medidas em **metros**; giro em graus, frente do objeto = `(-sin rot, cos rot)`; no 3D
 `rotation.y = -rot` e a escala é `METER = 1.9` unidades de cena por metro.
@@ -76,9 +79,14 @@ npm run build
 Migrações **001 a 026 aplicadas** pelo usuário no Supabase (025 = quadro unificado, v2.16; 026 = iluminação, `devices.lighting`, v2.17), **incluindo a 018** (isolamento por dono: tabelas com
 `owner_id`). Seeds rodados: `supabase/seeds/eletrica.sql` (34 dispositivos `b2000000-…`) e `supabase/seeds/unificado.sql`
 (segurança/iluminação `b3…` e nobreak `b4…`), out/2026.
+**027 (auditoria, v2.18) ainda NÃO aplicada** — o app e o gateway funcionam sem ela (fallback + toast "execute a migração 027").
 
 ## Pendências conhecidas (do lado do usuário)
 
+- v2.18 (auditoria, `.cartographer/` fora do Git): rodar a **027**; publicar `iot-gateway`, `notify-alert`, `smartthings-proxy`
+  e `tuya-proxy`; criar o secret **`IOT_OWNER_ID`** (uuid do dono) e, na Vercel, `VITE_VAPID_PUBLIC_KEY`; regravar os
+  firmwares (HTTPS verificado + watchdog; na T1 conferir se a placa de relés aceita a leitura de volta, senão `RELAY_READBACK false`).
+  O cadastro do app continua aberto por decisão do dono: todo acesso com service role precisa filtrar por dono.
 - Edge Functions publicadas pelo conector: `iot-gateway` em 15/out/2026 (versão 14 no Supabase, código v2.16: `/panel`,
   `/panel/plan` com assinatura da planta, `/panel/command`; `verify_jwt` desligado) e, em 14/out/2026,
   `notify-alert` v7 (Telegram + push). O push só sai com as chaves VAPID configuradas nos secrets.

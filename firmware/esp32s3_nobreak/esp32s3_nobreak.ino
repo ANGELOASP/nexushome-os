@@ -29,6 +29,8 @@
 #include "ui.h"
 #include "nobreak_logic.h"
 #include "nobreak_meter.h"
+// #define NEXUS_TLS_INSEGURO 1   // SÓ diagnóstico: HTTPS sem verificar o certificado (ver nh_tls.h)
+#include "nh_tls.h"             // HTTPS verificado (pacote de CAs do core) + watchdog
 
 // ---------------- Tela touch (Waveshare ESP32-S3-Touch-LCD-4.3B) ----------------
 // 1 = mostra a interface do nobreak (ui.cpp). 0 = sem tela (outra placa ESP32-S3).
@@ -144,6 +146,7 @@ uint16_t mbCrc(const uint8_t* buf, size_t len) {
 }
 
 void mbSend(uint8_t* frame, size_t lenNoCrc) {
+  nhWdtAlimenta();   // cada transação é curta, mas uma volta com escravos mudos soma dezenas de segundos
   uint16_t crc = mbCrc(frame, lenNoCrc);
   frame[lenNoCrc] = crc & 0xFF;
   frame[lenNoCrc + 1] = crc >> 8;
@@ -530,12 +533,14 @@ void endOfCycle() {
 // ============================================================
 int httpPost(const String& body) {
   if (WiFi.status() != WL_CONNECTED) return -1;
+  NetworkClientSecure tls;             // antes do http: o http é destruído primeiro
   HTTPClient http;
-  http.begin(GATEWAY_URL);
+  nhHttpsBegin(http, tls, GATEWAY_URL);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(8000);
   int code = http.POST(body);
+  nhTlsConfere(tls, code, "iot");
   if (code != 200) Serial.printf("[iot] lote → HTTP %d %s\n", code, code > 0 ? http.getString().substring(0, 300).c_str() : "");
   http.end();
   return code;
@@ -633,6 +638,7 @@ void telemetryTask(void*) {
   bool first = true;
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(1000));
+    nhRedeBatida();                    // sinal de vida para o loop() (nhRedeConfere)
     if (!DEVICE_NOBREAK[0] || WiFi.status() != WL_CONNECTED) continue;
     unsigned long now = millis();
     if (first && now < 8000) continue;                 // primeira volta pelos medidores (só no boot: millis() dá a volta)
@@ -802,9 +808,12 @@ void setup() {
   xTaskCreatePinnedToCore(telemetryTask, "telemetria", 12288, nullptr, 1, nullptr, 0);
   Serial.printf("[boot] nobreak: SoC %.1f %%%s · PZEM 41/42/43 — digite 'status'\n", socState.soc,
                 wasFailed ? " · estava em FALTA DE ENERGIA" : "");
+  nhWdtInicia();              // watchdog só depois do boot dos medidores
 }
 
 void loop() {
+  nhWdtAlimenta();             // watchdog (nh_tls.h): loop travado por 15 s → reinício (SoC volta da NVS)
+  nhRedeConfere(false);
   handleSerial();
   processRequests();
   static unsigned long cycleStart = 0;

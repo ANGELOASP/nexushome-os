@@ -76,4 +76,9 @@ A interface inteira roda no PC pelo simulador (`simulador/rodar.sh`, LVGL → PN
 - Os temporizadores usam diferença de tempo (`millis() - último >= intervalo`), então a virada do `millis()` a cada
   49,7 dias não congela o painel nem faz a planta ser baixada sem parar.
 - O `GET /panel` é feito em HTTP/1.0 (sem `Transfer-Encoding: chunked`, conexão fechada no fim).
+- HTTPS com o certificado do servidor **verificado** pelo pacote de CAs do core (`nh_tls.h`, igual nos 5
+  firmwares). Se a verificação falhar, a serial mostra `TLS: certificado recusado`; para diagnosticar, descomente
+  `#define NEXUS_TLS_INSEGURO 1` acima do `#include "nh_tls.h"` (só para teste — ver `scripts/LEIA-ME.md`).
+- Watchdog: o `loop()` é vigiado (15 s) e a tarefa de rede dá um sinal a cada volta e a cada pedido; sem sinal por
+  3 min (rede travada dentro da biblioteca), o painel reinicia sozinho.
 - A cada resposta (3 s) só os quadros que mudaram são redesenhados (assinatura por quadro).

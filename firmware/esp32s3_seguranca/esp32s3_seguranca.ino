@@ -40,6 +40,8 @@
 #include <stdarg.h>
 #include "ui.h"
 #include "seg_logic.h"
+// #define NEXUS_TLS_INSEGURO 1   // SÓ diagnóstico: HTTPS sem verificar o certificado (ver nh_tls.h)
+#include "nh_tls.h"             // HTTPS verificado (pacote de CAs do core) + watchdog
 
 // ---------------- Tela touch (SpotPear/Waveshare ESP32-S3-Touch-LCD-4.3B) ----------------
 // 1 = mostra a interface da segurança (ui.cpp). 0 = sem tela (a lógica roda igual).
@@ -249,6 +251,7 @@ uint16_t mbCrc(const uint8_t* buf, size_t len) {
 }
 
 void mbSend(uint8_t* frame, size_t lenNoCrc) {
+  nhWdtAlimenta();   // cada transação é curta, mas uma volta com escravos mudos soma dezenas de segundos
   uint16_t crc = mbCrc(frame, lenNoCrc);
   frame[lenNoCrc] = crc & 0xFF;
   frame[lenNoCrc + 1] = crc >> 8;
@@ -1002,12 +1005,14 @@ void updateSnapshot() {
 // ============================================================
 int httpPost(const String& body, String& resp) {
   if (WiFi.status() != WL_CONNECTED) return -1;
+  NetworkClientSecure tls;             // antes do http: o http é destruído primeiro
   HTTPClient http;
-  http.begin(GATEWAY_URL);
+  nhHttpsBegin(http, tls, GATEWAY_URL);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(8000);
   int code = http.POST(body);
+  nhTlsConfere(tls, code, "iot");
   resp = code > 0 ? http.getString().substring(0, 400) : String();
   if (code != 200) Serial.printf("[iot] lote → HTTP %d %s\n", code, resp.c_str());
   http.end();
@@ -1178,11 +1183,13 @@ void pollCommands() {
   for (int i = 0; i < LIGHT_COUNT; i++) { url += LIGHTS[i].uuid; url += ','; }
   for (int k = 0; k < FAN_COUNT; k++) { url += FANS[k].uuid; url += ','; }
   url += DEVICE_VALVE; url += ','; url += DEVICE_ALARM;
+  NetworkClientSecure tls;
   HTTPClient http;
-  http.begin(url);
+  nhHttpsBegin(http, tls, url);
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(6000);
   int code = http.GET();
+  nhTlsConfere(tls, code, "cmd");
   if (code != 200) {
     if (code > 0) Serial.printf("[cmd] HTTP %d %s\n", code, http.getString().substring(0, 200).c_str());
     http.end();
@@ -1230,6 +1237,7 @@ void telemetryTask(void*) {
   unsigned long lastPublish = 0;
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(COMMAND_POLL_MS));
+    nhRedeBatida();                    // sinal de vida para o loop() (nhRedeConfere)
     if (WiFi.status() != WL_CONNECTED) continue;
     pollCommands();
     if (millis() - lastPublish < PUBLISH_INTERVAL_MS && !urgentPublish) continue;
@@ -1406,9 +1414,12 @@ void setup() {
   xTaskCreatePinnedToCore(telemetryTask, "telemetria", 12288, nullptr, 1, nullptr, 0);
   Serial.printf("[boot] segurança: %d luzes, %d cômodos, %d transmissores de gás · alarme %s%s — digite 'status'\n",
                 LIGHT_COUNT, ROOM_COUNT, GAS_COUNT, ARM_LABELS[houseAlarm.mode], gasLatched ? " · GÁS TRAVADO" : "");
+  nhWdtInicia();              // watchdog só depois de restaurar (NVS) e aplicar as saídas
 }
 
 void loop() {
+  nhWdtAlimenta();             // watchdog (nh_tls.h): loop travado por 15 s → reinício (estado volta da NVS)
+  nhRedeConfere(false);
   handleSerial();
   processRequests();           // comandos antes da leitura: resposta rápida
   applyOutputs(false);

@@ -20,6 +20,8 @@
 #include <time.h>
 #include "painel_model.h"
 #include "ui.h"
+// #define NEXUS_TLS_INSEGURO 1   // SÓ diagnóstico: HTTPS sem verificar o certificado (ver nh_tls.h)
+#include "nh_tls.h"             // HTTPS verificado (pacote de CAs do core) + watchdog
 
 // ---------------- Configuração (o instalador preserva estas linhas) ----------------
 #define WIFI_SSID       "SUA_REDE_WIFI"
@@ -54,14 +56,16 @@ static void onUiCmd(const UiCmd &c) {
 
 // ---------------- HTTP ----------------
 static int postCommand(const UiCmd &c) {
+  NetworkClientSecure tls;             // antes do http: o http é destruído primeiro
   HTTPClient http;
-  http.begin(GATEWAY_BASE "/panel/command");
+  nhHttpsBegin(http, tls, GATEWAY_BASE "/panel/command");
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(6000);
   char body[160];
   pm_command_body(body, sizeof(body), c.id, c.action, c.value);
   int code = http.POST((uint8_t *)body, strlen(body));
+  nhTlsConfere(tls, code, "cmd");
   if (code != 200) Serial.printf("[cmd] %s %s=%s → HTTP %d %s\n", c.id, c.action, c.value, code,
                                  code > 0 ? http.getString().c_str() : "");
   else Serial.printf("[cmd] %s %s=%s ok\n", c.id, c.action, c.value);
@@ -79,14 +83,16 @@ static int fetchPanel() {
   } else {
     snprintf(url, sizeof(url), GATEWAY_BASE "/panel?limit=%d&plan=0", PANEL_MAX_DEVS);   // + assinatura da planta
   }
+  NetworkClientSecure tls;
   HTTPClient http;
-  http.begin(url);
+  nhHttpsBegin(http, tls, url);
   // HTTP/1.0: o servidor manda o corpo inteiro, sem "Transfer-Encoding: chunked" (que este laço de
   // leitura crua não decodifica) e fecha a conexão no fim (sem esperar o timeout do keep-alive)
   http.useHTTP10(true);
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(8000);
   int code = http.GET();
+  nhTlsConfere(tls, code, "panel");
   if (code != 200) {
     Serial.printf("[panel] HTTP %d %s\n", code, code > 0 ? http.getString().c_str() : "");
     http.end();
@@ -108,11 +114,13 @@ static int fetchPanel() {
 
 // GET /panel/plan → a mesma planta do app (cômodos, paredes e posição dos aparelhos)
 static bool fetchPlan() {
+  NetworkClientSecure tls;
   HTTPClient http;
-  http.begin(GATEWAY_BASE "/panel/plan?floor=0");
+  nhHttpsBegin(http, tls, GATEWAY_BASE "/panel/plan?floor=0");
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(8000);
   int code = http.GET();
+  nhTlsConfere(tls, code, "planta");
   if (code != 200) { Serial.printf("[planta] HTTP %d\n", code); http.end(); return false; }
   String body = http.getString();
   http.end();
@@ -154,6 +162,7 @@ static void netTask(void *) {
   bool ntp = false, online = false, planFailed = false;
   int lastBright = -1;
   for (;;) {
+    nhRedeBatida();                                // sinal de vida para o loop() (nhRedeConfere)
     if (WiFi.status() != WL_CONNECTED) {
       online = false;
       UiConn c; fillConn(c, false, lastOk ? (millis() - lastOk) / 1000 : 0);
@@ -261,9 +270,12 @@ void setup() {
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   xTaskCreatePinnedToCore(netTask, "net", 12288, nullptr, 1, nullptr, 0);
+  nhWdtInicia();
 }
 
 void loop() {
+  nhWdtAlimenta();            // watchdog (nh_tls.h): loop travado por 15 s → reinício
+  nhRedeConfere(true);        // tarefa de rede parada por 3 min → reinicia (aqui a rede é a função inteira)
   handleSerial();
   delay(20);
 }

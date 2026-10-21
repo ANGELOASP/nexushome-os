@@ -75,6 +75,26 @@ powershell -ExecutionPolicy Bypass -File scripts\testar-painel.ps1
 powershell -ExecutionPolicy Bypass -File scripts\quiosque-nexushome.ps1 -Instalar
 ```
 
+## HTTPS verificado e watchdog
+
+Os 5 firmwares (T1–T4 e o painel de parede) falam com o `iot-gateway` por HTTPS **com o certificado do servidor
+verificado** pelo pacote de CAs raiz que vem no próprio core esp32 3.3.12 (`nh_tls.h`, cópia igual em cada pasta de
+sketch). Antes, o TLS aceitava qualquer certificado, e quem se pusesse no meio da rede (AP falso, ARP spoof) podia
+capturar o `x-device-key`. A verificação não depende do relógio (o core não confere datas), só da cadeia e do nome.
+
+- **A placa parou de falar com o servidor?** Abra a serial (`monitor-serial.ps1 -Porta COMx`). A linha
+  `TLS: certificado recusado` quer dizer que a verificação falhou: a rede está interceptando o HTTPS (Wi-Fi de
+  visitante com portal, antivírus/proxy do roteador, AP falso) ou o Supabase passou a usar uma CA fora do pacote
+  do core (atualize o core). `TLS: falha no handshake` aponta outro erro do TLS (rede ruim, falta de memória).
+- **Só para diagnóstico**: no `.ino` da sua cópia, descomente `#define NEXUS_TLS_INSEGURO 1` (fica logo acima do
+  `#include "nh_tls.h"`) e grave de novo. Se com isso a placa volta a conversar, o problema é o certificado/rede.
+  A serial avisa `NEXUS_TLS_INSEGURO=1` no boot. **Não deixe assim**: comente a linha e grave de novo (reinstalar
+  pelo `instalar-arduino.ps1` também volta ao modo verificado, porque essa linha não é preservada).
+- **Watchdog**: o `loop()` de cada placa fica vigiado (15 s, `NEXUS_WDT_TIMEOUT_S`). Travou → a placa reinicia
+  sozinha e o estado gravado (válvulas/alarmes da água, circuitos, alarme da casa, SoC) volta da memória antes de
+  comandar os relés. Na serial: `[wdt] watchdog do loop ligado (15 s)` no boot. Se a tarefa de rede ficar 3 min
+  sem dar sinal, a serial avisa `[wdt] tarefa de rede sem sinal` (no painel de parede, ele reinicia).
+
 ## Observações
 
 - **Supabase:** o `iot-gateway` e o `notify-alert` são publicados com `--no-verify-jwt` (o ESP32 se autentica só pelo

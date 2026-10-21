@@ -49,6 +49,8 @@
 #include <time.h>
 #include "ui.h"
 #include "hid_logic.h"
+// #define NEXUS_TLS_INSEGURO 1   // SÓ diagnóstico: HTTPS sem verificar o certificado (ver nh_tls.h)
+#include "nh_tls.h"             // HTTPS verificado (pacote de CAs do core) + watchdog
 
 // ---------------- Tela touch (SpotPear/Waveshare ESP32-S3-Touch-LCD-4.3B) ----------------
 // 1 = mostra a interface da caixa d'água (ui.cpp). 0 = sem tela (outra placa ESP32-S3).
@@ -167,6 +169,7 @@ uint16_t mbCrc(const uint8_t* buf, size_t len) {
 }
 
 void mbSend(uint8_t* frame, size_t lenNoCrc) {
+  nhWdtAlimenta();   // cada transação é curta, mas uma volta com escravos mudos soma dezenas de segundos
   uint16_t crc = mbCrc(frame, lenNoCrc);
   frame[lenNoCrc] = crc & 0xFF;
   frame[lenNoCrc + 1] = crc >> 8;
@@ -602,8 +605,9 @@ void checkExternalRule(bool readOk, uint32_t extPulses, uint32_t now) {
 // Retorna o código HTTP (200 = ok) ou -1 sem Wi-Fi/dispositivo.
 int postTelemetry(const char* deviceId, const char* metric, float value, const char* statusJson, const char* tsIso = nullptr) {
   if (!deviceId || !deviceId[0] || WiFi.status() != WL_CONNECTED) return -1;
+  NetworkClientSecure tls;             // antes do http: o http é destruído primeiro
   HTTPClient http;
-  http.begin(GATEWAY_URL);
+  nhHttpsBegin(http, tls, GATEWAY_URL);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(5000);
@@ -614,6 +618,7 @@ int postTelemetry(const char* deviceId, const char* metric, float value, const c
   else snprintf(body, sizeof(body), "{\"device_id\":\"%s\",\"metric_type\":\"%s\",\"value\":%.2f%s%s}",
                 deviceId, metric, value, statusJson ? ",\"status\":" : "", statusJson ? statusJson : "");
   int code = http.POST(body);
+  nhTlsConfere(tls, code, "iot");
   if (code != 200) Serial.printf("[iot] %s → HTTP %d %s\n", metric, code, code > 0 ? http.getString().c_str() : "");
   http.end();
   return code;
@@ -626,8 +631,9 @@ static bool retryable(int code) { return code <= 0 || code >= 500; }
 // Lote só com "alerts" (readings vazio); "source":"agua" identifica o módulo.
 int postAlert(const char* severity, const char* message) {
   if (WiFi.status() != WL_CONNECTED) return -1;
+  NetworkClientSecure tls;
   HTTPClient http;
-  http.begin(GATEWAY_URL);
+  nhHttpsBegin(http, tls, GATEWAY_URL);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(5000);
@@ -635,6 +641,7 @@ int postAlert(const char* severity, const char* message) {
   snprintf(body, sizeof(body), "{\"readings\":[],\"alerts\":[{\"severity\":\"%s\",\"message\":\"%s\"}],\"source\":\"agua\"}",
            severity, message);
   int code = http.POST(body);
+  nhTlsConfere(tls, code, "iot");
   if (code != 200) Serial.printf("[iot] alerta → HTTP %d\n", code);
   http.end();
   return code;
@@ -734,6 +741,7 @@ int valveForDevice(const char *id) {
 // Parser mínimo (sem biblioteca JSON): para cada device_id, lê o "open" que vem depois.
 void pollCommands() {
   if (WiFi.status() != WL_CONNECTED) return;
+  NetworkClientSecure tls;
   HTTPClient http;
   // só os comandos dos dispositivos deste painel (várias casas no mesmo projeto)
   String url = String(GATEWAY_URL) + "/commands?devices=";
@@ -741,10 +749,11 @@ void pollCommands() {
   auto addId = [&](const char *id) { if (id && id[0]) { if (!first) url += ","; url += id; first = false; } };
   for (int i = 0; i < 7; i++) addId(DEVICE_RAMAL[i]);
   addId(DEVICE_VALVE_GERAL);
-  http.begin(url);
+  nhHttpsBegin(http, tls, url);
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(5000);
   int code = http.GET();
+  nhTlsConfere(tls, code, "cmd");
   if (code != 200) {
     if (code > 0) Serial.printf("[cmd] HTTP %d %s\n", code, http.getString().c_str());
     http.end();
@@ -772,6 +781,7 @@ void telemetryTask(void*) {
   bool wasOnline = false;
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(COMMAND_POLL_MS));
+    nhRedeBatida();                    // sinal de vida para o loop() (nhRedeConfere)
     bool online = WiFi.status() == WL_CONNECTED;
     if (online && !wasOnline) configTime(0, 0, "pool.ntp.org", "time.google.com");   // relógio para a fila offline
     wasOnline = online;
@@ -873,6 +883,9 @@ void setup() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);              // não bloqueia: a segurança roda mesmo sem Wi-Fi
   xTaskCreatePinnedToCore(telemetryTask, "telemetria", 8192, nullptr, 1, nullptr, 0);
   Serial.println("[boot] automação hidráulica iniciada — comandos: abrir N | fechar N | panico | reset | status");
+  // Watchdog só agora: o estado travado (NVS) já foi restaurado e aplicado acima, então um reinício pelo
+  // watchdog passa de novo por loadState() antes do primeiro applyValves() — não reabre a água.
+  nhWdtInicia();
 }
 
 #if USE_DISPLAY
@@ -894,6 +907,8 @@ void refreshScreen(bool countersOk, bool sondaOk) {
 #endif
 
 void loop() {
+  nhWdtAlimenta();            // watchdog (nh_tls.h): loop travado por 15 s → reinício seguro (NVS)
+  nhRedeConfere(false);
   handleSerial();
   checkPanicButton();
   processRequests();          // toques na tela e comandos do app (antes da leitura: resposta rápida)
