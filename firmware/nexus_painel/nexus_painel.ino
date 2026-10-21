@@ -81,6 +81,9 @@ static int fetchPanel() {
   }
   HTTPClient http;
   http.begin(url);
+  // HTTP/1.0: o servidor manda o corpo inteiro, sem "Transfer-Encoding: chunked" (que este laço de
+  // leitura crua não decodifica) e fecha a conexão no fim (sem esperar o timeout do keep-alive)
+  http.useHTTP10(true);
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(8000);
   int code = http.GET();
@@ -90,10 +93,10 @@ static int fetchPanel() {
     return -1;
   }
   WiFiClient *s = http.getStreamPtr();
-  int len = http.getSize();                       // -1 = chunked
+  int len = http.getSize();                       // -1 = sem Content-Length: lê até o servidor fechar
   size_t n = 0;
   unsigned long t0 = millis();
-  while (http.connected() && (len < 0 || (int)n < len) && n < HTTP_BUF - 1 && millis() - t0 < 8000) {
+  while ((http.connected() || s->available()) && (len < 0 || (int)n < len) && n < HTTP_BUF - 1 && millis() - t0 < 8000) {
     size_t avail = s->available();
     if (!avail) { delay(5); continue; }
     n += s->readBytes(httpBuf + n, min(avail, HTTP_BUF - 1 - n));
@@ -143,9 +146,12 @@ static int brightnessNow() {
 }
 
 // ---------------- tarefa de rede ----------------
+// Agendamento sempre por DIFERENÇA (millis() - último >= intervalo): o millis() de 32 bits dá a volta
+// a cada 49,7 dias e "millis() >= próximo" quebra perto da virada (planta baixada sem parar, painel parado).
 static void netTask(void *) {
-  unsigned long lastOk = 0, nextPoll = 0, nextPlan = 0, planFailAt = 0;
-  bool ntp = false, online = false;
+  unsigned long lastOk = 0, lastPoll = 0, lastPlan = 0, planFailAt = 0;
+  unsigned long pollEvery = 0, planEvery = 0;     // 0 = já, na próxima volta
+  bool ntp = false, online = false, planFailed = false;
   int lastBright = -1;
   for (;;) {
     if (WiFi.status() != WL_CONNECTED) {
@@ -162,35 +168,38 @@ static void netTask(void *) {
     UiCmd cmd;
     while (xQueueReceive(cmdQ, &cmd, 0) == pdTRUE) {
       postCommand(cmd);
-      nextPoll = 0;                                // mostra o resultado logo
+      pollEvery = 0;                               // mostra o resultado logo
     }
-    if (PAINEL_MODO == PAINEL_MODO_CORREDOR && millis() >= nextPlan) {
+    if (PAINEL_MODO == PAINEL_MODO_CORREDOR && millis() - lastPlan >= planEvery) {
       bool ok = fetchPlan();
 #if USE_DISPLAY
       if (ok) ui_set_plan(netPlan);
 #endif
+      planFailed = !ok;
       if (!ok) planFailAt = millis();
-      nextPlan = millis() + (ok ? PLAN_MS : PLAN_RETRY_MS);
+      lastPlan = millis();
+      planEvery = ok ? PLAN_MS : PLAN_RETRY_MS;
     }
-    if (millis() >= nextPoll) {
+    if (millis() - lastPoll >= pollEvery) {
       int n = fetchPanel();
+      lastPoll = millis();
       if (n > 0 && pm_parse(httpBuf, n, netModel)) {
         online = true;
         lastOk = millis();
 #if USE_DISPLAY
         ui_set_model(netModel);
 #endif
-        nextPoll = millis() + POLL_MS;
+        pollEvery = POLL_MS;
         // planta alterada no app (Editor de Planta / DXF) → baixa de novo já na próxima volta
         if (PAINEL_MODO == PAINEL_MODO_CORREDOR && pm_plan_changed(netModel, netPlan) &&
-            (!planFailAt || millis() - planFailAt >= PLAN_RETRY_MS) && nextPlan > millis()) {
+            (!planFailed || millis() - planFailAt >= PLAN_RETRY_MS) && planEvery != 0) {
           Serial.printf("[planta] mudou no app (%s → %s): atualizando\n", netPlan.sig[0] ? netPlan.sig : "-", netModel.ps);
-          nextPlan = millis();
+          planEvery = 0;
         }
       } else {
         online = false;
         if (n > 0) Serial.println("[panel] resposta inválida");
-        nextPoll = millis() + POLL_FAIL_MS;
+        pollEvery = POLL_FAIL_MS;
       }
       UiConn c; fillConn(c, online, lastOk ? (millis() - lastOk) / 1000 : 0);
 #if USE_DISPLAY

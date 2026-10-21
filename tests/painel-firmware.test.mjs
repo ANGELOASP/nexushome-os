@@ -43,10 +43,17 @@ test('modelo C++ do painel lê o snapshot e a planta reais do servidor', { skip:
   writeFileSync(json, JSON.stringify(snap));
   const plan = join(dir, 'plan.json');
   writeFileSync(plan, JSON.stringify(buildPlan(rooms, walls, [{ id: 'x', room: 'Cozinha' }])));
+  // circuitos desarmados por sobrecarga (trip): o servidor marca `lock` e o painel não oferece religar
+  const trip = join(dir, 'trip.json');
+  writeFileSync(trip, JSON.stringify(buildSnapshot([
+    d('20', 'meter', 'Cozinha', { on: false, trip: true, watts: 0 }, 'Forno — Cozinha'),
+    d('21', 'meter', 'Cozinha', { on: true, trip: true, watts: 10 }, 'Cooktop — Cozinha'),
+  ], [])));
   const bin = join(dir, 'teste');
   execFileSync('g++', ['-std=c++17', '-Wall', '-Wextra', '-Werror', `-I${ajson}`, '-o', bin,
     new URL('../firmware/nexus_painel/teste/teste_modelo.cpp', import.meta.url).pathname]);
-  const out = execFileSync(bin, [json, plan]).toString();
+  const out = execFileSync(bin, [json, plan, trip]).toString();
   assert.match(out, /OK planta: 10 cômodos, 129 paredes/);
+  assert.match(out, /OK trip: circuito travado não religa/);
   assert.match(out, /OK modelo do painel/);
 });

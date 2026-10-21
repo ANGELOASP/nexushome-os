@@ -8,7 +8,7 @@
 #pragma once
 #include "painel_model.h"
 
-struct UiCmd { char id[37]; char action[12]; char value[12]; };
+typedef PCmd UiCmd;                    // id + ação + valor (painel_model.h)
 typedef void (*UiCmdFn)(const UiCmd &cmd);
 
 struct UiConn {

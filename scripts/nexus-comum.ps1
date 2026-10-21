@@ -31,7 +31,10 @@ $script:NexusBibliotecas = @('ESP32_Display_Panel@1.0.4', 'lvgl@8.4.0', 'Arduino
 $script:NexusFqbnS3      = 'esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CDCOnBoot=cdc'
 $script:NexusFqbnP4      = 'esp32:esp32:esp32p4:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=enabled'
 $script:NexusSegredos    = @('WIFI_SSID', 'WIFI_PASSWORD', 'DEVICE_SECRET')
-$script:NexusLinhasPainel = @('PAINEL_MODO', 'PAINEL_COMODO', 'PAINEL_PLACA')
+# valores que NUNCA vão para o .ino.bak (o backup guarda o resto do arquivo para comparação)
+$script:NexusSegredosOcultos = @('WIFI_PASSWORD', 'DEVICE_SECRET')
+# o modo e o cômodo do painel; a placa (P4 ou S3 7") sai do chip escolhido na compilação
+$script:NexusLinhasPainel = @('PAINEL_MODO', 'PAINEL_COMODO')
 
 # ------------------------------------------------------------------
 # Mensagens e utilidades gerais
@@ -514,8 +517,9 @@ function Copy-NexusFirmware {
   .SYNOPSIS
     Copia o firmware do repositório para a pasta de trabalho mantendo as linhas que você preencheu.
   .DESCRIPTION
-    As linhas "#define NOME ..." listadas em -Preservar (Wi-Fi, chave e, no painel, PAINEL_MODO/COMODO/PLACA)
-    são lidas da cópia antiga e repostas na nova. A cópia antiga do .ino fica em <nome>.ino.bak.
+    As linhas "#define NOME ..." listadas em -Preservar (Wi-Fi, chave e, no painel, PAINEL_MODO/COMODO)
+    são lidas da cópia antiga e repostas na nova. A cópia antiga do .ino fica em <nome>.ino.bak, SEM os
+    valores de WIFI_PASSWORD e DEVICE_SECRET (trocados por "(omitido no backup)").
     Devolve só os NOMES preservados (nunca os valores).
   #>
   param(
@@ -539,7 +543,11 @@ function Copy-NexusFirmware {
       }
     }
     $backup = "$ino.bak"
-    Copy-Item -LiteralPath $ino -Destination $backup -Force
+    $semSegredo = foreach ($linha in [System.IO.File]::ReadAllLines($ino, $utf8)) {
+      if ($linha -match '^(\s*#define\s+(\w+)\s+)' -and $script:NexusSegredosOcultos -contains $Matches[2]) { $Matches[1] + '"(omitido no backup)"' }
+      else { $linha }
+    }
+    [System.IO.File]::WriteAllLines($backup, [string[]]@($semSegredo), $utf8)
   }
   New-Item -ItemType Directory -Force -Path $Destino | Out-Null
   foreach ($item in Get-ChildItem -LiteralPath $Origem -Force) {
@@ -552,6 +560,88 @@ function Copy-NexusFirmware {
     [System.IO.File]::WriteAllLines($ino, [string[]]@($novo), $utf8)
   }
   return [pscustomobject]@{ Ino = $ino; Backup = $backup; Preservadas = @($guardadas.Keys | Sort-Object) }
+}
+
+function Get-NexusPastaFirmware {
+  <#
+  .SYNOPSIS
+    Pasta de trabalho do firmware (a cópia com a senha do Wi-Fi e a chave): %LOCALAPPDATA%\NexusHome\firmware\<nome>.
+  .DESCRIPTION
+    Fica FORA de Documentos de propósito: no Windows 11 o "Backup de pastas" do OneDrive costuma sincronizar
+    Documentos na nuvem. A variável de ambiente NEXUS_FIRMWARE_DIR troca a pasta-base (testes, outro disco).
+  #>
+  param([Parameter(Mandatory = $true)][string]$Nome)
+  $base = $env:NEXUS_FIRMWARE_DIR
+  if (-not $base) {
+    $local = $env:LOCALAPPDATA
+    if (-not $local) { $local = [Environment]::GetFolderPath('LocalApplicationData') }
+    if (-not $local) { return $null }
+    $base = Join-Path (Join-Path $local 'NexusHome') 'firmware'
+  }
+  return (Join-Path $base $Nome)
+}
+
+function Get-NexusPastaFirmwareAntiga {
+  <# Onde as versões anteriores guardavam a cópia: Documentos\Arduino\<nome> (ou $null sem Documentos). #>
+  param([Parameter(Mandatory = $true)][string]$Nome)
+  if (-not (Test-NexusWindows)) { return $null }      # no Linux "MyDocuments" é a própria pasta pessoal
+  $docs = [Environment]::GetFolderPath('MyDocuments')
+  if (-not $docs) { return $null }
+  return (Join-Path (Join-Path $docs 'Arduino') $Nome)
+}
+
+function Move-NexusFirmwareAntigo {
+  <#
+  .SYNOPSIS
+    Migra a cópia antiga do firmware (Documentos\Arduino\<nome>) para a pasta nova (Get-NexusPastaFirmware).
+  .DESCRIPTION
+    Só COPIA (nunca apaga): se a pasta nova ainda não tem <nome>.ino e a antiga tem, copia tudo menos os
+    *.bak (que podiam ter a senha). Devolve @{ Migrou; Antiga; Nova; AntigaExiste } para o script avisar o
+    usuário a apagar a pasta antiga (ela tem a senha do Wi-Fi e a chave e pode estar no OneDrive).
+  #>
+  param(
+    [Parameter(Mandatory = $true)][string]$Nome,
+    [Parameter(Mandatory = $true)][string]$Nova,
+    [AllowEmptyString()][string]$Antiga = ''
+  )
+  $r = [pscustomobject]@{ Migrou = $false; Antiga = $Antiga; Nova = $Nova; AntigaExiste = $false }
+  if (-not $Antiga -or -not (Test-Path -LiteralPath (Join-Path $Antiga "$Nome.ino"))) { return $r }
+  if ([System.IO.Path]::GetFullPath($Antiga).TrimEnd('\', '/') -eq [System.IO.Path]::GetFullPath($Nova).TrimEnd('\', '/')) { return $r }
+  $r.AntigaExiste = $true
+  if (Test-Path -LiteralPath (Join-Path $Nova "$Nome.ino")) { return $r }
+  New-Item -ItemType Directory -Force -Path $Nova | Out-Null
+  foreach ($item in Get-ChildItem -LiteralPath $Antiga -Force) {
+    if (-not $item.PSIsContainer -and $item.Name -like '*.bak') { continue }
+    Copy-Item -LiteralPath $item.FullName -Destination $Nova -Recurse -Force
+  }
+  $r.Migrou = $true
+  return $r
+}
+
+function Write-NexusAvisoPastaAntiga {
+  <# Mensagem da migração (nunca mostra o conteúdo, só os caminhos). #>
+  param($Migracao)
+  if ($null -eq $Migracao -or -not $Migracao.AntigaExiste) { return }
+  if ($Migracao.Migrou) { Write-NexusAviso "  a sua cópia antiga foi copiada de $($Migracao.Antiga) para $($Migracao.Nova)." }
+  Write-NexusAviso "  APAGUE a pasta antiga $($Migracao.Antiga) (e a Lixeira): ela tem a senha do Wi-Fi e a chave em texto"
+  Write-NexusAviso '  e Documentos costuma ser sincronizado com o OneDrive. A cópia que vale agora é a da pasta nova.'
+}
+
+function Get-NexusAvisoPainel {
+  <#
+    Aviso quando PAINEL_MODO não combina com a placa escolhida ('' = combina):
+    -Placa p4 (corredor, casa toda) com PAINEL_MODO_COMODO, ou -Placa s3-7 (cômodo) com PAINEL_MODO_CORREDOR.
+  #>
+  param([AllowEmptyString()][string]$Placa, [AllowEmptyString()][AllowNull()][string]$Modo)
+  $m = "$Modo".Trim()
+  if ($Placa -eq 'p4' -and $m -match 'PAINEL_MODO_COMODO') {
+    return "PAINEL_MODO = $m, mas -Placa p4 é a tela do CORREDOR (casa toda). Troque para PAINEL_MODO_CORREDOR no .ino (ou confira a placa)."
+  }
+  if ($Placa -eq 's3-7' -and $m -match 'PAINEL_MODO_CORREDOR') {
+    return "PAINEL_MODO = $m, mas -Placa s3-7 é a tela de um CÔMODO. Troque para PAINEL_MODO_COMODO e confira PAINEL_COMODO no .ino."
+  }
+  if ($m -and $m -notmatch '^PAINEL_MODO_(COMODO|CORREDOR)$') { return "PAINEL_MODO = $m não é PAINEL_MODO_CORREDOR nem PAINEL_MODO_COMODO." }
+  return ''
 }
 
 function Get-NexusPendencias {
@@ -568,7 +658,7 @@ function Get-NexusPendencias {
 }
 
 function Get-NexusLinhaDefine {
-  <# Valor de um #define (para conferir PAINEL_PLACA etc.; não use com segredos). #>
+  <# Valor de um #define (para conferir PAINEL_MODO/PAINEL_COMODO; não use com segredos). #>
   param([Parameter(Mandatory = $true)][string]$Ino, [Parameter(Mandatory = $true)][string]$Nome)
   if (-not (Test-Path -LiteralPath $Ino)) { return $null }
   foreach ($linha in [System.IO.File]::ReadAllLines($Ino, (New-Object System.Text.UTF8Encoding $false))) {
@@ -716,8 +806,12 @@ function Invoke-NexusHttp {
 }
 
 function ConvertTo-NexusValor {
-  <# "true"/"false" -> booleano, número -> número, resto -> texto (para o corpo do /panel/command). #>
-  param([AllowEmptyString()][string]$Texto)
+  <#
+    "true"/"false" -> booleano, número -> número, resto -> texto (para o corpo do /panel/command).
+    Com -Acao armed o valor é SEMPRE o texto off/home/away (o servidor recusa false/true no alarme).
+  #>
+  param([AllowEmptyString()][string]$Texto, [AllowEmptyString()][string]$Acao = '')
+  if ($Acao -eq 'armed') { return "$Texto".Trim().ToLowerInvariant() }
   if ($Texto -match '^(?i:true|sim|ligar|on)$') { return $true }
   if ($Texto -match '^(?i:false|nao|não|desligar|off)$') { return $false }
   $n = 0.0
@@ -726,6 +820,20 @@ function ConvertTo-NexusValor {
     return $n
   }
   return $Texto
+}
+
+function New-NexusComandoCorpo {
+  <# Corpo JSON do POST /iot-gateway/panel/command. Recusa valor inválido do alarme antes de mandar. #>
+  param(
+    [Parameter(Mandatory = $true)][string]$Dispositivo,
+    [Parameter(Mandatory = $true)][string]$Acao,
+    [AllowEmptyString()][string]$Valor = 'true'
+  )
+  $v = ConvertTo-NexusValor -Texto $Valor -Acao $Acao
+  if ($Acao -eq 'armed' -and @('off', 'home', 'away') -notcontains $v) {
+    throw "para -Acao armed use -Valor off (desarmar), home (em casa) ou away (ausente); recebi '$Valor'."
+  }
+  return (@{ device_id = $Dispositivo.ToLower(); action = $Acao; value = $v } | ConvertTo-Json -Compress)
 }
 
 function Format-NexusPainel {
@@ -813,4 +921,69 @@ function Get-QuiosqueArgumentos {
   if ($Perfil) { $a += "--user-data-dir=`"$Perfil`"" }
   if ($null -ne $Posicao) { $a += "--window-position=$($Posicao.X),$($Posicao.Y)" }
   return ($a -join ' ')
+}
+
+# ------------------------------------------------------------------
+# Supabase: secrets das Edge Functions (sem passar pelo histórico do console)
+# ------------------------------------------------------------------
+function Test-NexusUuid {
+  param([AllowEmptyString()][AllowNull()][string]$Texto)
+  return ("$Texto" -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+}
+
+function ConvertTo-NexusEnvTexto {
+  <#
+    Texto de um arquivo .env (NOME=valor por linha) para "supabase secrets set --env-file".
+    Valor com caractere especial vai entre aspas simples (literal no dotenv); aspas simples ou quebra de
+    linha no valor são recusadas (gere outro segredo). Nunca inclui o valor na mensagem de erro.
+  #>
+  param([Parameter(Mandatory = $true)][System.Collections.IDictionary]$Valores)
+  $linhas = New-Object System.Collections.Generic.List[string]
+  foreach ($nome in @($Valores.Keys | Sort-Object)) {
+    if ("$nome" -notmatch '^[A-Z_][A-Z0-9_]*$') { throw "nome de secret inválido: $nome" }
+    $v = "$($Valores[$nome])"
+    if ($v -eq '') { throw "o valor de $nome está vazio." }
+    if ($v -match "[`r`n']") { throw "o valor de $nome tem aspas simples ou quebra de linha: gere outro (só letras, números e - _ . + / =)." }
+    if ($v -match '^[A-Za-z0-9._~+/=:@%^,-]+$') { $linhas.Add("$nome=$v") } else { $linhas.Add("$nome='$v'") }
+  }
+  return (($linhas.ToArray() -join "`n") + "`n")
+}
+
+function Set-NexusSupabaseSegredos {
+  <#
+  .SYNOPSIS
+    Grava secrets no projeto pelo Supabase CLI sem pôr o valor na linha de comando.
+  .DESCRIPTION
+    Escreve um .env temporário (pasta TEMP do usuário), roda
+      supabase secrets set --env-file <arquivo> --project-ref <ref>
+    e APAGA o arquivo no fim (mesmo com erro; o conteúdo é sobrescrito antes). Devolve o código do CLI.
+  #>
+  param(
+    [Parameter(Mandatory = $true)][string]$Supabase,
+    [Parameter(Mandatory = $true)][string]$Ref,
+    [Parameter(Mandatory = $true)][System.Collections.IDictionary]$Valores
+  )
+  $texto = ConvertTo-NexusEnvTexto -Valores $Valores
+  $arq = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), 'nexus-secrets-' + [guid]::NewGuid().ToString('N') + '.env')
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  try {
+    [System.IO.File]::WriteAllText($arq, $texto, $utf8)
+    $r = Invoke-NexusNativo -Exe $Supabase -Argumentos @('secrets', 'set', '--env-file', $arq, '--project-ref', $Ref)
+    return $r.Codigo
+  } finally {
+    if (Test-Path -LiteralPath $arq) {
+      try { [System.IO.File]::WriteAllText($arq, ('x' * $texto.Length), $utf8) } catch { }
+      Remove-Item -LiteralPath $arq -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+function Read-NexusSegredo {
+  <# Lê um segredo sem eco (Read-Host -AsSecureString) e devolve o texto; '' se não houver console. #>
+  param([Parameter(Mandatory = $true)][string]$Pergunta)
+  try { $seg = Read-Host -AsSecureString $Pergunta } catch { return '' }
+  if ($null -eq $seg) { return '' }
+  $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($seg)
+  try { return [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+  finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
 }

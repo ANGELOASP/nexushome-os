@@ -162,6 +162,7 @@ static inline bool pm_active(const PDev& d) {
 static inline bool pm_tap_command(const PDev& d, char* action, size_t an, char* value, size_t vn, bool* needsConfirm) {
   *needsConfirm = false;
   if (d.acts & ACT_POWER) {
+    if (d.lock && d.on != 1) return false;             // desarmado por sobrecarga: só rearma no quadro
     pm_copy(action, an, "power");
     pm_copy(value, vn, d.on == 1 ? "false" : "true");
     *needsConfirm = !strcmp(d.type, "meter");          // circuito do quadro elétrico
@@ -175,6 +176,44 @@ static inline bool pm_tap_command(const PDev& d, char* action, size_t an, char* 
     return true;
   }
   return false;
+}
+
+/** Pedido de comando pronto (id + ação + valor), montado quando o toque/janela abre. */
+struct PCmd { char id[37]; char action[12]; char value[12]; };
+
+static inline void pm_cmd_set(PCmd &c, const char *id, const char *action, const char *value) {
+  pm_copy(c.id, sizeof(c.id), id);
+  pm_copy(c.action, sizeof(c.action), action);
+  pm_copy(c.value, sizeof(c.value), value);
+}
+
+/** Comando de um toque já montado (id do aparelho + ação + valor calculados AGORA). */
+static inline bool pm_tap_cmd(const PDev &d, PCmd &c, bool *needsConfirm) {
+  char a[sizeof(c.action)], v[sizeof(c.value)];
+  if (!pm_tap_command(d, a, sizeof(a), v, sizeof(v), needsConfirm)) return false;
+  pm_cmd_set(c, d.id, a, v);
+  return true;
+}
+
+/** Índice do aparelho com este id no snapshot (ou -1: sumiu da lista). */
+static inline int pm_find_dev(const PModel &m, const char *id) {
+  if (!id || !id[0]) return -1;
+  for (int i = 0; i < m.nDevs; i++) if (!strcmp(m.devs[i].id, id)) return i;
+  return -1;
+}
+
+/**
+ * Confirmação de uma janela (modal) aberta antes do snapshot atual: acha o aparelho PELO ID
+ * (a lista é recarregada a cada 3 s e a ordem muda). Devolve o índice ou -1 se o comando não
+ * deve sair: o aparelho sumiu, ou travou (sobrecarga/rompimento) e o pedido era ligar/abrir.
+ */
+static inline int pm_cmd_target(const PModel &m, const PCmd &c) {
+  int i = pm_find_dev(m, c.id);
+  if (i < 0) return -1;
+  const PDev &d = m.devs[i];
+  bool turnsOn = !strcmp(c.value, "true");
+  if (d.lock && turnsOn && (!strcmp(c.action, "power") || !strcmp(c.action, "valve") || !strcmp(c.action, "open"))) return -1;
+  return i;
 }
 
 /** Corpo JSON do POST /panel/command. */
@@ -426,13 +465,41 @@ static inline const char *pm_type_label(const char *t) {
   return "Aparelho";
 }
 
-/** Mesmo cômodo, sem diferenciar maiúsculas (ASCII) — o servidor também compara assim. */
-static inline bool pm_same_room(const char *a, const char *b) {
-  for (; *a && *b; a++, b++) {
-    char x = *a, y = *b;
-    if (x >= 'A' && x <= 'Z') x += 32;
-    if (y >= 'A' && y <= 'Z') y += 32;
-    if (x != y) return false;
+/**
+ * Próximo caractere de um nome de cômodo, normalizado para comparar: minúsculas, inclusive as
+ * letras acentuadas do português em UTF-8 (Á À Â Ã É Ê Í Ó Ô Õ Ú Ç → á à â ã é ê í ó ô õ ú ç,
+ * faixa Latin-1 U+00C0–U+00DE). Devolve o código (ASCII ou U+00xx) e avança `s`; 0 no fim.
+ */
+static inline unsigned pm_room_char(const char *&s) {
+  unsigned char c = (unsigned char)*s;
+  if (!c) return 0;
+  if (c == 0xC3 && ((unsigned char)s[1] & 0xC0) == 0x80) {          // U+00C0..U+00FF
+    unsigned u = 0xC0 + ((unsigned char)s[1] & 0x3F);
+    s += 2;
+    if (u >= 0xC0 && u <= 0xDE && u != 0xD7) u += 0x20;            // maiúscula acentuada → minúscula (× fica)
+    return u;
   }
-  return *a == *b;
+  s++;
+  if (c >= 'A' && c <= 'Z') c += 32;
+  return c;
+}
+
+static inline bool pm_room_space(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
+
+/**
+ * Mesmo cômodo? Como o servidor (panel.ts: toLowerCase() + trim()): ignora maiúsculas, também
+ * nas letras acentuadas, e os espaços nas pontas ("Área Externa " = "área externa").
+ */
+static inline bool pm_same_room(const char *a, const char *b) {
+  if (!a) a = "";
+  if (!b) b = "";
+  while (pm_room_space(*a)) a++;
+  while (pm_room_space(*b)) b++;
+  const char *ea = a + strlen(a), *eb = b + strlen(b);
+  while (ea > a && pm_room_space(ea[-1])) ea--;
+  while (eb > b && pm_room_space(eb[-1])) eb--;
+  while (a < ea && b < eb) {
+    if (pm_room_char(a) != pm_room_char(b)) return false;
+  }
+  return a >= ea && b >= eb;
 }

@@ -204,6 +204,7 @@ Caso 'fqbn' {
   Igual $s3 (Get-NexusFirmware -Firmware painel -Placa s3-7).Fqbn 'FQBN painel S3 7"'
   Igual 'nexus_painel' (Get-NexusFirmware -Firmware painel -Placa p4).Nome 'pasta do painel = nexus_painel'
   Ok (@((Get-NexusFirmware -Firmware painel -Placa p4).Preservar) -contains 'PAINEL_COMODO') 'painel preserva PAINEL_COMODO'
+  Ok (@((Get-NexusFirmware -Firmware painel -Placa p4).Preservar) -notcontains 'PAINEL_PLACA') 'painel não preserva mais PAINEL_PLACA (a placa sai do chip)'
   $erro = ''; try { Get-NexusFirmware -Firmware painel | Out-Null } catch { $erro = $_.Exception.Message }
   Ok ($erro -match '-Placa') 'painel sem -Placa dá erro claro' $erro
   Igual 'esp32:esp32@3.3.12' $script:NexusCoreEsp32 'core fixo 3.3.12'
@@ -239,16 +240,73 @@ Caso 'copia' {
   [System.IO.File]::WriteAllText((Join-Path $repoFw 'src/ui.h'), '// ui v2')
   $c2 = Copy-NexusFirmware -Origem $repoFw -Destino $docs -Nome 'nexus_painel' -Preservar $fw.Preservar
   $novo = [System.IO.File]::ReadAllText($ino)
-  Igual 'DEVICE_SECRET PAINEL_COMODO PAINEL_MODO PAINEL_PLACA WIFI_PASSWORD WIFI_SSID' (@($c2.Preservadas) -join ' ') 'recopiar: devolve só os NOMES preservados'
+  Igual 'DEVICE_SECRET PAINEL_COMODO PAINEL_MODO WIFI_PASSWORD WIFI_SSID' (@($c2.Preservadas) -join ' ') 'recopiar: devolve só os NOMES preservados'
   Ok ($novo -match '// v2' -and $novo -match '// linha nova') 'recopiar: código novo veio do repositório'
   Ok ($novo -match '"MinhaRede"' -and $novo -match '"s3nh@"' -and $novo -match '"segredo-xyz"') 'recopiar: Wi-Fi e chave mantidos'
-  Ok ($novo -match 'PAINEL_MODO\s+PAINEL_MODO_COMODO' -and $novo -match 'PAINEL_COMODO\s+"Cozinha"' -and $novo -match 'PAINEL_PLACA\s+PAINEL_PLACA_S3_7') 'recopiar: PAINEL_MODO/COMODO/PLACA mantidos'
+  Ok ($novo -match 'PAINEL_MODO\s+PAINEL_MODO_COMODO' -and $novo -match 'PAINEL_COMODO\s+"Cozinha"') 'recopiar: PAINEL_MODO/COMODO mantidos'
+  Ok ($novo -match 'PAINEL_PLACA\s+PAINEL_PLACA_P4') 'recopiar: PAINEL_PLACA (linha morta) vem do repositório, não é preservada'
   Ok ($novo -match '#define PAINEL_MODO_CORREDOR 1') 'recopiar: #define parecido (PAINEL_MODO_CORREDOR) não é confundido'
   Ok (Test-Path -LiteralPath "$ino.bak") 'recopiar: backup .ino.bak'
+  $bak = [System.IO.File]::ReadAllText("$ino.bak")
+  Ok ($bak -notmatch 's3nh@' -and $bak -notmatch 'segredo-xyz') 'recopiar: o .ino.bak NÃO tem a senha do Wi-Fi nem a chave'
+  Ok ($bak -match '#define WIFI_PASSWORD\s+"\(omitido no backup\)"' -and $bak -match '#define DEVICE_SECRET\s+"\(omitido no backup\)"' -and $bak -match '// v1' -and $bak -match '"MinhaRede"') 'recopiar: .ino.bak = versão anterior com os segredos omitidos' $bak
   Ok ([System.IO.File]::ReadAllText((Join-Path $docs 'src/ui.h')) -eq '// ui v2' -and -not (Test-Path -LiteralPath (Join-Path $docs 'src/src'))) 'recopiar: subpasta atualizada sem aninhar'
-  Igual 'PAINEL_PLACA_S3_7' (Get-NexusLinhaDefine -Ino $ino -Nome 'PAINEL_PLACA') 'Get-NexusLinhaDefine'
+  Igual '"Cozinha"' (Get-NexusLinhaDefine -Ino $ino -Nome 'PAINEL_COMODO') 'Get-NexusLinhaDefine'
+  Igual 'PAINEL_MODO_COMODO' (Get-NexusLinhaDefine -Ino $ino -Nome 'PAINEL_MODO') 'Get-NexusLinhaDefine ignora o comentário'
   $erro = ''; try { Copy-NexusFirmware -Origem (Join-Path $tmpBase 'nao-existe') -Destino $docs -Nome 'x' | Out-Null } catch { $erro = $_.Exception.Message }
   Ok ($erro -match 'git pull') 'firmware ausente: erro amigável' $erro
+}
+Caso 'pasta do firmware' {
+  # E2: a cópia com segredos fica em %LOCALAPPDATA%\NexusHome\firmware (fora de Documentos/OneDrive)
+  $antesLocal = $env:LOCALAPPDATA; $antesDir = $env:NEXUS_FIRMWARE_DIR
+  try {
+    $env:NEXUS_FIRMWARE_DIR = $null
+    $env:LOCALAPPDATA = Join-Path $tmpBase 'AppData/Local'
+    Igual (Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA 'NexusHome') 'firmware') 'nexus_painel') (Get-NexusPastaFirmware -Nome 'nexus_painel') 'pasta de trabalho = %LOCALAPPDATA%\NexusHome\firmware\<nome>'
+    $docs = [Environment]::GetFolderPath('MyDocuments')
+    if ($docs) { Ok (-not (Get-NexusPastaFirmware -Nome 'x').StartsWith((Join-Path $docs 'Arduino'))) 'pasta de trabalho fora de Documentos\Arduino' }
+    $env:NEXUS_FIRMWARE_DIR = Join-Path $tmpBase 'outra'
+    Igual (Join-Path (Join-Path $tmpBase 'outra') 'esp32s3_eletrica') (Get-NexusPastaFirmware -Nome 'esp32s3_eletrica') 'NEXUS_FIRMWARE_DIR troca a pasta-base'
+  } finally { $env:LOCALAPPDATA = $antesLocal; $env:NEXUS_FIRMWARE_DIR = $antesDir }
+  if (-not $ehWindows) { Ok ($null -eq (Get-NexusPastaFirmwareAntiga -Nome 'x')) 'pasta antiga (Documentos) só existe no Windows' }
+  # migração: copia a antiga (menos os .bak), nunca apaga, avisa
+  $antiga = Join-Path $tmpBase 'Documentos/Arduino/esp32s3_nobreak'; $nova = Join-Path $tmpBase 'Local/NexusHome/firmware/esp32s3_nobreak'
+  New-Item -ItemType Directory -Force -Path (Join-Path $antiga 'sub') | Out-Null
+  [System.IO.File]::WriteAllLines((Join-Path $antiga 'esp32s3_nobreak.ino'), [string[]]@('#define WIFI_PASSWORD "minha-senha"'))
+  [System.IO.File]::WriteAllText((Join-Path $antiga 'esp32s3_nobreak.ino.bak'), '#define DEVICE_SECRET "velho"')
+  [System.IO.File]::WriteAllText((Join-Path $antiga 'sub/x.h'), '// x')
+  $m = Move-NexusFirmwareAntigo -Nome 'esp32s3_nobreak' -Nova $nova -Antiga $antiga
+  Ok ($m.Migrou -and $m.AntigaExiste) 'migração: copiou a cópia antiga para a pasta nova'
+  Ok ([System.IO.File]::ReadAllText((Join-Path $nova 'esp32s3_nobreak.ino')) -match 'minha-senha' -and (Test-Path -LiteralPath (Join-Path $nova 'sub/x.h'))) 'migração: .ino (com as linhas preenchidas) e subpastas'
+  Ok (-not (Test-Path -LiteralPath (Join-Path $nova 'esp32s3_nobreak.ino.bak'))) 'migração: o .bak antigo (com segredo) não é copiado'
+  Ok (Test-Path -LiteralPath (Join-Path $antiga 'esp32s3_nobreak.ino')) 'migração: a pasta antiga não é apagada (o usuário apaga)'
+  $m2 = Move-NexusFirmwareAntigo -Nome 'esp32s3_nobreak' -Nova $nova -Antiga $antiga
+  Ok (-not $m2.Migrou -and $m2.AntigaExiste) 'migração: com a pasta nova pronta não copia de novo, mas ainda avisa'
+  $m3 = Move-NexusFirmwareAntigo -Nome 'esp32s3_nobreak' -Nova $nova -Antiga (Join-Path $tmpBase 'nao-existe')
+  Ok (-not $m3.Migrou -and -not $m3.AntigaExiste) 'migração: sem pasta antiga, nada a fazer'
+  $m4 = Move-NexusFirmwareAntigo -Nome 'esp32s3_nobreak' -Nova $nova -Antiga ''
+  Ok (-not $m4.AntigaExiste) 'migração: sem Documentos (fora do Windows), nada a fazer'
+  foreach ($n in 'instalar-arduino.ps1', 'gravar-firmware.ps1') {
+    $txt = [System.IO.File]::ReadAllText((Join-Path $pastaScripts $n))
+    Ok ($txt -match 'Get-NexusPastaFirmware' -and $txt -match 'Move-NexusFirmwareAntigo' -and $txt -notmatch "GetFolderPath\('MyDocuments'\)") "$n usa a pasta nova (com migração), não Documentos"
+  }
+}
+Caso 'aviso do painel' {
+  # E4: PAINEL_PLACA não existe mais; o modo tem de combinar com a placa
+  Ok ((Get-NexusAvisoPainel -Placa p4 -Modo 'PAINEL_MODO_COMODO') -match 'CORREDOR') 'aviso: -Placa p4 com PAINEL_MODO_COMODO'
+  Ok ((Get-NexusAvisoPainel -Placa s3-7 -Modo 'PAINEL_MODO_CORREDOR') -match 'CÔMODO') 'aviso: -Placa s3-7 com PAINEL_MODO_CORREDOR'
+  Igual '' (Get-NexusAvisoPainel -Placa p4 -Modo 'PAINEL_MODO_CORREDOR') 'sem aviso: P4 no corredor'
+  Igual '' (Get-NexusAvisoPainel -Placa s3-7 -Modo 'PAINEL_MODO_COMODO') 'sem aviso: 7" no cômodo'
+  Ok ((Get-NexusAvisoPainel -Placa p4 -Modo 'OUTRA') -ne '') 'aviso: PAINEL_MODO desconhecido'
+  foreach ($n in 'nexus-comum.ps1', 'instalar-arduino.ps1', 'gravar-firmware.ps1') {
+    $txt = [System.IO.File]::ReadAllText((Join-Path $pastaScripts $n))
+    Ok ($txt -notmatch 'PAINEL_PLACA') "sem a checagem morta de PAINEL_PLACA em $n"
+  }
+  $fwIno = Join-Path (Split-Path -Parent $pastaScripts) 'firmware/nexus_painel/nexus_painel.ino'
+  if (Test-Path -LiteralPath $fwIno) {
+    $m = Get-NexusLinhaDefine -Ino $fwIno -Nome 'PAINEL_MODO'
+    Ok ($m -match '^PAINEL_MODO_(CORREDOR|COMODO)$' -and $null -ne (Get-NexusLinhaDefine -Ino $fwIno -Nome 'PAINEL_COMODO')) 'nexus_painel.ino tem PAINEL_MODO e PAINEL_COMODO legíveis' "$m"
+  }
 }
 Caso 'tamanho' {
   $saida = "Sketch uses 1677721 bytes (53%) of program storage space. Maximum is 3145728 bytes.`nGlobal variables use 62000 bytes (18%) of dynamic memory, leaving 265680 bytes for local variables. Maximum is 327680 bytes."
@@ -283,9 +341,64 @@ Caso 'painel' {
   $vazio = (Format-NexusPainel -Snapshot ('{"house":{"watts":0,"level_pct":null,"soc":null,"alerts_open":0,"health":"safe"},"rooms":[],"devices":[],"alerts":[]}' | ConvertFrom-Json)) -join "`n"
   Ok ($vazio -match 'sem sonda' -and $vazio -match 'sem nobreak' -and $vazio -match 'Aparelhos \(0\)') 'Format-NexusPainel: casa vazia (StrictMode)' $vazio
   Ok ((ConvertTo-NexusValor 'true') -eq $true -and (ConvertTo-NexusValor 'false') -eq $false -and (ConvertTo-NexusValor '22') -eq 22 -and (ConvertTo-NexusValor 'away') -eq 'away') 'ConvertTo-NexusValor'
+  # E1: alarme desarmado manda o TEXTO "off" (o servidor recusa false)
+  $off = ConvertTo-NexusValor 'off' -Acao armed
+  Ok ($off -is [string] -and $off -eq 'off') 'ConvertTo-NexusValor off -Acao armed = texto "off"' "$off ($($off.GetType().Name))"
+  Ok ((ConvertTo-NexusValor ' HOME ' -Acao armed) -ceq 'home' -and (ConvertTo-NexusValor 'away' -Acao armed) -ceq 'away') 'ConvertTo-NexusValor -Acao armed: home/away em minúsculas'
+  Ok ((ConvertTo-NexusValor 'off' -Acao power) -eq $false -and (ConvertTo-NexusValor 'on') -eq $true) 'ConvertTo-NexusValor: off/on continuam booleanos fora do alarme'
+  $corpo = New-NexusComandoCorpo -Dispositivo 'B3000000-0000-4000-8000-000000000015' -Acao armed -Valor off
+  $cj = $corpo | ConvertFrom-Json
+  Ok ($corpo -match '"value":"off"' -and $cj.value -is [string] -and $cj.action -eq 'armed' -and $cj.device_id -eq 'b3000000-0000-4000-8000-000000000015') 'corpo do /panel/command: armed = "off" (texto), id em minúsculas' $corpo
+  Ok ((New-NexusComandoCorpo -Dispositivo 'b3000000-0000-4000-8000-000000000001' -Acao power -Valor false) -match '"value":false') 'corpo do /panel/command: power = false (booleano)'
+  Ok ((New-NexusComandoCorpo -Dispositivo 'b3000000-0000-4000-8000-000000000001' -Acao brightness -Valor 40) -match '"value":40') 'corpo do /panel/command: brilho numérico'
+  $erro = ''; try { New-NexusComandoCorpo -Dispositivo 'b3000000-0000-4000-8000-000000000015' -Acao armed -Valor false | Out-Null } catch { $erro = $_.Exception.Message }
+  Ok ($erro -match 'off' -and $erro -match 'home' -and $erro -match 'away') 'corpo do /panel/command: armed com valor inválido é recusado antes de enviar' $erro
+  $tp = [System.IO.File]::ReadAllText((Join-Path $pastaScripts 'testar-painel.ps1'))
+  Ok ($tp -match 'New-NexusComandoCorpo' -and $tp -match 'ConvertTo-NexusValor -Texto \$Valor -Acao \$Acao') 'testar-painel monta o corpo com a ação (alarme como texto)'
   Igual '' (Get-NexusPortaDica 'Porta de comunicação') 'dica de porta: desconhecida'
   Ok ((Get-NexusPortaDica 'Dispositivo Serial USB JTAG/serial debug unit (COM5)') -match 'ESP32') 'dica de porta: ESP32'
   Ok ((Get-NexusPortaDica 'USB-SERIAL CH340 (COM3)') -match 'RS-485') 'dica de porta: CH340'
+}
+Caso 'secrets' {
+  # E3: o IOT_DEVICE_SECRET nunca vai na linha de comando (histórico do PSReadLine): .env temporário apagado
+  Ok ((Test-NexusUuid '0f1e2d3c-4b5a-4968-8776-655443322110') -and -not (Test-NexusUuid 'abc') -and -not (Test-NexusUuid '')) 'Test-NexusUuid'
+  $t = ConvertTo-NexusEnvTexto -Valores ([ordered]@{ IOT_OWNER_ID = '0f1e2d3c-4b5a-4968-8776-655443322110'; IOT_DEVICE_SECRET = 'abc+/=_-.9' })
+  Igual "IOT_DEVICE_SECRET=abc+/=_-.9`nIOT_OWNER_ID=0f1e2d3c-4b5a-4968-8776-655443322110`n" $t '.env: NOME=valor, um por linha'
+  Igual "IOT_DEVICE_SECRET='a b#c`"d'`n" (ConvertTo-NexusEnvTexto -Valores @{ IOT_DEVICE_SECRET = 'a b#c"d' }) '.env: valor com espaço/#/aspas duplas vai entre aspas simples'
+  foreach ($ruim in @("a'b", "a`nb", '')) {
+    $erro = ''; try { ConvertTo-NexusEnvTexto -Valores @{ IOT_DEVICE_SECRET = $ruim } | Out-Null } catch { $erro = $_.Exception.Message }
+    Ok ($erro -match 'IOT_DEVICE_SECRET' -and ($ruim -eq '' -or $erro -notmatch [regex]::Escape($ruim))) ".env: valor recusado sem mostrá-lo ($(@($ruim.ToCharArray() | ForEach-Object { [int]$_ }) -join ','))" $erro
+  }
+  $pf = [System.IO.File]::ReadAllText((Join-Path $pastaScripts 'publicar-funcoes.ps1'))
+  Ok ($pf -match 'DefinirSegredo' -and $pf -match 'Read-NexusSegredo' -and $pf -match 'Set-NexusSupabaseSegredos' -and $pf -match 'IOT_OWNER_ID') 'publicar-funcoes: -DefinirSegredo / -OwnerId pelo próprio script'
+  Ok ($pf -notmatch 'secrets set IOT_DEVICE_SECRET=') 'publicar-funcoes não manda digitar o segredo no console'
+  $lm = [System.IO.File]::ReadAllText((Join-Path $pastaScripts 'LEIA-ME.md'))
+  Ok ($lm -notmatch '`supabase secrets set IOT_DEVICE_SECRET=<' -and $lm -match '-DefinirSegredo') 'LEIA-ME: segredo pelo script, não pelo console'
+  $tp = [System.IO.File]::ReadAllText((Join-Path $pastaScripts 'testar-painel.ps1'))
+  Ok ($tp -notmatch "Read-Host -Prompt 'chave'" -and $tp -match "Read-Host -AsSecureString 'chave'") 'testar-painel: exemplo lê a chave sem eco'
+  if ($ehWindows) { Pula 'secrets set com supabase falso' 'o supabase falso é um script sh' }
+  else {
+    $bin = Join-Path $tmpBase 'sb'; New-Item -ItemType Directory -Force -Path $bin | Out-Null
+    $log = Join-Path $tmpBase 'sb.log'; $copia = Join-Path $tmpBase 'sb.env'; $onde = Join-Path $tmpBase 'sb.path'
+    $falso = Join-Path $bin 'supabase'
+    [System.IO.File]::WriteAllText($falso, "#!/bin/sh`necho ""`$@"" >> '$log'`nwhile [ `$# -gt 0 ]; do if [ ""`$1"" = --env-file ]; then cp ""`$2"" '$copia'; echo ""`$2"" > '$onde'; fi; shift; done`necho 'Finished supabase secrets set.'`nexit 0`n")
+    & chmod +x $falso
+    $segredo = 'S3gr3do-Muito-Secreto+/='
+    $cod = Set-NexusSupabaseSegredos -Supabase $falso -Ref 'gfjxcsvxhaojbtuixpjh' -Valores ([ordered]@{ IOT_DEVICE_SECRET = $segredo; IOT_OWNER_ID = '0f1e2d3c-4b5a-4968-8776-655443322110' }) 6>$null
+    $args1 = [System.IO.File]::ReadAllText($log)
+    Igual 0 $cod 'secrets set: código 0'
+    Ok ($args1 -match '^secrets set --env-file \S+ --project-ref gfjxcsvxhaojbtuixpjh' -and $args1 -notmatch [regex]::Escape($segredo)) 'secrets set: o valor NÃO vai nos argumentos (só --env-file)' $args1
+    Ok ([System.IO.File]::ReadAllText($copia) -match ('IOT_DEVICE_SECRET=' + [regex]::Escape($segredo)) -and [System.IO.File]::ReadAllText($copia) -match 'IOT_OWNER_ID=0f1e2d3c') 'secrets set: o CLI recebeu os dois valores pelo arquivo'
+    $arq = [System.IO.File]::ReadAllText($onde).Trim()
+    Ok (-not (Test-Path -LiteralPath $arq)) 'secrets set: o .env temporário foi apagado' $arq
+    Remove-Item -LiteralPath $copia -Force
+    $falha = Join-Path $bin 'supabase-falha'
+    [System.IO.File]::WriteAllText($falha, "#!/bin/sh`nwhile [ `$# -gt 0 ]; do if [ ""`$1"" = --env-file ]; then echo ""`$2"" > '$onde'; fi; shift; done`necho 'erro' >&2`nexit 3`n")
+    & chmod +x $falha
+    $cod = Set-NexusSupabaseSegredos -Supabase $falha -Ref 'x' -Valores @{ IOT_DEVICE_SECRET = $segredo } 6>$null
+    $arq = [System.IO.File]::ReadAllText($onde).Trim()
+    Ok ($cod -eq 3 -and -not (Test-Path -LiteralPath $arq)) 'secrets set com erro: devolve o código e apaga o .env mesmo assim'
+  }
 }
 Caso 'http' {
   # Invoke-WebRequest falso: guarda os parâmetros. No Windows PowerShell 5.1 um GET com Body/ContentType
@@ -351,10 +464,14 @@ else {
     Ok ($r.Codigo -eq 0 -and $l -match 'upload -p COM5 --fqbn esp32:esp32:esp32s3') 'gravar-firmware -Porta -Sim grava (upload)' $r.Saida
 
     $sp = Join-Path $tmpBase 'sk2/nexus_painel'; New-Item -ItemType Directory -Force -Path $sp | Out-Null
-    [System.IO.File]::WriteAllLines((Join-Path $sp 'nexus_painel.ino'), [string[]]@('#define PAINEL_PLACA PAINEL_PLACA_S3_7'))
+    [System.IO.File]::WriteAllLines((Join-Path $sp 'nexus_painel.ino'), [string[]]@('#define PAINEL_MODO     PAINEL_MODO_COMODO   // comentário', '#define PAINEL_COMODO   "Cozinha"'))
     $r = Rodar 'gravar-firmware.ps1' @('-Firmware', 'painel', '-Placa', 'p4', '-Pasta', $sp, '-SoCompilar') $amb
     $l = [System.IO.File]::ReadAllText($log)
-    Ok ($r.Codigo -eq 0 -and $l -match 'compile --fqbn esp32:esp32:esp32p4:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=enabled' -and $r.Saida -match 'não combina') 'painel P4: FQBN do P4 e aviso de PAINEL_PLACA trocado' $r.Saida
+    Ok ($r.Codigo -eq 0 -and $l -match 'compile --fqbn esp32:esp32:esp32p4:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=enabled' -and $r.Saida -match 'PAINEL_MODO = PAINEL_MODO_COMODO ; PAINEL_COMODO = "Cozinha"' -and $r.Saida -match 'ATENÇÃO: .*CORREDOR') 'painel P4: FQBN do P4, mostra MODO/COMODO e avisa do modo cômodo' $r.Saida
+    $r = Rodar 'gravar-firmware.ps1' @('-Firmware', 'painel', '-Placa', 's3-7', '-Pasta', $sp, '-SoCompilar') $amb
+    Ok ($r.Codigo -eq 0 -and $r.Saida -match 'PAINEL_MODO = PAINEL_MODO_COMODO' -and $r.Saida -notmatch 'ATENÇÃO') 'painel 7": modo cômodo sem aviso' $r.Saida
+    $r = Rodar 'gravar-firmware.ps1' @('-Firmware', 'painel', '-Placa', 'p4', '-Pasta', $sp, '-Porta', 'COM9') $amb
+    Ok ($r.Codigo -eq 1 -and $r.Saida -match 'não combina com a placa' -and $r.Saida -match 'Cancelado') 'painel P4 com modo cômodo: gravar pede confirmação (sem console = cancela)' $r.Saida
     $r = Rodar 'gravar-firmware.ps1' @('-Firmware', 'painel', '-Pasta', $sp, '-SoCompilar') $amb
     Ok ($r.Codigo -eq 1 -and $r.Saida -match '-Placa p4' -and (SemStack $r.Saida)) 'painel sem -Placa: erro claro' $r.Saida
     $r = Rodar 'gravar-firmware.ps1' @('-Firmware', 'eletrica', '-Pasta', $sk, '-SoCompilar') @{ PATH = '/nao/existe' }
