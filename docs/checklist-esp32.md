@@ -38,6 +38,8 @@ Onde pesquisar (links de busca, **não verificados** — confira estoque, preço
 
 ## Fase 4 — Firmware do NexusHome (modo simulado)
 
+> **Obsoleta desde a v2.18:** o firmware de teste `esp32_nexushome` foi removido (publicava dados simulados nos ids reais). Grave direto o firmware da sua tela com `scripts/instalar-arduino.ps1` (ver `scripts/LEIA-ME.md`). Os passos do segredo abaixo continuam valendo — prefira `scripts/publicar-funcoes.ps1 -DefinirSegredo`, que não deixa o valor no histórico do console.
+
 - [ ] Gere um segredo **novo** (PowerShell):
   `-join ((48..57)+(97..122) | Get-Random -Count 32 | % {[char]$_})`
 - [ ] Grave no Supabase (terminal em `C:\nexushome-os`, projeto **NEXUSHOME** vinculado):

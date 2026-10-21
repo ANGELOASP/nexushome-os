@@ -61,7 +61,7 @@ Desenhos (pasta [`docs/img/unificado/`](img/unificado/)):
 7. **Segurança de vida por fio, não por software.**
    - O transmissor de gás corta a válvula de gás NF e liga a sirene **pelos próprios contatos**.
    - A automação só supervisiona.
-   - **Com gás, nada é ligado na área** (exaustor ou luz são fonte de ignição).
+   - **Com gás, os exaustores ficam bloqueados em toda a casa e as luzes da área do vazamento não são comutadas** (são fonte de ignição). As luzes das outras áreas seguem comandáveis para a rota de fuga.
 8. **Fail-safe:** cargas de potência ficam no contato **NF** do relé (relé desligado = carga ligada). Se a automação falhar, a casa continua com energia.
 9. **Energia da automação:**
    - **24 V** em todo o QAU.
@@ -86,7 +86,7 @@ Desenhos (pasta [`docs/img/unificado/`](img/unificado/)):
 | 8 | Todos × repo | Endereços conflitantes (PZEM 1–8, relés 10–12, WS230 20–28 colidindo com a hidráulica 1–4 e a energia 5–40) | Tabela única (§5.2). Hidráulica e energia mantêm os endereços já gravados no firmware |
 | 9 | Memorial 1 / Segurança | Mais de 32 nós num segmento (37 só na energia; ~65 com tudo) | 4 barramentos. A energia passa por **hub RS-485 isolado** com três ramos |
 | 10 | Memorial completo / Segurança | Gás lido "a cada 2 s" e corte "< 500 ms" num RS-485 de 9600 baud com dezenas de nós: impossível | Corte por fio (contato AL2 do transmissor em série com a válvula NF). O software só supervisiona (§10) |
-| 11 | Memorial completo / Nobreak / Segurança | Ligar exaustor e luz de emergência no vazamento de gás: fonte de ignição | Com gás, **nenhuma carga da área é comutada**. Só fecha a válvula e toca a sirene (fora da zona) |
+| 11 | Memorial completo / Nobreak / Segurança | Ligar exaustor e luz de emergência no vazamento de gás: fonte de ignição | Com gás, **os exaustores ficam bloqueados (em toda a casa) e as luzes da área não são comutadas**. Fecha a válvula e toca a sirene (fora da zona) |
 | 12 | Segurança | CH4 × GLP: gases e alturas de instalação diferentes | Comprar o transmissor calibrado para o gás **realmente usado**. GLP fica a 30 cm do piso; gás natural (CH4), a 30 cm do teto |
 | 13 | Memorial completo × Segurança | Limiares de gás diferentes (15 % × 20 % LEL) | AL1 = 10 % LEL (pré-alarme); AL2 = 20 % LEL (corte, retido, rearme manual) |
 | 14 | Segurança | WS230/WS231 sem fabricante; detector de fumaça óptico na cozinha dá falso alarme | **Detector de fumaça autônomo com saída a relé** nos quartos e salas, **termovelocimétrico** na cozinha, ambos na entrada digital. Temperatura e umidade pelo **XY-MD02** (Modbus, registradores conhecidos) |
@@ -577,7 +577,8 @@ Cabo de cada cômodo até o QAU: **Cat.6 U/UTP em home-run**.
 - **Firmware de segurança (supervisão):**
   - AL1 ou leitura ≥ 10 % LEL: alerta *warning* em todas as telas e no celular.
   - AL2 ou leitura ≥ 20 % LEL: alerta *critical* (push), abre o CH7, liga as sirenes e **trava** até o rearme na tela.
-  - **Não liga exaustor nem luz.**
+  - **Exaustores:** com pré-alarme, AL2 ou corte travado em qualquer área, não são ligados nem desligados (nem pela umidade, nem pelo app ou pela tela).
+  - **Luzes:** só as da área do vazamento ficam bloqueadas; as das outras áreas continuam comandáveis (rota de fuga).
 
 ### 10.2 Fumaça e calor
 
@@ -595,6 +596,7 @@ Cabo de cada cômodo até o QAU: **Cat.6 U/UTP em home-run**.
 - Ao armar, há **60 s** de atraso de saída. Disparo: depois de **30 s** de atraso na porta de entrada (para desarmar), liga as sirenes por **3 min** e gera alerta *critical*.
 - Arma e desarma pelo app, pelo P4, pela tela de 7" ou pela T3.
 - **Botão de pânico:** alerta *critical* imediato e sirenes, mesmo com o alarme desarmado.
+- **Sabotagem:** armado, se o módulo de portas (93) — ou o de presença (92) no modo `away` — ficar mais de 10 s sem responder (cabo cortado, alimentação removida), o alarme dispara como uma zona.
 
 ### 10.4 Clima e exaustores
 
