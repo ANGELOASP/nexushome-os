@@ -7,10 +7,12 @@
     1. instala a Arduino IDE 2 e o Arduino CLI (winget);
     2. instala o core da Espressif FIXO em esp32:esp32@3.3.12 e as bibliotecas
        ESP32_Display_Panel 1.0.4, lvgl 8.4.0 e ArduinoJson 7.4.2;
-    3. copia o firmware para Documentos\Arduino\<firmware> (fora do repositório — é lá que ficam a senha
-       do Wi-Fi e a chave). Se já existir uma cópia, ela é ATUALIZADA e as linhas WIFI_SSID / WIFI_PASSWORD /
-       DEVICE_SECRET que você preencheu são mantidas (no painel também PAINEL_MODO / PAINEL_COMODO /
-       PAINEL_PLACA). Backup em <firmware>.ino.bak;
+    3. copia o firmware para %LOCALAPPDATA%\NexusHome\firmware\<firmware> (fora do repositório e fora de
+       Documentos, que o OneDrive costuma sincronizar — é lá que ficam a senha do Wi-Fi e a chave). Se já existir
+       uma cópia, ela é ATUALIZADA e as linhas WIFI_SSID / WIFI_PASSWORD / DEVICE_SECRET que você preencheu são
+       mantidas (no painel também PAINEL_MODO / PAINEL_COMODO). Backup em <firmware>.ino.bak, SEM a senha e a
+       chave. Uma cópia antiga em Documentos\Arduino\<firmware> é copiada para a pasta nova e o script avisa
+       para você apagar a antiga;
     4. compila com o FQBN da placa certa;
     5. (opcional) grava na placa: informe a porta com -Porta COM5.
 
@@ -39,7 +41,7 @@
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\instalar-arduino.ps1 -Firmware painel -Placa s3-7 -Porta COM7
-  Tela de 7" de um cômodo (confira PAINEL_COMODO no .ino em Documentos\Arduino\nexus_painel).
+  Tela de 7" de um cômodo (confira PAINEL_MODO_COMODO e PAINEL_COMODO no .ino em %LOCALAPPDATA%\NexusHome\firmware\nexus_painel).
 #>
 [CmdletBinding()]
 param(
@@ -71,7 +73,8 @@ if (-not (Test-NexusWindows)) {
 try { $fw = Get-NexusFirmware -Firmware $Firmware -Placa $Placa } catch { Falha $_.Exception.Message }
 $repo      = Split-Path -Parent $PSScriptRoot
 $origem    = Join-Path $repo "firmware\$($fw.Nome)"
-$sketchDir = Join-Path ([Environment]::GetFolderPath('MyDocuments')) "Arduino\$($fw.Nome)"
+$sketchDir = Get-NexusPastaFirmware -Nome $fw.Nome
+if (-not $sketchDir) { Falha 'não achei a pasta de dados do usuário (%LOCALAPPDATA%).' }
 $espUrl    = 'https://espressif.github.io/arduino-esp32/package_esp32_index.json'
 
 if (-not (Test-Path -LiteralPath (Join-Path $origem "$($fw.Nome).ino"))) {
@@ -114,22 +117,24 @@ if ($LASTEXITCODE -ne 0) { Falha "falha ao instalar as bibliotecas ($($script:Ne
 
 # ---- 3. Cópia do firmware (sem sobrescrever a sua versão com senha) ----
 Passo 3 "Copiando o firmware para $sketchDir ..."
-try { $copia = Copy-NexusFirmware -Origem $origem -Destino $sketchDir -Nome $fw.Nome -Preservar $fw.Preservar }
-catch { Falha $_.Exception.Message }
+try {
+  $mig = Move-NexusFirmwareAntigo -Nome $fw.Nome -Nova $sketchDir -Antiga (Get-NexusPastaFirmwareAntiga -Nome $fw.Nome)
+  $copia = Copy-NexusFirmware -Origem $origem -Destino $sketchDir -Nome $fw.Nome -Preservar $fw.Preservar
+} catch { Falha $_.Exception.Message }
+Write-NexusAvisoPastaAntiga $mig
 if (@($copia.Preservadas).Count -gt 0) {
-  Write-Host "  atualizado; linhas mantidas: $(@($copia.Preservadas) -join ', '). Cópia anterior: $($fw.Nome).ino.bak"
+  Write-Host "  atualizado; linhas mantidas: $(@($copia.Preservadas) -join ', '). Cópia anterior (sem senha/chave): $($fw.Nome).ino.bak"
 } else {
   Write-NexusAviso '  copiado. Preencha WIFI_SSID, WIFI_PASSWORD e DEVICE_SECRET no .ino antes de gravar na placa.'
 }
 $pend = @(Get-NexusPendencias -Ino $copia.Ino)
 if ($pend.Count -gt 0) { Write-NexusAviso "  ainda com valor de exemplo: $($pend -join ', ') (edite $($copia.Ino))" }
 if ($fw.Firmware -eq 'painel') {
-  $pp = Get-NexusLinhaDefine -Ino $copia.Ino -Nome 'PAINEL_PLACA'
+  $pm = Get-NexusLinhaDefine -Ino $copia.Ino -Nome 'PAINEL_MODO'
   $pc = Get-NexusLinhaDefine -Ino $copia.Ino -Nome 'PAINEL_COMODO'
-  Write-Host "  PAINEL_PLACA = $pp ; PAINEL_COMODO = $pc"
-  if ($pp -and (($Placa -eq 'p4' -and $pp -notmatch 'P4') -or ($Placa -eq 's3-7' -and $pp -notmatch 'S3'))) {
-    Write-NexusAviso "  ATENÇÃO: PAINEL_PLACA ($pp) não combina com -Placa $Placa. Ajuste o .ino antes de gravar."
-  }
+  Write-Host "  PAINEL_MODO = $pm ; PAINEL_COMODO = $pc"
+  $aviso = Get-NexusAvisoPainel -Placa $Placa -Modo $pm
+  if ($aviso) { Write-NexusAviso "  ATENÇÃO: $aviso Ajuste o .ino antes de gravar." }
 }
 
 # ---- 4. Compilação ----

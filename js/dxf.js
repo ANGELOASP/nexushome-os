@@ -16,6 +16,7 @@ import { cleanPoly, polyArea, isSimplePoly, pointInPoly } from './geometry.js';
 const INSUNITS = { 1: 0.0254, 2: 0.3048, 3: 1609.344, 4: 0.001, 5: 0.01, 6: 1, 7: 1000, 8: 2.54e-8, 9: 2.54e-5, 10: 0.9144 };
 export const UNIT_LABELS = { 0.001: 'milímetros', 0.01: 'centímetros', 1: 'metros', 0.0254: 'polegadas', 0.3048: 'pés' };
 const MAX_SEGMENTS = 30000;
+const MAX_ENTITIES = 200000;   // entidades lidas, contando as de blocos (INSERT aninhado multiplica)
 const ARC_STEP_DEG = 12;
 
 export class DxfError extends Error {}
@@ -107,13 +108,21 @@ function firstVal(pairs, code, dflt = '') {
 }
 
 /** Converte uma lista de entidades em itens { layer, kind, pts, closed }. */
-function convertEntities(ents, blocks, tf, depth, out, skipped) {
+function convertEntities(ents, blocks, tf, depth, out, skipped, count = { n: 0 }) {
   for (let i = 0; i < ents.length; i++) {
+    if (++count.n > MAX_ENTITIES) {
+      throw new DxfError(`O desenho tem mais de ${MAX_ENTITIES} entidades (contando as de blocos). Exporte só as camadas de paredes ou exploda os blocos repetidos.`);
+    }
     const e = ents[i];
     const layer = firstVal(e.pairs, 8, '0');
     const T = (x, y) => tf(x, y);
     switch (e.type) {
       case 'LINE': {
+        // sem as coordenadas obrigatórias o ponto viraria (0,0): uma diagonal até a origem
+        if (![10, 20, 11, 21].every((c) => e.pairs.some((p) => p[0] === c && Number.isFinite(parseFloat(p[1]))))) {
+          skipped['LINE sem coordenadas'] = (skipped['LINE sem coordenadas'] || 0) + 1;
+          break;
+        }
         const x1 = num(firstVal(e.pairs, 10)), y1 = num(firstVal(e.pairs, 20));
         const x2 = num(firstVal(e.pairs, 11)), y2 = num(firstVal(e.pairs, 21));
         out.push({ layer, kind: 'line', pts: [T(x1, y1), T(x2, y2)], closed: false });
@@ -173,7 +182,7 @@ function convertEntities(ents, blocks, tf, depth, out, skipped) {
           const bx = (x - blk.base[0]) * sx, by = (y - blk.base[1]) * sy;
           return tf(ix + bx * c - by * s, iy + bx * s + by * c);
         };
-        convertEntities(blk.ents, blocks, inner, depth + 1, out, skipped);
+        convertEntities(blk.ents, blocks, inner, depth + 1, out, skipped, count);
         break;
       }
       case 'VERTEX': case 'SEQEND': case 'ENDBLK': case 'BLOCK': break;
@@ -321,6 +330,11 @@ export function dxfToPlan(parsed, opts = {}) {
     }
   });
 
+  // antes da detecção de cômodos (raster pesado): desenho grande demais para no limite
+  if (walls.length > MAX_SEGMENTS) {
+    throw new DxfError(`O desenho tem ${walls.length} segmentos (limite ${MAX_SEGMENTS}). Selecione apenas as camadas de paredes.`);
+  }
+
   // contorno externo (a linha que envolve a casa toda) não é um cômodo:
   // descarta o polígono que contém ≥2 outros ou que cobre o desenho inteiro
   // quando há paredes internas desenhadas separadamente.
@@ -363,9 +377,6 @@ export function dxfToPlan(parsed, opts = {}) {
     finalRooms = detectRoomsFromWalls(segs, { closeGap, minArea: minRoomArea, maxArea: maxRoomArea });
   }
 
-  if (walls.length > MAX_SEGMENTS) {
-    throw new DxfError(`O desenho tem ${walls.length} segmentos (limite ${MAX_SEGMENTS}). Selecione apenas as camadas de paredes.`);
-  }
   return {
     walls, rooms: finalRooms,
     bounds: { w: maxX - minX, d: maxZ - minZ },

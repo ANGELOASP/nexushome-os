@@ -101,6 +101,10 @@ let openingsTableOk = true; // false se a tabela openings não existe (migraçã
 let selOpening = null;     // id da abertura selecionada
 let openHover = null;      // { wallId, offset, kind } — preview das ferramentas Porta/Janela
 let wallsBaseline = [];    // paredes no momento em que o modal abriu
+// tabelas que leram do banco na última carga: sem carga, o salvar não apaga nada daquela tabela
+const loadOk = { rooms: false, walls: false, openings: false, furniture: false };
+let baseOk = { ...loadOk };   // situação no momento em que o rascunho foi copiado (abrir/salvar)
+let defaultClone = null;      // planta padrão desta sessão, com ids próprios
 const selWalls = new Set();   // ids das paredes selecionadas (várias: Shift+clique ou caixa)
 let hoverWallId = null;
 let marquee = null;         // { x0, z0, x1, z1 } em metros — caixa de seleção (Shift+arrasto)
@@ -156,7 +160,7 @@ export function initFloorplan({ getClient: gc } = {}) {
   ctx = canvas.getContext('2d');
 
   document.getElementById('btn-floorplan')?.addEventListener('click', openEditor);
-  document.getElementById('btn-fp-close')?.addEventListener('click', closeEditor);
+  document.getElementById('btn-fp-close')?.addEventListener('click', requestClose);
   document.getElementById('btn-fp-save')?.addEventListener('click', savePlan);
   document.getElementById('btn-fp-reset')?.addEventListener('click', resetDefault);
   document.getElementById('btn-fp-add')?.addEventListener('click', togglePresets);
@@ -346,12 +350,31 @@ export function initFloorplan({ getClient: gc } = {}) {
   initFurniturePanel();
   initDevicePanel();
   // gancho de depuração/teste (só no `vite dev`; some do build de produção)
-  if (import.meta.env?.DEV) window.__fp = { w2sx, w2sz, s2wx, s2wz, get view() { return view; }, get walls() { return wallsDraft; }, get rooms() { return draft; }, get openings() { return openingsDraft; }, get furniture() { return furnDraft; }, get devices() { return devDraft; }, get sel() { return [...selWalls]; } };
+  if (import.meta.env?.DEV) window.__fp = { w2sx, w2sz, s2wx, s2wz, get view() { return view; }, get walls() { return wallsDraft; }, get rooms() { return draft; }, get openings() { return openingsDraft; }, get furniture() { return furnDraft; }, get devices() { return devDraft; }, get sel() { return [...selWalls]; }, get dirty() { return isDirty(); } };
 }
 
 /** Planta padrão (4 cômodos) apenas se não existe nenhuma parede: evita ressuscitar cômodos que o usuário apagou. */
 function defaultRoomsIfBlank() {
-  return (wallsLive.length || state.walls?.length) ? [] : DEFAULT_ROOMS;
+  if (wallsLive.length || state.walls?.length) return [];
+  if (!defaultClone) defaultClone = cloneDefaultRooms();   // mesmos ids a cada recarga da sessão
+  return defaultClone;
+}
+
+/**
+ * Planta padrão com ids novos: os de DEFAULT_ROOMS são iguais em todas as contas e, com a 018 (RLS por dono),
+ * o upsert da 2ª conta esbarra na linha da 1ª. Um cômodo atual com o mesmo nome empresta o id (vira update,
+ * sem conflito de nome nem exclusão antes do upsert).
+ */
+export function cloneDefaultRooms(gen = genUuid, current = []) {
+  const byName = new Map(current.map((r) => [String(r.name || '').trim(), r.id]));
+  return DEFAULT_ROOMS.map((r) => ({ ...r, id: byName.get(r.name) || gen() }));
+}
+
+/** Ids que o usuário tirou do rascunho nesta sessão (baseline − rascunho); nunca "banco − rascunho". */
+export function removedIds(baseRows, draftRows, loaded = true) {
+  if (!loaded) return [];   // a carga da tabela falhou: o baseline não representa o banco
+  const keep = new Set(draftRows.map((r) => r.id));
+  return baseRows.filter((r) => !keep.has(r.id)).map((r) => r.id);
 }
 
 /** Carrega a planta da tabela rooms (live) ou do mock (demo). Retorna true se leu do banco. */
@@ -361,9 +384,11 @@ export async function loadRooms(client) {
     if (error) throw new Error(error.message);
     // sem cômodos no banco: só planta nova (sem paredes) recebe a padrão; quem desenhou/importou paredes fica sem cômodos
     setRooms(data?.length ? data : defaultRoomsIfBlank());
+    loadOk.rooms = true;
     return true;
   } catch (err) {
     console.error('[planta] falha ao carregar rooms', err);
+    loadOk.rooms = false;
     // erro transitório NÃO pode trocar a planta do usuário pela padrão (o próximo "Salvar" apagaria tudo)
     if (!state.rooms.length) setRooms(defaultRoomsIfBlank());
     toast('Não foi possível ler a planta agora', 'Mantive a que está na tela. Tente salvar de novo em instantes.', 'warning');
@@ -394,8 +419,10 @@ export async function loadWalls(client) {
     const { data, error } = await client.from('walls').select('*').order('sort_order');
     if (error) throw new Error(error.message);
     wallsLive = (data || []).map(normalizeWall);
+    loadOk.walls = true;
   } catch (err) {
     console.error('[planta] falha ao carregar walls', err);
+    loadOk.walls = false;
     return false;   // mantém as paredes que já estavam (zerar aqui faria o próximo "Salvar" apagar todas)
   }
   state.walls = wallsLive;
@@ -419,9 +446,11 @@ export async function loadFurniture(client) {
     if (error) throw new Error(error.message);
     furnLive = (data || []).map(normalizeFurniture).filter((f) => FURNITURE_BY_KIND[f.kind]);
     furnTableOk = true;
+    loadOk.furniture = true;
   } catch (err) {
     console.warn('[planta] móveis indisponíveis (migração 014 aplicada?)', err?.message || err);
     furnTableOk = false;
+    loadOk.furniture = false;
     return false;
   }
   state.furniture = furnLive;
@@ -444,9 +473,11 @@ export async function loadOpenings(client) {
     if (error) throw new Error(error.message);
     openingsLive = (data || []).map(normalizeOpening);
     openingsTableOk = true;
+    loadOk.openings = true;
   } catch (err) {
     console.warn('[planta] aberturas indisponíveis (migração 009 aplicada?)', err?.message || err);
     openingsTableOk = false;
+    loadOk.openings = false;
     return false;   // mantém as que já estavam
   }
   state.openings = openingsLive;
@@ -504,10 +535,11 @@ function openEditor() {
   furnDraft = furnBaseline.map((f) => ({ ...f }));
   selFurn = null;
   devBaseline = state.devices.map(devRow);   // nativos + integrados (Samsung, Tuya...)
-  devDraft = devBaseline.map((d) => ({ ...d }));
+  devDraft = devBaseline.map(devCopy);
   selDev = null; devPlace = null; devHover = null;
+  baseOk = { ...loadOk };
   currentFloor = Math.min(maxFloorUsed(), currentFloor);
-  if (!draft.some((r) => r.floor === currentFloor)) currentFloor = 0;
+  if (!usedFloors().has(currentFloor)) currentFloor = 0;
   selectedId = null;
   selWalls.clear();
   wallDraw = null;
@@ -530,6 +562,28 @@ function openEditor() {
   if (state.mode === 'demo') {
     toast('Modo Demonstração', 'A planta salva fica apenas neste navegador. Conecte ao Supabase em Conexões para sincronizar.', 'warning');
   }
+  const missing = Object.entries({ rooms: 'cômodos', walls: 'paredes', openings: 'portas e janelas', furniture: 'móveis' })
+    .filter(([k]) => !baseOk[k]).map(([, label]) => label);
+  if (missing.length) {
+    toast('Planta carregada incompleta', `Não consegui ler ${missing.join(', ')} do banco. Ao salvar, nada disso será apagado; recarregue a página para ver a planta inteira.`, 'warning');
+  }
+}
+
+/** Cópia de um dispositivo do rascunho com o circuito de iluminação próprio (o baseline não pode mudar junto). */
+function devCopy(d) {
+  return { ...d, lighting: d.lighting ? JSON.parse(JSON.stringify(d.lighting)) : null };
+}
+
+/** Rascunho diferente do que foi aberto/salvo? (Esc e Fechar perguntam antes de descartar) */
+function isDirty() {
+  const pack = (rooms, walls, openings, furniture, devices) => JSON.stringify({ rooms, walls, openings, furniture, devices });
+  return pack(draft, wallsDraft, openingsDraft, furnDraft, devDraft) !== pack(baseline, wallsBaseline, openingsBaseline, furnBaseline, devBaseline);
+}
+
+function requestClose() {
+  if (saving) return;
+  if (isDirty() && !window.confirm('Descartar as alterações não salvas?')) return;
+  closeEditor();
 }
 
 // ------------------------------------------------------------
@@ -614,8 +668,18 @@ function setTool(t) {
 // Andares (abas)
 // ------------------------------------------------------------
 
+/** Andares com alguma coisa: cômodos, paredes, móveis ou dispositivos posicionados. */
+function usedFloors() {
+  const out = new Set([0]);
+  draft.forEach((r) => out.add(Number(r.floor) || 0));
+  wallsDraft.forEach((w) => out.add(Number(w.floor) || 0));
+  furnDraft.forEach((f) => out.add(Number(f.floor) || 0));
+  devDraft.forEach((d) => { if (isPlaced(d)) out.add(Number(pinFloor(d, draft)) || 0); });
+  return out;
+}
+
 function maxFloorUsed() {
-  return draft.reduce((m, r) => Math.max(m, Number(r.floor) || 0), 0);
+  return Math.max(...usedFloors());
 }
 
 function floorRooms(f = currentFloor) {
@@ -702,6 +766,10 @@ function restore(snapStr) {
     wallDraw = null;
     hideForm();
     hidePresets();
+    // painéis abertos refazem a lista (os botões "×" guardam índices do rascunho antigo)
+    if (lightSel && !lightDev()) { lightSel = null; lightAdd = null; }
+    buildLightPanel();
+    if (devPanelOpen()) buildDevPanel();
     renderFloorTabs();
     syncToolbar();
     draw();
@@ -2774,6 +2842,7 @@ function onKeyDown(e) {
   }
 
   if (e.key === 'Escape') {
+    if (typing) return;   // Esc num campo de texto não fecha nada do editor
     if (polyDraw) { polyDraw = null; draw(); return; }          // cancela o polígono em andamento
     if (roomDraw?.armed) { roomDraw = null; draw(); return; } // cancela o clique-clique do cômodo
     if (drag?.mode === 'room-draw') { drag = null; roomDraw = null; draw(); return; } // cancela o arrasto do cômodo
@@ -2789,7 +2858,7 @@ function onKeyDown(e) {
     if (selOpening) { selOpening = null; draw(); return; }
     if (selWalls.size) { selWalls.clear(); draw(); return; }
     if (!formEl?.classList.contains('hidden')) hideForm();
-    else closeEditor();
+    else requestClose();   // com mudanças não salvas, pergunta antes de descartar
     return;
   }
 
@@ -2827,6 +2896,9 @@ function onKeyDown(e) {
       const [dx, dz] = NUDGE[e.key];
       d.pos_x = r4(Number(d.pos_x) + dx * step); d.pos_z = r4(Number(d.pos_z) + dz * step);
       assignDeviceRoom(d);
+      // circuito de iluminação: o dispositivo É a 1ª luminária (como no applyMount do arrasto)
+      const f0 = d.lighting?.fixtures?.[0];
+      if (f0) Object.assign(f0, { x: d.pos_x, z: d.pos_z, floor: d.pos_floor });
       draw();
     }
     return;
@@ -4117,23 +4189,30 @@ function pasteClip() {
   if (!clip) return;
   pushHistory();
   // mesmo andar: desloca 1 m para não sobrepor; outro andar: mesma posição (alinha com o de baixo)
-  const d = clip.floor === currentFloor ? 1 : 0;
+  let d = clip.floor === currentFloor ? 1 : 0;
+  let dz = d;
+  // cômodo no mesmo andar: se 1 m ainda sobrepõe, usa a busca de espaço livre do duplicar (móveis acompanham)
+  const r0 = clip.rooms[0];
+  if (r0 && d && draft.some((o) => overlaps({ ...r0, floor: currentFloor, pos_x: r0.pos_x + 1, pos_z: r0.pos_z + 1 }, o))) {
+    const spot = freeSpotNear(r0, currentFloor);
+    d = r4(spot.px - r0.pos_x); dz = r4(spot.pz - r0.pos_z);
+  }
   const wallIds = new Map();
   clip.walls.forEach((w) => {
     const id = genUuid();
     wallIds.set(w.id, id);
-    wallsDraft.push({ ...w, id, floor: currentFloor, x1: r4(w.x1 + d), z1: r4(w.z1 + d), x2: r4(w.x2 + d), z2: r4(w.z2 + d) });
+    wallsDraft.push({ ...w, id, floor: currentFloor, x1: r4(w.x1 + d), z1: r4(w.z1 + dz), x2: r4(w.x2 + d), z2: r4(w.z2 + dz) });
   });
   clip.openings.forEach((o) => { if (wallIds.has(o.wall_id)) openingsDraft.push({ ...o, id: genUuid(), wall_id: wallIds.get(o.wall_id) }); });
   let newRoom = null;
   clip.rooms.forEach((r) => {
     const maxSort = draft.reduce((m, x) => Math.max(m, x.sort_order ?? 0), 0);
-    newRoom = { ...r, id: genUuid(), floor: currentFloor, name: uniqueName(clip.floor === currentFloor ? `${r.name} (cópia)` : r.name), pos_x: r4(r.pos_x + d), pos_z: r4(r.pos_z + d), points: r.points ? r.points.map((q) => [...q]) : null, sort_order: maxSort + 1 };
+    newRoom = { ...r, id: genUuid(), floor: currentFloor, name: uniqueName(clip.floor === currentFloor ? `${r.name} (cópia)` : r.name), pos_x: r4(r.pos_x + d), pos_z: r4(r.pos_z + dz), points: r.points ? r.points.map((q) => [...q]) : null, sort_order: maxSort + 1 };
     draft.push(newRoom);
   });
   let lastFurn = null;
   clip.furniture.forEach((f) => {
-    lastFurn = { ...f, id: genUuid(), floor: currentFloor, x: r4(f.x + d), z: r4(f.z + d) };
+    lastFurn = { ...f, id: genUuid(), floor: currentFloor, x: r4(f.x + d), z: r4(f.z + dz) };
     furnDraft.push(lastFurn);
   });
   selWalls.clear();
@@ -4143,7 +4222,8 @@ function pasteClip() {
   renderFloorTabs();
   syncToolbar();
   draw();
-  toast('Colado', `${floorLabel(currentFloor)}${d ? ' · deslocado 1 m' : ''}.`, 'success');
+  const moved = d === 1 && dz === 1 ? ' · deslocado 1 m' : (d || dz ? ' · ao lado do original' : '');
+  toast('Colado', `${floorLabel(currentFloor)}${moved}.`, 'success');
 }
 
 // ------------------------------------------------------------
@@ -4223,6 +4303,23 @@ function uniqueName(base) {
 }
 
 /** Procura o primeiro espaço livre em espiral a partir da origem do andar. */
+/** Espiral fina (0,5 m) ao redor do cômodo até achar espaço livre no andar (duplicar e colar). */
+function freeSpotNear(r, floor) {
+  for (let ring = 1; ring <= 10; ring++) {
+    for (let ix = -ring; ix <= ring; ix++) {
+      for (let iz = -ring; iz <= ring; iz++) {
+        if (Math.max(Math.abs(ix), Math.abs(iz)) !== ring) continue;
+        const cand = {
+          pos_x: r.pos_x + ix * CELL_M, pos_z: r.pos_z + iz * CELL_M,
+          size_x: r.size_x, size_z: r.size_z, floor,
+        };
+        if (!draft.some((o) => overlaps(cand, o))) return { px: cand.pos_x, pz: cand.pos_z };
+      }
+    }
+  }
+  return findFreeSpot(r.size_x, r.size_z);   // fallback absoluto: primeiro espaço livre do andar
+}
+
 function findFreeSpot(sx, sz) {
   let px = 0, pz = 0, found = false;
   outer:
@@ -4266,30 +4363,7 @@ function duplicateSelected() {
   const r = sel();
   if (!r) { toast('Selecione um cômodo para duplicar', '', 'info'); return; }
   pushHistory();
-  // espiral fina (0,5 m) ao redor do original até achar espaço livre no andar
-  let px = r.pos_x + r.size_x / 2 + 0.5 + r.size_x / 2, pz = r.pos_z; // tentativa inicial: ao lado
-  let found = false;
-  outer:
-  for (let ring = 1; ring <= 10; ring++) {
-    for (let ix = -ring; ix <= ring; ix++) {
-      for (let iz = -ring; iz <= ring; iz++) {
-        if (Math.max(Math.abs(ix), Math.abs(iz)) !== ring) continue;
-        const cand = {
-          pos_x: r.pos_x + ix * CELL_M, pos_z: r.pos_z + iz * CELL_M,
-          size_x: r.size_x, size_z: r.size_z, floor: r.floor,
-        };
-        if (!draft.some((o) => overlaps(cand, o))) {
-          px = cand.pos_x; pz = cand.pos_z;
-          found = true;
-          break outer;
-        }
-      }
-    }
-  }
-  if (!found) { // fallback absoluto: primeiro espaço livre do andar
-    const spot = findFreeSpot(r.size_x, r.size_z);
-    px = spot.px; pz = spot.pz;
-  }
+  const { px, pz } = freeSpotNear(r, r.floor);
   const maxSort = draft.reduce((m, x) => Math.max(m, x.sort_order ?? 0), 0);
   const copy = {
     ...r,
@@ -4324,7 +4398,7 @@ function deleteSelected() {
 function resetDefault() {
   if (!window.confirm('Restaurar a planta padrão (4 cômodos no térreo)? Alterações não salvas serão perdidas.')) return;
   pushHistory();
-  draft = DEFAULT_ROOMS.map((r) => ({ ...r }));
+  draft = cloneDefaultRooms(genUuid, draft);   // ids novos (ou do cômodo atual de mesmo nome), nunca os fixos
   currentFloor = 0;
   select(null);
   hideForm();
@@ -4368,12 +4442,13 @@ async function savePlan() {
   saving = true;
   setBusy(true);
   try {
-    const { data: existing, error } = await client.from('rooms').select('id, name');
-    if (error) throw new Error(error.message);
-
-    // remove cômodos excluídos (um pedido só)
-    const removed = (existing || []).filter((r) => !draft.some((d) => d.id === r.id));
-    for (const ids of chunk(removed.map((r) => r.id), 50)) {
+    // cômodos excluídos NESTA sessão (baseline − rascunho): uma carga falha ou linhas de outra sessão não somem
+    const removedSet = new Set(removedIds(baseline, draft, baseOk.rooms));
+    const removed = baseline.filter((r) => removedSet.has(r.id));
+    const draftNames = new Set(draft.map((r) => r.name.trim()));
+    // antes do upsert só sai quem libera o nome de um cômodo novo (unique owner_id+name); o resto, depois
+    const freeing = removed.filter((r) => draftNames.has(String(r.name || '').trim()));
+    for (const ids of chunk(freeing.map((r) => r.id), 50)) {
       const { error: e2 } = await client.from('rooms').delete().in('id', ids);
       if (e2) throw new Error(e2.message);
     }
@@ -4404,13 +4479,16 @@ async function savePlan() {
       if (!e3) pointsDropped = true;
     }
     if (e3) throw new Error(e3.message);
+    // o upsert passou: só agora apaga os demais cômodos excluídos (falha acima não deixa a casa sem cômodos)
+    for (const ids of chunk(removed.filter((r) => !freeing.includes(r)).map((r) => r.id), 50)) {
+      const { error: e2 } = await client.from('rooms').delete().in('id', ids);
+      if (e2) throw new Error(e2.message);
+    }
     if (floorTypeDropped) toast('Tipo de piso não gravado', 'Execute a migração 019_floor_type.sql no Supabase e salve de novo. O resto da planta foi salvo.', 'warning');
 
     // paredes: remove apagadas, grava novas e alteradas em lotes (antes era uma chamada por parede)
-    const { data: existingWalls, error: ew } = await client.from('walls').select('id');
-    if (ew) throw new Error(ew.message);
-    const removedWalls = (existingWalls || []).filter((w) => !wallsDraft.some((d) => d.id === w.id));
-    for (const ids of chunk(removedWalls.map((w) => w.id), 50)) {
+    // só as que o usuário apagou nesta sessão (apagar parede leva as aberturas junto: cascade da 009)
+    for (const ids of chunk(removedIds(wallsBaseline, wallsDraft, baseOk.walls), 50)) {
       const { error: e4 } = await client.from('walls').delete().in('id', ids);
       if (e4) throw new Error(e4.message);
     }
@@ -4430,6 +4508,7 @@ async function savePlan() {
       }
       if (e5) throw new Error(e5.message);
     }
+    wallsBaseline = wallsDraft.map((w) => ({ ...w }));   // gravadas: viram a base do próximo salvar
 
     // portas e janelas (migração 009): remove as apagadas e grava as demais; sem a tabela, avisa e segue
     pruneOpenings();
@@ -4440,8 +4519,9 @@ async function savePlan() {
         openingsSkipped = openingsDraft.length > 0 || openingsLive.length > 0;
         openingsError = eo.message || 'erro desconhecido';
       } else {
-        const removedOps = (existingOps || []).filter((o) => !openingsDraft.some((d) => d.id === o.id));
-        for (const ids of chunk(removedOps.map((o) => o.id), 50)) {
+        const inDb = new Set((existingOps || []).map((o) => o.id));
+        const removedOps = removedIds(openingsBaseline, openingsDraft, baseOk.openings).filter((id) => inDb.has(id));
+        for (const ids of chunk(removedOps, 50)) {
           const { error: e6 } = await client.from('openings').delete().in('id', ids);
           if (e6) throw new Error(e6.message);
         }
@@ -4459,6 +4539,7 @@ async function savePlan() {
           }
           if (e7) throw new Error(e7.message);
         }
+        openingsBaseline = openingsDraft.map((o) => ({ ...o }));
       }
     }
 
@@ -4470,8 +4551,9 @@ async function savePlan() {
         furnSkipped = furnDraft.length > 0 || furnLive.length > 0;
         furnError = ef.message || 'erro desconhecido';
       } else {
-        const removedF = (existingF || []).filter((x) => !furnDraft.some((d) => d.id === x.id));
-        for (const ids of chunk(removedF.map((x) => x.id), 50)) {
+        const inDb = new Set((existingF || []).map((x) => x.id));
+        const removedF = removedIds(furnBaseline, furnDraft, baseOk.furniture).filter((id) => inDb.has(id));
+        for (const ids of chunk(removedF, 50)) {
           const { error: e8 } = await client.from('furniture').delete().in('id', ids);
           if (e8) throw new Error(e8.message);
         }
@@ -4486,11 +4568,13 @@ async function savePlan() {
           }
           if (e9) throw new Error(e9.message);
         }
+        furnBaseline = furnDraft.map((f) => ({ ...f }));
       }
     }
     if (!furnSkipped && await loadFurniture(client)) {
       furnBaseline = furnLive.map((f) => ({ ...f }));
       furnDraft = furnBaseline.map((f) => ({ ...f }));
+      baseOk.furniture = true;
     }
     if (furnDimsDropped) toast('Tamanho dos móveis não gravado', 'Execute a migração 022_furniture_size.sql no Supabase e salve de novo. O resto da planta foi salvo.', 'warning');
     if (furnSkipped) {
@@ -4550,14 +4634,16 @@ async function savePlan() {
       if (lightingDropped) toast('Circuitos de iluminação não gravados', 'Execute a migração 026_iluminacao.sql no Supabase e salve de novo. A posição da 1ª luminária de cada circuito foi gravada.', 'warning');
       if (catalogDropped) toast('Altura/giro dos dispositivos não gravados', 'Execute a migração 021_device_catalog.sql no Supabase e salve de novo.', 'warning');
       if (posDropped) toast('Posição dos dispositivos não gravada', 'Execute a migração 015_device_positions.sql no Supabase e salve de novo. O cômodo de cada dispositivo foi atualizado.', 'warning');
-      devBaseline = devDraft.map((d) => ({ ...d }));
+      devBaseline = devDraft.map(devCopy);
     }
 
     // recarrega do banco; só troca o rascunho se a leitura funcionou (senão mantém o que está na tela)
     if (!openingsSkipped && await loadOpenings(client)) {
       openingsBaseline = openingsLive.map((o) => ({ ...o }));
+      baseOk.openings = true;
     }
     if (await loadWalls(client)) {
+      baseOk.walls = true;
       wallsBaseline = wallsLive.map((w) => ({ ...w }));
       wallsDraft = wallsBaseline.map((w) => ({ ...w }));
       if (!openingsSkipped) openingsDraft = openingsBaseline.map((o) => ({ ...o }));
@@ -4591,9 +4677,12 @@ async function savePlan() {
 
     if (await loadRooms(client)) {
       const keepSel = selectedId;
+      baseOk.rooms = true;
       baseline = state.rooms.map((r) => ({ ...r }));
       draft = baseline.map((r) => ({ ...r }));
       if (keepSel && !draft.some((r) => r.id === keepSel)) { selectedId = null; hideForm(); }
+    } else {
+      baseline = draft.map((r) => ({ ...r }));   // gravados: viram a base do próximo salvar
     }
     history.past = [];
     history.future = [];

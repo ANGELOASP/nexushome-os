@@ -54,6 +54,27 @@ let markerPicks = [];
 let markerSig = '';
 let tipEl = null;            // dica flutuante (nome + estado) sobre o marcador
 const clock = { t: 0, last: performance.now() };
+// render sob demanda (F1): só redesenha quando algo mudou, a câmera anda ou há animação
+let needsRender = true;      // quadro "sujo"
+let shadowDirty = true;      // a sombra do sol só é refeita quando a cena muda (câmera andando não conta)
+let lastAnimShadow = 0;      // sombra de peças animadas (ventilador, robô, registro): no máx. 4×/s
+let renderActive = true;     // o app pode pausar (ex.: logout) com setRenderActive(false)
+let ambientTick = 0;
+let wasIdle = false;          // o loop estava pausado no quadro anterior
+let rebuildPending = false;  // F2: um rebuild por quadro
+let planSig = '';            // assinatura da planta construída (ecos realtime iguais não reconstroem)
+
+/** Pede um novo quadro; `shadow` = a cena mudou (refaz a sombra do sol). */
+export function requestRender(shadow = true) {
+  needsRender = true;
+  if (shadow) shadowDirty = true;
+}
+
+/** Liga/desliga o loop de render (ex.: app.js chama setRenderActive(false) no logout). */
+export function setRenderActive(active) {
+  renderActive = !!active;
+  if (renderActive) requestRender();
+}
 
 export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   container = containerEl;
@@ -76,6 +97,7 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   // tons de cinema (ACES): luz e cor mais naturais, sem estourar brancos
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.12;
+  renderer.shadowMap.autoUpdate = false;   // sombra refeita só quando a cena muda (shadowDirty)
   container.appendChild(renderer.domElement);
   if (import.meta.env?.DEV) window.__three = { renderer, get scene() { return scene; } };
 
@@ -95,6 +117,7 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   // um clique parado (ex.: o 2º clique do duplo clique) não pode congelar a câmera no meio do caminho
   controls.addEventListener('start', () => { lastInteraction = performance.now(); hideCamHint(); });
   controls.addEventListener('end', () => { lastInteraction = performance.now(); });
+  controls.addEventListener('change', () => requestRender(false));
 
   raycaster = new THREE.Raycaster();
   pointer = new THREE.Vector2();
@@ -127,15 +150,18 @@ export function initScene3D(containerEl, labelsEl, onRoomSelect) {
   on('device-changed', (device) => { if (device) applyDeviceState(device); });
   on('devices-changed', (devices) => {
     devices.forEach((d) => applyDeviceState(d));
+    Object.keys(rooms).forEach((n) => applyRoomFx(n));   // cômodo que ficou sem luz/TV/AC também apaga
     updateLabelBadges(devices);
     refreshDeviceMarkers();
   });
 
   // planta editada → reconstrói os cômodos sem recarregar a página
-  on('rooms-changed', () => rebuildPlan());
-  on('walls-changed', () => rebuildPlan());
-  on('openings-changed', () => rebuildPlan());
-  on('furniture-changed', () => rebuildPlan());
+  // um "Salvar" do editor dispara 4 eventos (+ ecos realtime): agenda um único rebuild por quadro
+  on('rooms-changed', scheduleRebuild);
+  on('walls-changed', scheduleRebuild);
+  on('openings-changed', scheduleRebuild);
+  on('furniture-changed', scheduleRebuild);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) requestRender(); });
 
   buildFloorFilter();
   animate();
@@ -205,7 +231,20 @@ function roomDefFromRow(row) {
   };
 }
 
+/** Tudo o que o buildPlan lê: se não mudou, o rebuild é dispensável (ecos realtime do próprio Salvar). */
+function currentPlanSig() {
+  return JSON.stringify([state.rooms, state.walls, state.openings, state.furniture,
+    state.devices.map((d) => `${d.room}:${d.type}`)]);
+}
+
+function scheduleRebuild() {
+  if (rebuildPending) return;
+  rebuildPending = true;
+  requestAnimationFrame(() => { rebuildPending = false; rebuildPlan(); });
+}
+
 function buildPlan(THREE) {
+  planSig = currentPlanSig();
   planGroup = new THREE.Group();
   scene.add(planGroup);
   floorSlabs = [];
@@ -316,12 +355,17 @@ let looseByFloor = [];
 function rebuildPlan() {
   const THREE = window.THREE;
   if (!THREE || !scene) return;
+  if (planGroup && currentPlanSig() === planSig) return;   // nada mudou (eco realtime)
 
   if (planGroup) {
+    const cached = new Set(Object.values(texCache));
     planGroup.traverse((obj) => {
       if (obj.geometry) obj.geometry.dispose();
       if (obj.material) {
-        (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach((m) => m.dispose());
+        (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach((m) => {
+          if (m.map && !cached.has(m.map)) m.map.dispose();   // clone da textura de piso (por cômodo) libera a GPU
+          m.dispose();
+        });
       }
     });
     scene.remove(planGroup);
@@ -343,7 +387,13 @@ function rebuildPlan() {
   // seleção pode ter ficado órfã (cômodo renomeado/removido)
   if (selectedRoom && !rooms[selectedRoom]) { lockedRoom = false; selectRoom(null); }
   else if (selectedRoom) selectRoom(selectedRoom); // reancora o highlight/label
-  if (!selectedRoom) fitCamera(true);                // planta nova/alterada: volta a centralizar
+  // planta alterada: reenquadra só se a caixa mudou ou o usuário não mexeu na câmera
+  if (!selectedRoom) {
+    const nb = computePlanBox();
+    const same = planBox && nb.min.distanceTo(planBox.min) < 0.05 && nb.max.distanceTo(planBox.max) < 0.05;
+    if (!same || !userMoved) fitCamera(true);
+  }
+  requestRender();
 }
 
 function mat(THREE, color, opts = {}) {
@@ -815,9 +865,10 @@ function refreshDeviceMarkers() {
       if (!d) return;
       m.update(d, clock.t);
       if (!m.head) return;                 // luminárias extras e interruptores do circuito: só o modelo
-      m.active = deviceActive(d) && d.is_online !== false;
+      m.active = markerActive(d);
       paintOrb(THREE, m, d);
     });
+    requestRender();
     return;
   }
   markerSig = sig;
@@ -852,7 +903,6 @@ function refreshDeviceMarkers() {
       }
     }
     model.update(d, 0);
-    g.add(model.group);
     // anel no piso + indicador de estado junto do aparelho
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
     const ring = new THREE.Mesh(ringGeo, ringMat);
@@ -872,7 +922,7 @@ function refreshDeviceMarkers() {
     pick.userData.deviceId = d.id;
     g.add(ring, head, pick);
     markerGroup.add(g);
-    const m = { id: d.id, floor, group: g, head, ring, update: model.update, active: deviceActive(d) && d.is_online !== false };
+    const m = { id: d.id, floor, group: g, head, ring, update: model.update, active: markerActive(d) };
     paintOrb(THREE, m, d);
     deviceMarkers.push(m);
     markerPicks.push(pick);
@@ -882,6 +932,14 @@ function refreshDeviceMarkers() {
   deviceMarkers.forEach((m) => {
     m.group.visible = fIn !== null ? m.floor === fIn : (floorFilter === 'all' || m.floor === floorFilter);
   });
+  requestRender();
+}
+
+/** Marcador "vivo" (pisca/anima): ligado, ou sensor em alarme (fumaça, gás, vazamento...). */
+function markerActive(d) {
+  const s = d.status || {};
+  const alarm = d.type === 'sensor' && !!(s.alarm || s.smoke || s.gas || s.leak || s.pressed || s.triggered);
+  return (deviceActive(d) || alarm) && d.is_online !== false;
 }
 
 // circuitos de iluminação (v2.17): as luminárias além da 1ª e os pontos de comando de cada circuito.
@@ -1016,6 +1074,7 @@ function buildFloorFilter() {
 }
 
 function applyFloorFilter() {
+  requestRender();
   Object.values(rooms).forEach((room) => {
     const f = room.def.floorNo;
     if (floorFilter === 'all') {
@@ -1354,41 +1413,13 @@ function furnishPantry(THREE, g, room) {
 // ------------------------------------------------------------
 
 export function applyDeviceState(device) {
+  requestRender();
   const room = rooms[device.room];
   if (!room) return;
   const s = device.status || {};
 
-  if (device.type === 'light' && room.fx.lampShade) {
-    const onOff = !!s.on;
-    const b = Math.max(0, Math.min(100, Number(s.brightness ?? 70))) / 100;
-    const color = s.color || '#ffd9a0';
-    room.fx.lampShade.emissive.set(color);
-    room.fx.lampShade.emissiveIntensity = onOff ? 0.4 + b * 1.3 : 0;
-    room.lights.lamp.color.set(color);
-    room.lights.lamp.intensity = onOff ? 0.5 + b * 1.2 : 0;
-    room.fx.ceilingGlow.emissive.set(color);
-    room.fx.ceilingGlow.emissiveIntensity = onOff ? 0.10 + b * 0.25 : 0;
-  }
-
-  if (device.type === 'ac') {
-    const onOff = !!s.on;
-    if (room.fx.acBody) {
-      room.fx.acBody.emissiveIntensity = onOff ? 0.55 : 0;
-      room.fx.acVent.emissiveIntensity = onOff ? 1.2 : 0;
-      room.fx.airFlows.forEach((f) => { f.visible = onOff; });
-    }
-    // tom frio do ambiente — todo cômodo interno tem coolGlow desde a v1.4.0
-    if (room.fx.coolGlow) room.fx.coolGlow.emissiveIntensity = onOff ? 0.22 : 0;
-  }
-
-  // TV (SmartThings): brilho sutil de tela no cômodo
-  if (device.type === 'tv') {
-    const glow = room.fx.ceilingGlow || room.fx.coolGlow;
-    if (glow) {
-      glow.emissive.set(0x93c5fd);
-      glow.emissiveIntensity = s.on ? 0.12 : 0;
-    }
-  }
+  // luz, TV e AC dividem as placas de brilho do cômodo: o efeito sai de TODOS os aparelhos dele
+  if (device.type === 'light' || device.type === 'ac' || device.type === 'tv') applyRoomFx(device.room, device);
 
   if (device.type === 'valve' && room.fx.valveMat) {
     const open = s.open !== false;
@@ -1404,6 +1435,54 @@ export function applyDeviceState(device) {
     const h = 0.08 + Math.min(1, w / 4500) * 0.3;
     room.fx.meterBar.scale.y = h / 0.34;
     room.fx.meterBar.material.color.set(w > 4500 ? 0xef4444 : w > 3000 ? 0xf59e0b : 0x22d3ee);
+  }
+}
+
+/**
+ * Brilho do cômodo a partir de todos os aparelhos dele (antes o último a escrever vencia):
+ * luz acesa (a mais forte) → lâmpada + brilho de teto; TV acesa só aparece sem luz acesa;
+ * AC no próprio material (coolGlow). `changed` = versão mais nova de um dos aparelhos.
+ */
+function applyRoomFx(name, changed = null) {
+  const room = rooms[name];
+  if (!room) return;
+  const devs = state.devices.filter((d) => d.room === name && (!changed || d.id !== changed.id));
+  if (changed && changed.room === name) devs.push(changed);
+  const lights = devs.filter((d) => d.type === 'light');
+  const tvs = devs.filter((d) => d.type === 'tv');
+  const acs = devs.filter((d) => d.type === 'ac');
+  const bright = (d) => Math.max(0, Math.min(100, Number(d.status?.brightness ?? 70))) / 100;
+  const light = lights.filter((d) => d.status?.on).sort((a, b) => bright(b) - bright(a))[0] || null;
+  const tvOn = tvs.some((d) => d.status?.on);
+  const acOn = acs.some((d) => d.status?.on);
+  const b = light ? bright(light) : 0;
+  const color = light?.status?.color || '#ffd9a0';
+  const warm = room.fx.ceilingGlow;
+
+  if (lights.length && room.fx.lampShade) {
+    room.fx.lampShade.emissive.set(color);
+    room.fx.lampShade.emissiveIntensity = light ? 0.4 + b * 1.3 : 0;
+    room.lights.lamp.color.set(color);
+    room.lights.lamp.intensity = light ? 0.5 + b * 1.2 : 0;
+  }
+  if (warm && (lights.length || tvs.length)) {
+    if (light) { warm.emissive.set(color); warm.emissiveIntensity = 0.10 + b * 0.25; }
+    else if (tvOn) { warm.emissive.set(0x93c5fd); warm.emissiveIntensity = 0.12; }   // TV (SmartThings): brilho de tela
+    else warm.emissiveIntensity = 0;
+  }
+
+  if (acs.length && room.fx.acBody) {
+    room.fx.acBody.emissiveIntensity = acOn ? 0.55 : 0;
+    room.fx.acVent.emissiveIntensity = acOn ? 1.2 : 0;
+    room.fx.airFlows.forEach((f) => { f.visible = acOn; });
+  }
+  // tom frio do ambiente (todo cômodo interno tem coolGlow); sem placa quente, a TV usa a fria se o AC estiver desligado
+  const cool = room.fx.coolGlow;
+  if (cool && (acs.length || (tvs.length && !warm))) {
+    if (cool.userData.baseEmissive === undefined) cool.userData.baseEmissive = cool.emissive.getHex();
+    const tvHere = !warm && tvOn && !acOn && !light;
+    cool.emissive.setHex(tvHere ? 0x93c5fd : cool.userData.baseEmissive);
+    cool.emissiveIntensity = acOn ? 0.22 : (tvHere ? 0.12 : 0);
   }
 }
 
@@ -1470,8 +1549,10 @@ export function selectRoom(name) {
     if (changed) fitCamera(true);
   }
   syncCameraUI();
+  requestRender();
+  // um único 'room-selected': o callback do app (app.js) já emite; sem callback, a cena emite
   if (onRoomSelectCb) onRoomSelectCb(name);
-  emit('room-selected', name);
+  else emit('room-selected', name);
 }
 
 // ------------------------------------------------------------
@@ -1559,6 +1640,7 @@ export function fitCamera(animated = true) {
     controls.target.copy(center);
     camera.position.copy(center).add(v);
     controls.update();
+    requestRender(false);
   } else {
     flyTo({ target: center, radius, phi, theta });
   }
@@ -1583,6 +1665,7 @@ function enterRoom(name) {
   deviceMarkers.forEach((m) => { m.group.visible = m.floor === f; });
   controls.minDistance = 1.2;
   applyViewOffset();
+  requestRender();
   Object.values(rooms).forEach((o) => o.label.classList.toggle('room-label-dim', o !== r));
 }
 
@@ -1621,6 +1704,7 @@ function applyViewOffset() {
   if (Math.abs(shift) < 1 && !vy) { camera.clearViewOffset(); }
   else camera.setViewOffset(w, h, -shift, -vy, w, h);
   camera.updateProjectionMatrix();
+  requestRender(false);
 }
 
 function toggleView() {
@@ -1644,6 +1728,7 @@ function zoomBy(factor) {
 
 function toggleSpin() {
   spin = !spin;
+  requestRender(false);
   syncCameraUI();
 }
 
@@ -1750,10 +1835,11 @@ function updateLabels() {
 let editorOpen = false;
 let tabHidden = false;   // celular em outra aba que não a Casa: a planta não aparece
 let scenePaused = false;
-on('editor-open', (open) => { editorOpen = !!open; scenePaused = editorOpen || tabHidden; });
+on('editor-open', (open) => { editorOpen = !!open; scenePaused = editorOpen || tabHidden; if (!scenePaused) requestRender(); });
 let lastMobileUI = null;
 on('mobile-tab', (tab) => {
   tabHidden = tab !== 'casa'; scenePaused = editorOpen || tabHidden;
+  if (!scenePaused) requestRender();
   // trocou entre celular e desktop (janela redimensionada): os trilhos mudaram de lugar → reenquadra
   const mobile = document.body.classList.contains('m-ui');
   if (lastMobileUI !== null && mobile !== lastMobileUI && camera && controls) {
@@ -1771,7 +1857,11 @@ on('room-panel', () => requestAnimationFrame(() => {
 function animate() {
   requestAnimationFrame(animate);
   const now = performance.now();
-  if (scenePaused) { clock.last = now; return; }   // editor de planta aberto: não gasta GPU
+  // editor de planta aberto, aba móvel ≠ Casa, aba do navegador oculta ou fora do app: não gasta GPU
+  if (scenePaused || !renderActive || document.hidden || !document.body.classList.contains('authenticated')) {
+    clock.last = now; wasIdle = true; return;
+  }
+  if (wasIdle) { wasIdle = false; requestRender(); }   // voltou (editor fechado, login, aba visível): redesenha
   const dt = Math.min(0.05, (now - clock.last) / 1000);
   clock.last = now;
   clock.t += dt;
@@ -1780,6 +1870,7 @@ function animate() {
   controls.autoRotate = spin && !lockedRoom && !flight;
 
   // voo suave (enquadrar / focar cômodo / trocar de vista / zoom)
+  let moving = !!flight;
   if (flight) {
     const k = Math.min(1, (now - flight.t0) / flight.dur);
     const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
@@ -1800,34 +1891,45 @@ function animate() {
     controls.target.x = Math.min(planBox.max.x + pad, Math.max(planBox.min.x - pad, controls.target.x));
     controls.target.z = Math.min(planBox.max.z + pad, Math.max(planBox.min.z - pad, controls.target.z));
   }
+  // amortecimento/giro automático: update() devolve true enquanto a câmera ainda se move
+  if (controls.update()) moving = true;
 
   // animações sutis contínuas (multiplicadas pelo fator "ghost" quando o
   // andar está semitransparente no modo Todos)
+  let ambient = false;        // algo anima: segue redesenhando (a ~30 fps se só isso mudou)
+  let animShadow = false;     // peça animada que projeta sombra (registro, ventilador, robô)
   Object.values(rooms).forEach((r) => {
     const k = r.ghost ?? 1;
     r.ceilings?.forEach((m) => { m.visible = m.material.emissiveIntensity > 0.01; });
     if (r.fx.water?.visible) {
       r.fx.water.material.opacity = (0.4 + Math.sin(clock.t * 5) * 0.15) * k;
       r.fx.valveWheel.rotation.z += dt * 0.8;
+      ambient = animShadow = true;
     }
     r.fx.airFlows?.forEach((f, i) => {
       if (f.visible) {
         f.material.opacity = (0.12 + 0.1 * Math.sin(clock.t * 3 + i * 1.4)) * k;
         f.position.y += Math.sin(clock.t * 2 + i) * 0.0006;
+        ambient = true;
       }
     });
-    if (r.highlight.visible) r.highlight.material.opacity = (0.08 + 0.05 * Math.sin(clock.t * 3)) * k;
+    if (r.highlight.visible) { r.highlight.material.opacity = (0.08 + 0.05 * Math.sin(clock.t * 3)) * k; ambient = true; }
   });
 
   deviceMarkers.forEach((m, i) => {
     if (!m.active) return;
+    ambient = true;
     const k = 1 + 0.12 * Math.sin(clock.t * 3 + i);
     m.head.scale.setScalar(k);
     const d = (i % 8 === Math.floor(clock.t * 30) % 8) ? state.devices.find((x) => x.id === m.id) : null;
-    if (d) m.update(d, clock.t);                 // animações (fluxo do AC, brilho da TV) sem custo por quadro
+    if (d) { m.update(d, clock.t); animShadow = true; }   // animações (fluxo do AC, brilho da TV) sem custo por quadro
   });
 
-  controls.update();
+  const ambientDue = ambient && (ambientTick++ & 1) === 0;
+  if (!needsRender && !moving && !ambientDue) return;     // nada mudou: não redesenha
+  needsRender = false;
+  if (animShadow && now - lastAnimShadow > 250) { shadowDirty = true; lastAnimShadow = now; }
+  if (shadowDirty) { renderer.shadowMap.needsUpdate = true; shadowDirty = false; }
   renderer.render(scene, camera);
   updateLabels();
 }
@@ -1838,6 +1940,7 @@ function resize() {
   camera.aspect = w / h;
   renderer.setSize(w, h);
   applyViewOffset();
+  requestRender(false);
 }
 
 const api = { applyDeviceState, selectRoom, fitCamera };

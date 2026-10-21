@@ -62,6 +62,11 @@ export function deviceAlarm(s: Record<string, unknown>): boolean {
     .some((k) => s[k] === true);
 }
 
+/** Travado: desarme por sobrecarga (trip) ou rompimento/pânico — só religa rearmando no quadro. */
+export function deviceLocked(s: Record<string, unknown>): boolean {
+  return s.trip === true || s.alarm_burst === true || s.panic === true;
+}
+
 export function toPanelDevice(d: Device): PanelDevice {
   const s = d.status ?? {};
   const out: PanelDevice = {
@@ -78,7 +83,7 @@ export function toPanelDevice(d: Device): PanelDevice {
   const gas = round(num(s.gas_lel)); if (gas !== undefined) out.gas = gas;
   if (typeof s.armed === "string") out.arm = s.armed;
   if (deviceAlarm(s)) out.alarm = true;
-  if (s.trip === true || s.alarm_burst === true || s.panic === true) out.lock = true;
+  if (deviceLocked(s)) out.lock = true;
   return out;
 }
 
@@ -141,5 +146,15 @@ export function validateCommand(body: unknown, device: Device | null): { patch?:
   if (!panelActions(device).includes(action)) return { error: `ação "${action}" não disponível para ${device.type}`, status: 422 };
   const patch = panelPatch(action, b.value);
   if (!patch) return { error: "valor inválido", status: 422 };
+  // travado (sobrecarga/rompimento/pânico): a parede não religa nem reabre — rearme no quadro
+  const st = device.status ?? {};
+  if (deviceLocked(st) && (patch.on === true || patch.open === true)) {
+    return {
+      error: st.trip === true
+        ? "circuito desligado por sobrecarga: rearme na tela do quadro elétrico (ou pelo app após a espera)"
+        : "aparelho travado por alarme (rompimento/pânico): rearme na tela do quadro",
+      status: 409,
+    };
+  }
   return { patch };
 }

@@ -403,7 +403,8 @@ async function refresh(manual) {
     }
   } catch (err) {
     handleError(err, 'Atualizar aparelhos');
-    if (err.status === 401 && !err.sessionExpired) { setStConnected(false); stopPolling(); showSetup(); }
+    // token recusado: anula na memória para isStConnected() cair e o selo "offline" aparecer
+    if (err.status === 401 && !err.sessionExpired) { token = null; setStConnected(false); stopPolling(); showSetup(); }
   } finally {
     refreshing = false;
     if (manual) setRefreshBusy(false);
@@ -582,7 +583,7 @@ function renderDevice(d, opts = {}) {
   if (d.kind === 'tv') {
     const chRow = d.caps.includes('tvChannel')
       ? `<div class="st-row">
-           <span class="st-label">Canal <span class="text-slate-300 tabular-nums">${st.channel ?? '—'}</span></span>
+           <span class="st-label">Canal <span class="text-slate-300 tabular-nums">${escapeHtml(String(st.channel ?? '—'))}</span></span>
            <span class="st-btn-group">
              <button data-ctl="ch-down" class="st-mini-btn" title="Canal anterior">−</button>
              <button data-ctl="ch-up" class="st-mini-btn" title="Próximo canal">+</button>

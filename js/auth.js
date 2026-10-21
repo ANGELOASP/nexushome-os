@@ -152,6 +152,8 @@ async function onLogout() {
   if (btn) btn.disabled = true;
   try {
     const client = await deps.getClient();
+    // antes do signOut: o que depende da sessão (ex.: apagar a inscrição de push, RLS) roda ainda logado
+    try { await deps.beforeLogout?.(); } catch (err) { console.warn('[auth] limpeza antes do logout', err); }
     const { error } = await client.auth.signOut();
     if (error) throw new Error(error.message);
     // o evento SIGNED_OUT (app.js) faz o teardown e exibe o login

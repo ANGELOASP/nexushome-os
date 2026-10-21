@@ -39,7 +39,12 @@
   powershell -ExecutionPolicy Bypass -File scripts\testar-painel.ps1 -Dispositivo b3000000-0000-4000-8000-000000000001 -Acao power -Valor true
 
 .EXAMPLE
-  $env:NEXUS_DEVICE_KEY = Read-Host -Prompt 'chave'; powershell -ExecutionPolicy Bypass -File scripts\testar-painel.ps1
+  $env:NEXUS_DEVICE_KEY = (New-Object System.Net.NetworkCredential('', (Read-Host -AsSecureString 'chave'))).Password; powershell -ExecutionPolicy Bypass -File scripts\testar-painel.ps1
+  A chave digitada sem aparecer na tela (a variável vale só para esta janela do PowerShell).
+
+.EXAMPLE
+  powershell -ExecutionPolicy Bypass -File scripts\testar-painel.ps1 -Dispositivo b3000000-0000-4000-8000-000000000015 -Acao armed -Valor off
+  Desarma o alarme (o valor do alarme vai como texto: off, home ou away).
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -82,7 +87,7 @@ function Get-MotivoHttp($r) {
       return "401: chave do dispositivo recusada ($msg). Confira o IOT_DEVICE_SECRET."
     }
     404 { return "404: $msg" }
-    503 { return "503: $msg — configure o segredo: supabase secrets set IOT_DEVICE_SECRET=... (digitado por você)." }
+    503 { return "503: $msg — configure o segredo com scripts\publicar-funcoes.ps1 -DefinirSegredo -SoSegredos (digitado sem aparecer)." }
     default { return "HTTP $($r.Status): $msg" }
   }
 }
@@ -143,8 +148,8 @@ try {
 
   # ---- 3. comando ----
   if ($Dispositivo) {
-    $v = ConvertTo-NexusValor $Valor
-    $corpo = (@{ device_id = $Dispositivo.ToLower(); action = $Acao; value = $v } | ConvertTo-Json -Compress)
+    $v = ConvertTo-NexusValor -Texto $Valor -Acao $Acao
+    $corpo = New-NexusComandoCorpo -Dispositivo $Dispositivo -Acao $Acao -Valor $Valor
     Write-NexusPasso "3. POST $base/panel/command  $corpo"
     $vai = $false
     if ($PSCmdlet.ShouldProcess($Dispositivo, "acionar $Acao = $v")) {

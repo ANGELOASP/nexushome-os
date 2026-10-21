@@ -303,20 +303,31 @@ void ui_update(const UiState &s) {
   else if (s.alarmBurst)    lv_label_set_text(hdrTitle, "Possível rompimento: geral fechada");
   else if (s.alarmExternal) lv_label_set_text(hdrTitle, "Vazamento externo: Área Externa fechada");
   else                      lv_label_set_text(hdrTitle, "Água da casa");
+  // Em alarme o "Rearmar" ocupa o canto direito: o Wi-Fi some, mas a FALHA do barramento continua
+  // visível (à esquerda do botão) — uma válvula "TRAVADA" sem relé confirmado pode estar aberta.
+  bool busOk = s.sondaOk && s.countersOk && s.relaysOk;
+  bool showBus = !alarm || !busOk;
   if (alarm) {
     lv_obj_clear_flag(btnRearm, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(chipWifi, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(chipBus, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(btnRearm, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(chipWifi, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(chipBus, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (showBus) lv_obj_clear_flag(chipBus, LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_add_flag(chipBus, LV_OBJ_FLAG_HIDDEN);
+  static int8_t s_busLayout = -1;      // realinha só quando muda (alarme com falha ↔ normal)
+  int8_t busLayout = alarm ? 1 : 0;
+  if (busLayout != s_busLayout) {
+    s_busLayout = busLayout;
+    lv_obj_align(chipBus, LV_ALIGN_RIGHT_MID, alarm ? -168 : -18, 0);
+    lv_obj_set_width(hdrTitle, alarm ? 470 : 600);
   }
   lv_label_set_text(chipWifi, s.wifiOk ? "Wi-Fi: ok" : "Wi-Fi: sem rede");
   lv_obj_set_style_text_color(chipWifi, s.wifiOk ? C_OPEN : C_WARN, 0);
-  bool busOk = s.sondaOk && s.countersOk && s.relaysOk;
-  lv_label_set_text(chipBus, busOk ? "Sensores: ok" : "Sensores: falha");
-  lv_obj_set_style_text_color(chipBus, busOk ? C_OPEN : C_WARN, 0);
+  // relés sem confirmação é o pior caso (válvula pode ter reaberto): texto próprio e em vermelho
+  lv_label_set_text(chipBus, !s.relaysOk ? "Relés: falha" : (busOk ? "Sensores: ok" : "Sensores: falha"));
+  lv_obj_set_style_text_color(chipBus, !s.relaysOk ? C_ALARM : (busOk ? C_OPEN : C_WARN), 0);
 
   // reservatórios
   if (s.sondaOk) {

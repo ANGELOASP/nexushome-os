@@ -20,6 +20,9 @@
   --warn: #f2b24a;
   --crit: #ff6b6b;
   --water: #5bc0eb;
+  --scroll-track: rgba(30, 58, 95, 0.35);          /* barras de rolagem (v2.17.2): tons do azul do sistema */
+  --scroll-thumb: rgba(91, 192, 235, 0.42);
+  --scroll-thumb-hover: rgba(91, 192, 235, 0.75);
   --energy: #f2b24a;
   --radius: 14px;
   --rail-w: 20rem;
@@ -180,10 +183,18 @@ body {
 }
 .cam-hint.cam-hint-hidden { opacity: 0; }
 
-/* scrollbar fina */
-.panel-body::-webkit-scrollbar { width: 5px; }
-.panel-body::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.25); border-radius: 4px; }
+/* barras de rolagem em azul em todo o app (v2.17.2); os painéis laterais seguem mais finos */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: var(--scroll-track); border-radius: 8px; }
+::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-color: var(--scroll-thumb) var(--scroll-track); scrollbar-width: thin; }
+}
+.panel-body::-webkit-scrollbar { width: 6px; }
 .panel-body::-webkit-scrollbar-track { background: transparent; }
+.panel-body::-webkit-scrollbar-thumb { border-width: 1px; }
 
 /* ---------- dispositivos ---------- */
 .device-room-group { scroll-margin-top: 0.5rem; }

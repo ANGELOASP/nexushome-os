@@ -6,10 +6,14 @@
   Usa o arduino-cli (procura no PATH, na instalação do winget e na Arduino IDE 2).
   Qual pasta compila:
     -Pasta informada                      -> essa pasta;
-    senão Documentos\Arduino\<firmware>   -> a sua cópia com Wi-Fi e chave (criada pelo instalar-arduino.ps1);
+    senão %LOCALAPPDATA%\NexusHome\firmware\<firmware> -> a sua cópia com Wi-Fi e chave (criada pelo
+                                          instalar-arduino.ps1; uma cópia antiga em Documentos\Arduino é
+                                          copiada para lá e o script avisa para você apagar a antiga);
     senão firmware\<firmware> do repositório (só para testar a compilação: está com os valores de exemplo).
-  -Atualizar recopia o firmware do repositório para Documentos\Arduino mantendo as linhas preenchidas
-  (WIFI_SSID, WIFI_PASSWORD, DEVICE_SECRET e, no painel, PAINEL_MODO / PAINEL_COMODO / PAINEL_PLACA).
+  -Atualizar recopia o firmware do repositório para a sua cópia mantendo as linhas preenchidas
+  (WIFI_SSID, WIFI_PASSWORD, DEVICE_SECRET e, no painel, PAINEL_MODO / PAINEL_COMODO); o .ino.bak fica sem a
+  senha e a chave. No painel, sempre mostra PAINEL_MODO / PAINEL_COMODO antes de compilar e avisa se o modo
+  não combina com a placa (-Placa p4 = corredor, s3-7 = cômodo).
   No fim mostra o tamanho usado de flash e de RAM. Nunca mostra a senha do Wi-Fi nem a chave.
 
   Placas:
@@ -33,7 +37,7 @@
   Pasta do sketch a compilar (o .ino precisa ter o mesmo nome da pasta).
 
 .PARAMETER Atualizar
-  Recopia do repositório para Documentos\Arduino antes de compilar (mantém Wi-Fi/chave/painel).
+  Recopia do repositório para %LOCALAPPDATA%\NexusHome\firmware antes de compilar (mantém Wi-Fi/chave/painel).
 
 .PARAMETER Sim
   Não pergunta nada (grava mesmo com Wi-Fi/chave ainda no valor de exemplo).
@@ -69,9 +73,13 @@ try {
   $fw = Get-NexusFirmware -Firmware $Firmware -Placa $Placa
   $repo = Split-Path -Parent $PSScriptRoot
   $noRepo = Join-Path (Join-Path $repo 'firmware') $fw.Nome
-  $docs = [Environment]::GetFolderPath('MyDocuments')
-  $naCopia = ''
-  if ($docs) { $naCopia = Join-Path (Join-Path $docs 'Arduino') $fw.Nome }
+  $naCopia = Get-NexusPastaFirmware -Nome $fw.Nome
+  if (-not $naCopia) { $naCopia = '' }
+  $mig = $null
+  if ($naCopia -and -not $Pasta) {
+    $mig = Move-NexusFirmwareAntigo -Nome $fw.Nome -Nova $naCopia -Antiga (Get-NexusPastaFirmwareAntiga -Nome $fw.Nome)
+    Write-NexusAvisoPastaAntiga $mig
+  }
 
   $cli = Find-ArduinoCli
   if (-not $cli) {
@@ -82,10 +90,10 @@ try {
   # ---- qual pasta compilar ----
   if ($Atualizar) {
     if ($Pasta) { throw 'use -Atualizar OU -Pasta, não os dois.' }
-    if (-not $naCopia) { throw 'não achei a pasta Documentos deste usuário.' }
+    if (-not $naCopia) { throw 'não achei a pasta de dados do usuário (%LOCALAPPDATA%).' }
     Write-NexusPasso "Atualizando $naCopia a partir do repositório..."
     $c = Copy-NexusFirmware -Origem $noRepo -Destino $naCopia -Nome $fw.Nome -Preservar $fw.Preservar
-    if (@($c.Preservadas).Count -gt 0) { Write-Host "  linhas mantidas: $(@($c.Preservadas) -join ', ') (backup em $($fw.Nome).ino.bak)" }
+    if (@($c.Preservadas).Count -gt 0) { Write-Host "  linhas mantidas: $(@($c.Preservadas) -join ', ') (backup sem senha/chave em $($fw.Nome).ino.bak)" }
     else { Write-NexusAviso '  cópia nova: preencha WIFI_SSID, WIFI_PASSWORD e DEVICE_SECRET no .ino.' }
     $sketch = $naCopia
   } elseif ($Pasta) {
@@ -108,14 +116,12 @@ try {
   Write-NexusPasso "Compilando $($fw.Nome) para $($fw.Descricao)"
   Write-Host "  pasta: $sketch"
   Write-Host "  FQBN:  $($fw.Fqbn)"
+  $avisoPainel = ''
   if ($fw.Firmware -eq 'painel') {
-    $pp = Get-NexusLinhaDefine -Ino $ino -Nome 'PAINEL_PLACA'
-    if ($pp) {
-      Write-Host "  PAINEL_PLACA = $pp ; PAINEL_MODO = $(Get-NexusLinhaDefine -Ino $ino -Nome 'PAINEL_MODO') ; PAINEL_COMODO = $(Get-NexusLinhaDefine -Ino $ino -Nome 'PAINEL_COMODO')"
-      if (($Placa -eq 'p4' -and $pp -notmatch 'P4') -or ($Placa -eq 's3-7' -and $pp -notmatch 'S3')) {
-        Write-NexusAviso "  ATENÇÃO: PAINEL_PLACA ($pp) não combina com -Placa $Placa."
-      }
-    }
+    $pm = Get-NexusLinhaDefine -Ino $ino -Nome 'PAINEL_MODO'
+    Write-Host "  PAINEL_MODO = $pm ; PAINEL_COMODO = $(Get-NexusLinhaDefine -Ino $ino -Nome 'PAINEL_COMODO')"
+    $avisoPainel = Get-NexusAvisoPainel -Placa $Placa -Modo $pm
+    if ($avisoPainel) { Write-NexusAviso "  ATENÇÃO: $avisoPainel" }
   }
 
   $r = Invoke-NexusNativo -Exe $cli -Argumentos @('compile', '--fqbn', $fw.Fqbn, $sketch)
@@ -140,6 +146,10 @@ try {
   $pend = @(Get-NexusPendencias -Ino $ino)
   if ($pend.Count -gt 0) {
     Write-NexusAviso "`nAinda com valor de exemplo: $($pend -join ', '). A placa não vai entrar no Wi-Fi/servidor (a proteção local funciona)."
+    if (-not $Sim -and -not (Confirm-Nexus 'Gravar assim mesmo?')) { Write-Host 'Cancelado.'; exit 1 }
+  }
+  if ($avisoPainel) {
+    Write-NexusAviso "`nO modo do painel não combina com a placa: $avisoPainel"
     if (-not $Sim -and -not (Confirm-Nexus 'Gravar assim mesmo?')) { Write-Host 'Cancelado.'; exit 1 }
   }
 

@@ -193,7 +193,7 @@ um circuito: edite a tabela `CIRCUITS` no firmware **e** o nome/cômodo no app (
    - SQL Editor: `supabase/migrations/023_eletrica.sql` e depois `supabase/seeds/eletrica.sql`;
    - `supabase functions deploy iot-gateway --no-verify-jwt` (envio em lote e alertas do firmware).
 9. **Firmware**: `powershell -ExecutionPolicy Bypass -File scripts\instalar-arduino.ps1 -Firmware eletrica -Porta COM6`
-   — copia para `Documentos\Arduino\esp32s3_eletrica`, onde você preenche Wi-Fi e `DEVICE_SECRET`.
+   — copia para `%LOCALAPPDATA%\NexusHome\firmware\esp32s3_eletrica` (até a v2.17, `Documentos\Arduino`), onde você preenche Wi-Fi e `DEVICE_SECRET`.
    Compilado aqui com o core `esp32:esp32` 3.3.12 + ESP32_Display_Panel 1.0.4 + lvgl 8.4.0 para a 4.3B, com a tela:
    1,60 MB (50% da partição de 3 MB), 19% da RAM. Sem tela: `USE_DISPLAY 0` (1,03 MB).
 10. **Bancada (serial 115200)**: `status` mostra cada circuito (W, A, V, kWh, ligado/cortado); `desligar N` / `ligar N`

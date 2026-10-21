@@ -5,7 +5,7 @@
 //  · notificações: push do servidor (notify-alert) e avisos locais
 // ============================================================
 
-const VERSION = 'nh-2.17.1';
+const VERSION = 'nh-2.18.0';
 const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -28,8 +28,8 @@ self.addEventListener('fetch', (event) => {
   if (req.mode === 'navigate') {
     // página: rede primeiro (versão nova após deploy), cache se offline
     event.respondWith(fetch(req).then((res) => {
-      const copy = res.clone();
-      caches.open(VERSION).then((c) => c.put('/index.html', copy));
+      // só uma página boa vira o shell offline (um 5xx ou portal cativo não)
+      if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put('/index.html', copy)); }
       return res;
     }).catch(() => caches.match('/index.html')));
     return;
@@ -38,11 +38,16 @@ self.addEventListener('fetch', (event) => {
     // arquivos com hash: cache primeiro, atualiza em segundo plano
     event.respondWith(caches.open(VERSION).then(async (c) => {
       const hit = await c.match(req);
-      const net = fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }).catch(() => hit);
+      // arquivo ausente: a Vercel reescreve para o index.html (200, text/html) — isso nunca entra no cache como JS/CSS
+      const net = fetch(req).then((res) => { if (res.ok && !isHtml(res)) c.put(req, res.clone()); return res; }).catch(() => hit);
       return hit || net;
     }));
   }
 });
+
+function isHtml(res) {
+  return (res.headers.get('content-type') || '').includes('text/html');
+}
 
 function show(data = {}) {
   const sev = data.severity || 'info';

@@ -29,6 +29,8 @@
 #include "ui.h"
 #include "nobreak_logic.h"
 #include "nobreak_meter.h"
+// #define NEXUS_TLS_INSEGURO 1   // SÓ diagnóstico: HTTPS sem verificar o certificado (ver nh_tls.h)
+#include "nh_tls.h"             // HTTPS verificado (pacote de CAs do core) + watchdog
 
 // ---------------- Tela touch (Waveshare ESP32-S3-Touch-LCD-4.3B) ----------------
 // 1 = mostra a interface do nobreak (ui.cpp). 0 = sem tela (outra placa ESP32-S3).
@@ -144,6 +146,7 @@ uint16_t mbCrc(const uint8_t* buf, size_t len) {
 }
 
 void mbSend(uint8_t* frame, size_t lenNoCrc) {
+  nhWdtAlimenta();   // cada transação é curta, mas uma volta com escravos mudos soma dezenas de segundos
   uint16_t crc = mbCrc(frame, lenNoCrc);
   frame[lenNoCrc] = crc & 0xFF;
   frame[lenNoCrc + 1] = crc >> 8;
@@ -305,11 +308,25 @@ Preferences prefs;
 struct PendingAlert { char severity[10]; char message[160]; };
 PendingAlert alertQ[ALERT_SLOTS];
 int alertCount = 0;
+int alertInFlight = 0;                // os primeiros N da fila estão no POST em andamento
+// Mesma política da tela de segurança (T3): com a fila cheia (Wi-Fi fora na própria falta de energia),
+// um crítico ("Falta de energia", bateria crítica) toma o lugar do aviso mais antigo que não é crítico.
 void raiseAlert(const char* severity, const char* fmt, ...) {
   char msg[160];
   va_list ap; va_start(ap, fmt); vsnprintf(msg, sizeof(msg), fmt, ap); va_end(ap);
   Serial.printf("[alerta %s] %s\n", severity, msg);
+  bool critical = !strcmp(severity, "critical");
   portENTER_CRITICAL(&stateMux);
+  if (alertCount >= ALERT_SLOTS && critical) {
+    for (int a = 0; a < alertCount; a++) {
+      if (strcmp(alertQ[a].severity, "critical")) {
+        memmove(alertQ + a, alertQ + a + 1, sizeof(PendingAlert) * (alertCount - a - 1));
+        alertCount--;
+        if (a < alertInFlight) alertInFlight--;   // já está no POST em andamento: não remover outro no lugar dele
+        break;
+      }
+    }
+  }
   if (alertCount < ALERT_SLOTS) {
     strncpy(alertQ[alertCount].severity, severity, sizeof(alertQ[0].severity) - 1);
     alertQ[alertCount].severity[sizeof(alertQ[0].severity) - 1] = 0;
@@ -437,11 +454,16 @@ void endOfCycle() {
   nb::GridEvent ev = nb::gridStep(grid, gridNow, (uint32_t)now, GRID_P);
 
   // ---- sentido da corrente do banco ----
-  discharging = nb::batteryDischarging(gridNow, SOC_DIR_BALANCE != 0, gridM.answered && out.ok,
-                                       gridM.w, out.w, DIR_MARGIN_W);
+  // Com leitura do 42 nesta volta, o sentido sai dela; sem leitura, só o estado FILTRADO decide
+  // (falta confirmada = descarga). Sem leitura e sem falta confirmada (falha Modbus isolada ou os
+  // primeiros 5 s de uma queda) o sentido é desconhecido: a corrente NÃO é integrada nesta volta —
+  // o tempo fica para a próxima volta com sentido conhecido (até SOC_MAX_DT_MS).
+  int8_t dir = nb::batteryDirection(gridM.answered, gridM.v, grid.fail, GRID_MIN_V, SOC_DIR_BALANCE != 0,
+                                    gridM.answered && out.ok, gridM.w, out.w, DIR_MARGIN_W);
+  if (dir != nb::DIR_UNKNOWN) discharging = dir == nb::DIR_DISCHARGE;
 
   // ---- SoC ----
-  if (bank.answered) {
+  if (bank.answered && dir != nb::DIR_UNKNOWN) {
     uint32_t dt = socTimed ? (uint32_t)(now - lastSocAt) : 0;
     socTimed = true;
     lastSocAt = now;
@@ -511,12 +533,14 @@ void endOfCycle() {
 // ============================================================
 int httpPost(const String& body) {
   if (WiFi.status() != WL_CONNECTED) return -1;
+  NetworkClientSecure tls;             // antes do http: o http é destruído primeiro
   HTTPClient http;
-  http.begin(GATEWAY_URL);
+  nhHttpsBegin(http, tls, GATEWAY_URL);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(8000);
   int code = http.POST(body);
+  nhTlsConfere(tls, code, "iot");
   if (code != 200) Serial.printf("[iot] lote → HTTP %d %s\n", code, code > 0 ? http.getString().substring(0, 300).c_str() : "");
   http.end();
   return code;
@@ -549,6 +573,7 @@ void publishBatch(bool withHistory) {
   portENTER_CRITICAL(&stateMux);
   l = live;
   nAlerts = alertCount;
+  alertInFlight = nAlerts;
   memcpy(alerts, alertQ, sizeof(PendingAlert) * nAlerts);
   portEXIT_CRITICAL(&stateMux);
 
@@ -595,14 +620,17 @@ void publishBatch(bool withHistory) {
   body += '}';
 
   int code = httpPost(body);
+  portENTER_CRITICAL(&stateMux);
   if (code == 200 || code == 207) {
-    // remove só os alertas enviados (o loop pode ter acrescentado outros nesse meio-tempo)
-    portENTER_CRITICAL(&stateMux);
-    int rest = alertCount - nAlerts;
-    if (rest > 0) memmove(alertQ, alertQ + nAlerts, sizeof(PendingAlert) * rest);
+    // remove só os alertas enviados (o loop pode ter acrescentado outros nesse meio-tempo, e um
+    // crítico pode ter tomado o lugar de um aviso já enviado: alertInFlight já desconta esse caso)
+    int sent = alertInFlight;
+    int rest = alertCount - sent;
+    if (rest > 0) memmove(alertQ, alertQ + sent, sizeof(PendingAlert) * rest);
     alertCount = rest > 0 ? rest : 0;
-    portEXIT_CRITICAL(&stateMux);
   }
+  alertInFlight = 0;
+  portEXIT_CRITICAL(&stateMux);
 }
 
 void telemetryTask(void*) {
@@ -610,9 +638,10 @@ void telemetryTask(void*) {
   bool first = true;
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(1000));
+    nhRedeBatida();                    // sinal de vida para o loop() (nhRedeConfere)
     if (!DEVICE_NOBREAK[0] || WiFi.status() != WL_CONNECTED) continue;
     unsigned long now = millis();
-    if (now < 8000) continue;                          // primeira volta pelos medidores
+    if (first && now < 8000) continue;                 // primeira volta pelos medidores (só no boot: millis() dá a volta)
     bool alertsWaiting;
     portENTER_CRITICAL(&stateMux);
     alertsWaiting = alertCount > 0;
@@ -779,9 +808,12 @@ void setup() {
   xTaskCreatePinnedToCore(telemetryTask, "telemetria", 12288, nullptr, 1, nullptr, 0);
   Serial.printf("[boot] nobreak: SoC %.1f %%%s · PZEM 41/42/43 — digite 'status'\n", socState.soc,
                 wasFailed ? " · estava em FALTA DE ENERGIA" : "");
+  nhWdtInicia();              // watchdog só depois do boot dos medidores
 }
 
 void loop() {
+  nhWdtAlimenta();             // watchdog (nh_tls.h): loop travado por 15 s → reinício (SoC volta da NVS)
+  nhRedeConfere(false);
   handleSerial();
   processRequests();
   static unsigned long cycleStart = 0;

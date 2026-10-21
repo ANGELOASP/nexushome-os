@@ -33,6 +33,10 @@
 //      "Ativar notificações" em cada aparelho.
 //   SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY já vêm no ambiente da função.
 //
+// DONO DA CASA (v2.18, recomendado): supabase secrets set IOT_OWNER_ID=<uuid do usuário dono>
+//   (o mesmo do iot-gateway). Push só para as inscrições do dono do alerta; o Telegram só
+//   recebe alertas do dono (ou sem dono). Sem o secret: comportamento antigo + aviso no log.
+//
 // SEGURANÇA: fail-closed — sem NOTIFY_WEBHOOK_SECRET a função
 // recusa tudo; o token do bot nunca é logado nem devolvido.
 // ============================================================
@@ -40,6 +44,10 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import webpush from "npm:web-push@3.6.7";
 import { formatMessage, pushPayload, safeEqual, shouldNotify } from "./format.ts";
+import { type AlertRoute, pushSubscriptionsQuery, routeAlert } from "./route.ts";
+
+/** Nenhum fetch externo segura a instância além disso (Telegram, PostgREST, push). */
+const TIMEOUT_MS = 10_000;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -74,10 +82,16 @@ serve(async (req: Request) => {
     return json({ ok: true, skipped: "severidade abaixo do mínimo" });
   }
 
+  // v2.18: roteia pelo dono do alerta (cadastro aberto = várias contas no mesmo projeto)
+  const route = routeAlert(alert.owner_id, Deno.env.get("IOT_OWNER_ID"));
+  route.warnings.forEach((w) => console.warn(`[notify-alert] ${w}`));
+  const telegramTry = telegramOn && route.telegram;
+
   const result: Record<string, unknown> = { ok: true };
-  if (telegramOn) result.telegram = await sendTelegram(token!, chatId!, alert);
-  if (pushOn) result.push = await sendPush(alert);
-  const failed = (telegramOn && result.telegram !== "ok") && (!pushOn || (result.push as { sent?: number })?.sent === 0);
+  if (telegramTry) result.telegram = await sendTelegram(token!, chatId!, alert);
+  else if (telegramOn) result.telegram = "ignorado (alerta de outra conta)";
+  if (pushOn) result.push = await sendPush(alert, route);
+  const failed = (telegramTry && result.telegram !== "ok") && (!pushOn || (result.push as { sent?: number })?.sent === 0);
   return json(result, failed ? 502 : 200);
 });
 
@@ -87,6 +101,7 @@ async function sendTelegram(token: string, chatId: string, alert: Record<string,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, text: formatMessage(alert), parse_mode: "HTML" }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     console.log(`[notify-alert] ${alert.severity} -> Telegram ${res.status}`); // nunca loga o token
     return res.ok ? "ok" : `erro ${res.status}`;
@@ -96,8 +111,8 @@ async function sendTelegram(token: string, chatId: string, alert: Record<string,
   }
 }
 
-/** Envia o alerta para todos os aparelhos inscritos; remove inscrições expiradas (404/410). */
-async function sendPush(alert: Record<string, string>): Promise<{ sent: number; removed: number; failed: number }> {
+/** Envia o alerta aos aparelhos inscritos do dono (ver route.ts); remove inscrições expiradas (404/410). */
+async function sendPush(alert: Record<string, string>, route: AlertRoute): Promise<{ sent: number; removed: number; failed: number }> {
   const url = Deno.env.get("SUPABASE_URL");
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const out = { sent: 0, removed: 0, failed: 0 };
@@ -108,19 +123,26 @@ async function sendPush(alert: Record<string, string>): Promise<{ sent: number; 
     Deno.env.get("VAPID_PRIVATE_KEY")!,
   );
   const headers = { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
-  const res = await fetch(`${url}/rest/v1/push_subscriptions?select=endpoint,p256dh,auth`, { headers });
+  let res: Response;
+  try {
+    res = await fetch(`${url}/rest/v1/${pushSubscriptionsQuery(route)}`, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
+  } catch (err) {
+    console.error("[notify-alert] push_subscriptions: falha de rede:", (err as Error)?.message ?? err);
+    return out;
+  }
   if (!res.ok) { console.error("[notify-alert] push_subscriptions:", res.status); return out; }
   const subs: { endpoint: string; p256dh: string; auth: string }[] = await res.json();
   const body = JSON.stringify(pushPayload(alert));
   await Promise.all(subs.map(async (s) => {
     try {
-      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, body, { TTL: 3600, urgency: alert.severity === "critical" ? "high" : "normal" });
+      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, body, { TTL: 3600, urgency: alert.severity === "critical" ? "high" : "normal", timeout: TIMEOUT_MS });
       out.sent++;
     } catch (err) {
       const code = (err as { statusCode?: number })?.statusCode;
       if (code === 404 || code === 410) {
         out.removed++;
-        await fetch(`${url}/rest/v1/push_subscriptions?endpoint=eq.${encodeURIComponent(s.endpoint)}`, { method: "DELETE", headers });
+        await fetch(`${url}/rest/v1/push_subscriptions?endpoint=eq.${encodeURIComponent(s.endpoint)}`, { method: "DELETE", headers, signal: AbortSignal.timeout(TIMEOUT_MS) })
+          .catch((e) => console.error("[notify-alert] remover inscrição expirada:", (e as Error)?.message ?? e));
       } else {
         out.failed++;
         console.error("[notify-alert] push falhou:", code ?? (err as Error)?.message);

@@ -125,7 +125,9 @@ function syncEnergyRulesButton() {
   btn.disabled = !missing.length;
   btn.textContent = missing.length
     ? `Proteger ${missing.length === 1 ? 'o ar-condicionado Samsung' : `os ${missing.length} ares-condicionados Samsung`}: desligar acima de ${ENERGY_LIMIT_W} W`
-    : '✓ Ares-condicionados Samsung protegidos contra pico de energia';
+    : '✓ Ares-condicionados Samsung protegidos contra pico (só com o app aberto)';
+  // a regra Samsung é avaliada pelo navegador (o servidor não tem o token SmartThings)
+  btn.title = 'As regras com ação Samsung rodam no navegador: só valem enquanto o NexusHome estiver aberto em algum aparelho.';
 }
 
 /** Uma regra "Energia > 3000 W → desligar" para cada ar-condicionado Samsung que ainda não tem. */
@@ -144,7 +146,7 @@ async function createEnergyRules() {
     const { data, error } = await client.from('automations').insert(rows).select();
     if (error) throw new Error(error.message);
     (data || []).forEach((r) => upsertAutomation(r));
-    toast(`${rows.length} regra(s) criada(s)`, `${missing.map((d) => d.name).join(' e ')}: desligam quando a energia passar de ${ENERGY_LIMIT_W} W.`, 'success');
+    toast(`${rows.length} regra(s) criada(s)`, `${missing.map((d) => d.name).join(' e ')}: desligam quando a energia passar de ${ENERGY_LIMIT_W} W — enquanto o app estiver aberto (o comando Samsung sai do navegador).`, 'success');
   } catch (err) {
     toast('Falha ao criar as regras', err.message, 'critical');
   }
@@ -176,7 +178,7 @@ function describe(a) {
   const op = OPERATORS[t.operator] || t.operator || '?';
   const dev = getDevice(p.device_id);
   const src = t.device_id ? ` de ${getDevice(t.device_id)?.name || 'medidor removido'}` : '';
-  return `Se ${m}${src} ${op} ${t.threshold} ${METRICS[t.metric]?.unit || ''} → ${p.type === 'smartthings' ? describeStAction(p) : describeAction(dev, p)}`;
+  return `Se ${m}${src} ${op} ${t.threshold} ${METRICS[t.metric]?.unit || ''} → ${p.type === 'smartthings' ? `${describeStAction(p)} · só com o app aberto` : describeAction(dev, p)}`;
 }
 
 function describeAction(device, p) {
@@ -246,6 +248,8 @@ export function automationsForRoom(room) {
 export function openAutomationModal({ deviceId } = {}) {
   openModal();
   if (!deviceId) return;
+  // aparelho Samsung vinculado a um cômodo (st-<id>) → alvo SmartThings do modal (st|<id>)
+  if (deviceId.startsWith('st-')) deviceId = `st|${deviceId.slice(3)}`;
   const devSel = document.getElementById('f-device');
   if (devSel && [...devSel.options].some((o) => o.value === deviceId)) {
     devSel.value = deviceId;
@@ -259,8 +263,11 @@ export function openAutomationModal({ deviceId } = {}) {
 
 function openModal() {
   const devSel = document.getElementById('f-device');
+  // só dispositivos reais: o servidor faz `device_id::uuid` (024) e um alvo virtual
+  // (st-…, tuya-…) nunca rodaria — os Samsung entram abaixo como "st|<id>"
   devSel.innerHTML = state.devices
-    .map((d) => `<option value="${d.id}">${escapeHtml(d.name)} — ${escapeHtml(d.room)}</option>`)
+    .filter((d) => !d.virtual)
+    .map((d) => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)} — ${escapeHtml(d.room)}</option>`)
     .join('');
 
   // v1.5.0: com SmartThings conectado, sensores Samsung entram como gatilho
@@ -506,13 +513,16 @@ async function onCreate(e) {
 function evaluate(metric, value, deviceId) {
   // Live: as regras de métricas nativas rodam no servidor (migração 007,
   // trigger em telemetry_logs) — avaliar aqui também executaria em dobro.
-  // No Modo Demonstração não há servidor, então o navegador segue avaliando.
-  if (state.mode === 'live') return;
+  // Mas o servidor pula as ações SmartThings (024: o PAT só existe no navegador):
+  // essas o app avalia aqui, e só rodam com o app aberto.
+  // No Modo Demonstração não há servidor, então o navegador avalia todas.
+  const live = state.mode === 'live';
   const now = Date.now();
   for (const a of state.automations) {
     if (!a.is_active) continue;
     const t = a.trigger_condition || {};
     if (t.source === 'smartthings') continue; // avaliado em evaluateStReadings
+    if (live && a.action_payload?.type !== 'smartthings') continue;   // o servidor executa
     if (t.metric !== metric) continue;
     if (t.device_id && t.device_id !== deviceId) continue;   // regra presa a um medidor (v2.11)
     const th = Number(t.threshold);

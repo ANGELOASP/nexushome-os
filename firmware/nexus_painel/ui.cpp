@@ -56,11 +56,14 @@ static lv_obj_t *chips[PANEL_MAX_ROOMS + 1];
 static uint8_t nChips = 0;
 static lv_obj_t *tiles[PANEL_MAX_DEVS], *tileName[PANEL_MAX_DEVS], *tileRoom[PANEL_MAX_DEVS], *tileState[PANEL_MAX_DEVS];
 static int16_t tileDev[PANEL_MAX_DEVS];   // quadro → índice em s_ui.devs
+static uint32_t tileSig[PANEL_MAX_DEVS];  // assinatura do que o quadro mostra (0 = escondido): só redesenha o que mudou
 static char s_filter[32] = "";            // cômodo escolhido no corredor ("" = todos)
 static char s_pendingId[37] = "";
 static uint32_t s_pendingAt = 0;
 static lv_obj_t *s_modal = nullptr;
-static int16_t s_modalDev = -1;
+// janela aberta: o aparelho fica guardado PELO ID (a lista chega de novo a cada 3 s e a ordem muda),
+// com a ação e o valor já calculados na abertura — o clique não recalcula nada a partir do estado novo
+static PCmd s_modalCmd;
 static int s_modalTemp = 23;
 // planta (corredor): canvas na PSRAM, redesenhado só quando o estado dos cômodos muda
 static PPlan s_planIn, s_plan;
@@ -94,12 +97,8 @@ static lv_obj_t *mkBox(lv_obj_t *p, int x, int y, int w, int h, lv_color_t bg) {
   return o;
 }
 
-static void sendCmd(int devIdx, const char *action, const char *value) {
-  if (devIdx < 0 || devIdx >= s_ui.nDevs || !s_cmd) return;
-  UiCmd c;
-  pm_copy(c.id, sizeof(c.id), s_ui.devs[devIdx].id);
-  pm_copy(c.action, sizeof(c.action), action);
-  pm_copy(c.value, sizeof(c.value), value);
+static void sendCmd(const PCmd &c) {
+  if (!s_cmd || !c.id[0] || !c.action[0]) return;
   s_cmd(c);
   pm_copy(s_pendingId, sizeof(s_pendingId), c.id);
   s_pendingAt = millis();
@@ -108,22 +107,26 @@ static void sendCmd(int devIdx, const char *action, const char *value) {
 // ------------------------------------------------------------ janelas (modal)
 static void closeModal() {
   if (s_modal) { lv_obj_del_async(s_modal); s_modal = nullptr; }
-  s_modalDev = -1; s_modalTempLbl = nullptr; s_modalSlider = nullptr;
+  memset(&s_modalCmd, 0, sizeof(s_modalCmd));
+  s_modalTempLbl = nullptr; s_modalSlider = nullptr;
+}
+
+// envia o comando da janela só se o aparelho (pelo id) ainda está no snapshot atual
+// e não travou entretanto; senão a janela só fecha
+static void sendModal(const PCmd &c) {
+  if (pm_cmd_target(s_ui, c) >= 0) sendCmd(c);
+  closeModal();
 }
 
 static void onModalBtn(lv_event_t *e) {
   const char *what = (const char *)lv_event_get_user_data(e);
-  int dev = s_modalDev;
   if (!strcmp(what, "cancel")) { closeModal(); return; }
-  if (!strncmp(what, "arm:", 4)) { sendCmd(dev, "armed", what + 4); closeModal(); return; }
-  if (!strcmp(what, "tap")) {
-    char a[16], v[16]; bool conf;
-    if (dev >= 0 && pm_tap_command(s_ui.devs[dev], a, sizeof(a), v, sizeof(v), &conf)) sendCmd(dev, a, v);
-    closeModal(); return;
-  }
+  PCmd c = s_modalCmd;
+  if (!strncmp(what, "arm:", 4)) { pm_copy(c.value, sizeof(c.value), what + 4); sendModal(c); return; }
+  if (!strcmp(what, "tap")) { sendModal(c); return; }
   if (!strcmp(what, "bri") && s_modalSlider) {
-    char v[8]; snprintf(v, sizeof(v), "%d", (int)lv_slider_get_value(s_modalSlider));
-    sendCmd(dev, "brightness", v); closeModal(); return;
+    snprintf(c.value, sizeof(c.value), "%d", (int)lv_slider_get_value(s_modalSlider));
+    sendModal(c); return;
   }
   if (!strcmp(what, "t-") || !strcmp(what, "t+")) {
     s_modalTemp += what[1] == '+' ? 1 : -1;
@@ -133,8 +136,8 @@ static void onModalBtn(lv_event_t *e) {
     return;
   }
   if (!strcmp(what, "temp")) {
-    char v[8]; snprintf(v, sizeof(v), "%d", s_modalTemp);
-    sendCmd(dev, "temp", v); closeModal(); return;
+    snprintf(c.value, sizeof(c.value), "%d", s_modalTemp);
+    sendModal(c); return;
   }
 }
 
@@ -150,10 +153,10 @@ static lv_obj_t *modalButton(lv_obj_t *p, const char *txt, const char *what, boo
   return b;
 }
 
-// janela centralizada com título e uma linha de botões
-static lv_obj_t *openModal(int dev, const char *title, const char *text) {
+// janela centralizada com título e uma linha de botões; `cmd` = aparelho (id) + ação + valor fixados agora
+static lv_obj_t *openModal(const PCmd &cmd, const char *title, const char *text) {
   closeModal();
-  s_modalDev = dev;
+  s_modalCmd = cmd;
   int W = lv_disp_get_hor_res(nullptr), H = lv_disp_get_ver_res(nullptr);
   s_modal = lv_obj_create(lv_scr_act());
   lv_obj_set_size(s_modal, W, H);
@@ -191,24 +194,23 @@ static lv_obj_t *modalRow(lv_obj_t *card) {
   return row;
 }
 
-static void openConfirm(int dev) {
-  const PDev &d = s_ui.devs[dev];
-  char a[16], v[16], q[96]; bool conf;
-  if (!pm_tap_command(d, a, sizeof(a), v, sizeof(v), &conf)) return;
-  bool turnOn = !strcmp(v, "true");
+static void openConfirm(const PDev &d, const PCmd &cmd) {
+  char q[96];
+  const char *a = cmd.action;
+  bool turnOn = !strcmp(cmd.value, "true");
   if (!strcmp(a, "power")) snprintf(q, sizeof(q), "%s este circuito no quadro?", turnOn ? "Ligar" : "Desligar");
   else snprintf(q, sizeof(q), "%s agora?", turnOn ? "Abrir" : "Fechar");
-  lv_obj_t *card = openModal(dev, d.name, q);
+  lv_obj_t *card = openModal(cmd, d.name, q);
   lv_obj_t *row = modalRow(card);
   int bw = (lv_obj_get_width(card) - 48 - 12) / 2;
   modalButton(row, "Cancelar", "cancel", false, bw);
   modalButton(row, turnOn ? (strcmp(a, "power") ? "Abrir" : "Ligar") : (strcmp(a, "power") ? "Fechar" : "Desligar"), "tap", true, bw);
 }
 
-static void openAlarm(int dev) {
-  const PDev &d = s_ui.devs[dev];
+static void openAlarm(const PDev &d) {
   char st[48]; pm_state_text(d, st, sizeof(st));
-  lv_obj_t *card = openModal(dev, d.name, st);
+  PCmd cmd; pm_cmd_set(cmd, d.id, "armed", "");     // valor = o botão escolhido
+  lv_obj_t *card = openModal(cmd, d.name, st);
   lv_obj_t *row = modalRow(card);
   int bw = (lv_obj_get_width(card) - 48 - 24) / 3;
   modalButton(row, "Desarmar", "arm:off", !strcmp(d.arm, "off"), bw);
@@ -218,10 +220,10 @@ static void openAlarm(int dev) {
   modalButton(row2, "Fechar", "cancel", false, lv_obj_get_width(card) - 48);
 }
 
-static void openDetail(int dev) {
-  const PDev &d = s_ui.devs[dev];
+static void openDetail(const PDev &d) {
   char st[48]; pm_state_text(d, st, sizeof(st));
-  lv_obj_t *card = openModal(dev, d.name, st);
+  PCmd cmd; pm_cmd_set(cmd, d.id, (d.acts & ACT_BRI) ? "brightness" : (d.acts & ACT_TEMP) ? "temp" : "", "");
+  lv_obj_t *card = openModal(cmd, d.name, st);
   int inner = lv_obj_get_width(card) - 48;
   if (d.acts & ACT_BRI) {
     s_modalSlider = lv_slider_create(card);
@@ -256,7 +258,7 @@ static uint8_t roomState(const char *room) {      // 0 normal · 1 algo ligado �
   uint8_t st = 0;
   for (int i = 0; i < s_ui.nDevs; i++) {
     const PDev &d = s_ui.devs[i];
-    if (strcmp(d.room, room)) continue;
+    if (!pm_same_room(d.room, room)) continue;
     if (d.alarm || d.lock) return 2;
     // circuito habilitado, válvula aberta, portão ou alarme armado não são "uso": não acendem o cômodo
     if (pm_active(d) && strcmp(d.type, "alarm") && strcmp(d.type, "meter") && strcmp(d.type, "valve") &&
@@ -407,17 +409,17 @@ static void onTile(lv_event_t *e) {
   const PDev &d = s_ui.devs[dev];
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_LONG_PRESSED) {
-    if (d.acts & (ACT_BRI | ACT_TEMP)) openDetail(dev);
+    if (d.acts & (ACT_BRI | ACT_TEMP)) openDetail(d);
     return;
   }
   if (code != LV_EVENT_SHORT_CLICKED) return;
-  if (d.acts & ACT_ARMED) { openAlarm(dev); return; }
-  char a[16], v[16]; bool conf;
-  if (!pm_tap_command(d, a, sizeof(a), v, sizeof(v), &conf)) {
-    openDetail(dev);                       // sensor, válvula travada...: só mostra o estado
+  if (d.acts & ACT_ARMED) { openAlarm(d); return; }
+  PCmd c; bool conf;
+  if (!pm_tap_cmd(d, c, &conf)) {
+    openDetail(d);                         // sensor, válvula/circuito travado...: só mostra o estado
     return;
   }
-  if (conf) openConfirm(dev); else sendCmd(dev, a, v);
+  if (conf) openConfirm(d, c); else sendCmd(c);
 }
 
 static void onChip(lv_event_t *e) {
@@ -461,31 +463,49 @@ static void rebuildChips() {
   }
 }
 
+static uint32_t fnvText(uint32_t h, const char *s) {
+  while (*s) h = (h ^ (uint8_t)*s++) * 16777619u;
+  return (h ^ 0xFFu) * 16777619u;                  // separador entre os campos
+}
+
+// Só mexe nos widgets do quadro cuja aparência mudou (texto, cores, opacidade): a cada 3 s chega um
+// snapshot novo e redesenhar a grade inteira no 800×1280 à toa custa caro (lição do CLAUDE.md).
 static void refreshTiles() {
   int t = 0;
   bool pendingStill = s_pendingId[0] && millis() - s_pendingAt < 12000;
   for (int i = 0; i < s_ui.nDevs && t < PANEL_MAX_DEVS; i++) {
     const PDev &d = s_ui.devs[i];
-    if (!s_room && s_filter[0] && strcmp(d.room, s_filter)) continue;
+    if (!s_room && s_filter[0] && !pm_same_room(d.room, s_filter)) continue;
     if (s_room && !pm_same_room(d.room, s_roomName)) continue;   // o servidor já filtra; aqui é a garantia
     tileDev[t] = i;
     lv_obj_t *tile = tiles[t];
-    lv_obj_clear_flag(tile, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(tileName[t], d.name);
-    lv_label_set_text(tileRoom[t], s_room ? pm_type_label(d.type) : d.room);
+    const char *sub = s_room ? pm_type_label(d.type) : d.room;
     char st[48];
     bool pending = pendingStill && !strcmp(d.id, s_pendingId);
     if (pending) pm_copy(st, sizeof(st), "enviando…");
     else pm_state_text(d, st, sizeof(st));
-    lv_label_set_text(tileState[t], st);
     bool active = pm_active(d), alarm = d.alarm || d.lock;
-    lv_obj_set_style_bg_color(tile, alarm ? C_CRIT_BG : active ? C_ON_BG : C_CARD, 0);
-    lv_obj_set_style_border_color(tile, alarm ? C_CRIT : active ? C_ACCENT : C_LINE, 0);
-    lv_obj_set_style_text_color(tileState[t], alarm ? C_CRIT : active ? C_ACCENT : C_MUTED, 0);
-    lv_obj_set_style_opa(tile, d.ok ? LV_OPA_COVER : LV_OPA_60, 0);
+    uint32_t sig = fnvText(fnvText(fnvText(2166136261u, d.name), sub), st);
+    sig = (sig ^ (uint32_t)(active | (alarm << 1) | (d.ok << 2) | 8)) * 16777619u;
+    if (!sig) sig = 1;                               // 0 = quadro escondido
+    if (lv_obj_has_flag(tile, LV_OBJ_FLAG_HIDDEN)) lv_obj_clear_flag(tile, LV_OBJ_FLAG_HIDDEN);
+    if (sig != tileSig[t]) {
+      tileSig[t] = sig;
+      lv_label_set_text(tileName[t], d.name);
+      lv_label_set_text(tileRoom[t], sub);
+      lv_label_set_text(tileState[t], st);
+      lv_obj_set_style_bg_color(tile, alarm ? C_CRIT_BG : active ? C_ON_BG : C_CARD, 0);
+      lv_obj_set_style_border_color(tile, alarm ? C_CRIT : active ? C_ACCENT : C_LINE, 0);
+      lv_obj_set_style_text_color(tileState[t], alarm ? C_CRIT : active ? C_ACCENT : C_MUTED, 0);
+      lv_obj_set_style_opa(tile, d.ok ? LV_OPA_COVER : LV_OPA_60, 0);
+    }
     t++;
   }
-  for (int i = t; i < PANEL_MAX_DEVS; i++) { tileDev[i] = -1; lv_obj_add_flag(tiles[i], LV_OBJ_FLAG_HIDDEN); }
+  for (int i = t; i < PANEL_MAX_DEVS; i++) {
+    tileDev[i] = -1;
+    tileSig[i] = 0;
+    if (!lv_obj_has_flag(tiles[i], LV_OBJ_FLAG_HIDDEN)) lv_obj_add_flag(tiles[i], LV_OBJ_FLAG_HIDDEN);
+  }
 }
 
 static void refreshSummary() {
@@ -560,6 +580,8 @@ static void onTimer(lv_timer_t *) {
   if (conn) refreshConn();
   if (model && s_ui.valid) {
     if (s_pendingId[0] && millis() - s_pendingAt > 12000) s_pendingId[0] = 0;
+    // o aparelho da janela aberta sumiu da lista (apagado, mudou de cômodo, corte do limite): fecha sem enviar
+    if (s_modal && s_modalCmd.id[0] && pm_find_dev(s_ui, s_modalCmd.id) < 0) closeModal();
     rebuildChips();
     refreshSummary();
     refreshTiles();
@@ -732,6 +754,7 @@ static void build() {
     lv_obj_add_event_cb(t, onTile, LV_EVENT_LONG_PRESSED, (void *)(intptr_t)i);
     tiles[i] = t;
     tileDev[i] = -1;
+    tileSig[i] = 0;
   }
 
   // primeira tela antes do servidor responder

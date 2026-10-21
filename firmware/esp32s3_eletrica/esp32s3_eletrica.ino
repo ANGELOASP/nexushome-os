@@ -34,6 +34,8 @@
 #include <Preferences.h>
 #include <math.h>
 #include "ui.h"
+// #define NEXUS_TLS_INSEGURO 1   // SÓ diagnóstico: HTTPS sem verificar o certificado (ver nh_tls.h)
+#include "nh_tls.h"             // HTTPS verificado (pacote de CAs do core) + watchdog
 
 // ---------------- Tela touch (SpotPear/Waveshare ESP32-S3-Touch-LCD-4.3B) ----------------
 // 1 = mostra a interface do quadro elétrico (ui.cpp). 0 = sem tela (outra placa ESP32-S3).
@@ -179,20 +181,24 @@ HardwareSerial RS485(1);
 #if BUS_VIA_GATEWAY
 WiFiClient gw;
 uint16_t mbTid = 0;              // número da transação Modbus TCP (confere a resposta certa)
-unsigned long gwRetryAt = 0, gwDownSince = 0;
+unsigned long gwFailAt = 0, gwDownSince = 0;   // tempos por diferença (millis() - início): aguentam a virada
+bool gwWaiting = false;                        // falhou há pouco: espera GW_RETRY_MS antes de tentar de novo
 bool gwAlerted = false;
+#define GW_RETRY_MS 3000UL
 
 // Conecta (ou reconecta) ao gateway; sem Wi-Fi ou logo após uma falha, não insiste.
 bool gwConnect() {
   if (gw.connected()) return true;
-  if (WiFi.status() != WL_CONNECTED || millis() < gwRetryAt) return false;
+  if (WiFi.status() != WL_CONNECTED || (gwWaiting && millis() - gwFailAt < GW_RETRY_MS)) return false;
+  gwWaiting = false;
   gw.stop();
   if (gw.connect(GATEWAY_IP, GATEWAY_PORT, 1500)) {
     gw.setNoDelay(true);
     Serial.printf("[gateway] conectado a %s:%d (%s)\n", GATEWAY_IP, GATEWAY_PORT, GATEWAY_MBAP ? "Modbus TCP" : "RTU sobre TCP");
     return true;
   }
-  gwRetryAt = millis() + 3000;
+  gwFailAt = millis();
+  gwWaiting = true;
   Serial.printf("[gateway] sem conexão com %s:%d\n", GATEWAY_IP, GATEWAY_PORT);
   return false;
 }
@@ -221,6 +227,7 @@ uint16_t mbCrc(const uint8_t* buf, size_t len) {
 }
 
 void mbSend(uint8_t* frame, size_t lenNoCrc) {
+  nhWdtAlimenta();   // cada transação é curta, mas uma volta com escravos mudos soma dezenas de segundos
   uint16_t crc = mbCrc(frame, lenNoCrc);
   frame[lenNoCrc] = crc & 0xFF;
   frame[lenNoCrc + 1] = crc >> 8;
@@ -418,11 +425,26 @@ Preferences prefs;
 struct PendingAlert { char severity[10]; char message[160]; };
 PendingAlert alertQ[ALERT_SLOTS];
 int alertCount = 0;
+int alertInFlight = 0;                // os primeiros N da fila estão no POST em andamento
+volatile bool urgentPublish = false;  // alerta crítico: publica já na próxima volta da telemetria
+// Mesma política da tela de segurança (T3): com a fila cheia, um crítico (desarme por sobrecarga...)
+// toma o lugar do aviso mais antigo que não é crítico — nunca é descartado por causa de avisos.
 void raiseAlert(const char* severity, const char* fmt, ...) {
   char msg[160];
   va_list ap; va_start(ap, fmt); vsnprintf(msg, sizeof(msg), fmt, ap); va_end(ap);
   Serial.printf("[alerta %s] %s\n", severity, msg);
+  bool critical = !strcmp(severity, "critical");
   portENTER_CRITICAL(&stateMux);
+  if (alertCount >= ALERT_SLOTS && critical) {
+    for (int a = 0; a < alertCount; a++) {
+      if (strcmp(alertQ[a].severity, "critical")) {
+        memmove(alertQ + a, alertQ + a + 1, sizeof(PendingAlert) * (alertCount - a - 1));
+        alertCount--;
+        if (a < alertInFlight) alertInFlight--;   // já está no POST em andamento: não remover outro no lugar dele
+        break;
+      }
+    }
+  }
   if (alertCount < ALERT_SLOTS) {
     strncpy(alertQ[alertCount].severity, severity, sizeof(alertQ[0].severity) - 1);
     alertQ[alertCount].severity[sizeof(alertQ[0].severity) - 1] = 0;
@@ -431,6 +453,7 @@ void raiseAlert(const char* severity, const char* fmt, ...) {
     alertCount++;
   }
   portEXIT_CRITICAL(&stateMux);
+  if (critical) urgentPublish = true;
 }
 
 bool hasRelay(int i) { return CIRCUITS[i].board >= 0 && CIRCUITS[i].board < BOARD_COUNT && CIRCUITS[i].ch >= 1; }
@@ -643,12 +666,14 @@ void endOfCycle() {
 // ============================================================
 int httpPost(const String& body) {
   if (WiFi.status() != WL_CONNECTED) return -1;
+  NetworkClientSecure tls;             // antes do http: o http é destruído primeiro
   HTTPClient http;
-  http.begin(GATEWAY_URL);
+  nhHttpsBegin(http, tls, GATEWAY_URL);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(8000);
   int code = http.POST(body);
+  nhTlsConfere(tls, code, "iot");
   if (code != 200) Serial.printf("[iot] lote → HTTP %d %s\n", code, code > 0 ? http.getString().substring(0, 300).c_str() : "");
   http.end();
   return code;
@@ -674,8 +699,10 @@ void publishBatch() {
   memcpy(snap, cs, sizeof(CircuitState) * CIRCUIT_COUNT);
   tW = totalW; tKwh = totalKwh; okN = metersOk;
   nAlerts = alertCount;
+  alertInFlight = nAlerts;
   memcpy(alerts, alertQ, sizeof(PendingAlert) * nAlerts);
   portEXIT_CRITICAL(&stateMux);
+  urgentPublish = false;
 
   unsigned long now = millis();
   bool logged[MAX_CIRCUITS] = { false };
@@ -748,16 +775,19 @@ void publishBatch() {
   body += '}';
 
   int code = httpPost(body);
+  portENTER_CRITICAL(&stateMux);
   if (code == 200 || code == 207) {
-    portENTER_CRITICAL(&stateMux);
     for (int i = 0; i < CIRCUIT_COUNT; i++) if (logged[i]) { cs[i].loggedW = snap[i].watts; cs[i].loggedAt = now; }
-    // remove só os alertas enviados (o loop pode ter acrescentado outros nesse meio-tempo)
-    int rest = alertCount - nAlerts;
-    if (rest > 0) memmove(alertQ, alertQ + nAlerts, sizeof(PendingAlert) * rest);
+    // remove só os alertas enviados (o loop pode ter acrescentado outros nesse meio-tempo, e um
+    // crítico pode ter tomado o lugar de um aviso já enviado: alertInFlight já desconta esse caso)
+    int sent = alertInFlight;
+    int rest = alertCount - sent;
+    if (rest > 0) memmove(alertQ, alertQ + sent, sizeof(PendingAlert) * rest);
     alertCount = rest > 0 ? rest : 0;
-    portEXIT_CRITICAL(&stateMux);
-    if (logTotal) totalLoggedAt = now;
   }
+  alertInFlight = 0;
+  portEXIT_CRITICAL(&stateMux);
+  if ((code == 200 || code == 207) && logTotal) totalLoggedAt = now;
 }
 
 int circuitForDevice(const char* id) {
@@ -777,11 +807,13 @@ void pollCommands() {
     first = false;
   }
   if (first) return;   // nenhum circuito comandável
+  NetworkClientSecure tls;
   HTTPClient http;
-  http.begin(url);
+  nhHttpsBegin(http, tls, url);
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(6000);
   int code = http.GET();
+  nhTlsConfere(tls, code, "cmd");
   if (code != 200) {
     if (code > 0) Serial.printf("[cmd] HTTP %d %s\n", code, http.getString().substring(0, 200).c_str());
     http.end();
@@ -808,9 +840,10 @@ void telemetryTask(void*) {
   unsigned long lastPublish = 0;
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(COMMAND_POLL_MS));
+    nhRedeBatida();                    // sinal de vida para o loop() (nhRedeConfere)
     if (WiFi.status() != WL_CONNECTED) continue;
     pollCommands();
-    if (millis() - lastPublish < PUBLISH_INTERVAL_MS) continue;
+    if (millis() - lastPublish < PUBLISH_INTERVAL_MS && !urgentPublish) continue;
     lastPublish = millis();
     vTaskDelay(pdMS_TO_TICKS(400));   // o loop aplica os comandos recém-chegados antes do retrato
     publishBatch();
@@ -958,9 +991,12 @@ void setup() {
   lastRelayRefresh = millis();
   xTaskCreatePinnedToCore(telemetryTask, "telemetria", 12288, nullptr, 1, nullptr, 0);
   Serial.printf("[boot] automação elétrica: %d circuitos, %d placas de relé — digite 'status'\n", CIRCUIT_COUNT, BOARD_COUNT);
+  nhWdtInicia();              // watchdog só depois de restaurar (NVS) e aplicar os relés
 }
 
 void loop() {
+  nhWdtAlimenta();             // watchdog (nh_tls.h): loop travado por 15 s → reinício (estado volta da NVS)
+  nhRedeConfere(false);
   handleSerial();
   processRequests();           // comandos antes da leitura: resposta rápida
   applyRelays(false);

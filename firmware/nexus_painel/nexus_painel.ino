@@ -20,6 +20,8 @@
 #include <time.h>
 #include "painel_model.h"
 #include "ui.h"
+// #define NEXUS_TLS_INSEGURO 1   // SÓ diagnóstico: HTTPS sem verificar o certificado (ver nh_tls.h)
+#include "nh_tls.h"             // HTTPS verificado (pacote de CAs do core) + watchdog
 
 // ---------------- Configuração (o instalador preserva estas linhas) ----------------
 #define WIFI_SSID       "SUA_REDE_WIFI"
@@ -54,14 +56,16 @@ static void onUiCmd(const UiCmd &c) {
 
 // ---------------- HTTP ----------------
 static int postCommand(const UiCmd &c) {
+  NetworkClientSecure tls;             // antes do http: o http é destruído primeiro
   HTTPClient http;
-  http.begin(GATEWAY_BASE "/panel/command");
+  nhHttpsBegin(http, tls, GATEWAY_BASE "/panel/command");
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(6000);
   char body[160];
   pm_command_body(body, sizeof(body), c.id, c.action, c.value);
   int code = http.POST((uint8_t *)body, strlen(body));
+  nhTlsConfere(tls, code, "cmd");
   if (code != 200) Serial.printf("[cmd] %s %s=%s → HTTP %d %s\n", c.id, c.action, c.value, code,
                                  code > 0 ? http.getString().c_str() : "");
   else Serial.printf("[cmd] %s %s=%s ok\n", c.id, c.action, c.value);
@@ -79,21 +83,26 @@ static int fetchPanel() {
   } else {
     snprintf(url, sizeof(url), GATEWAY_BASE "/panel?limit=%d&plan=0", PANEL_MAX_DEVS);   // + assinatura da planta
   }
+  NetworkClientSecure tls;
   HTTPClient http;
-  http.begin(url);
+  nhHttpsBegin(http, tls, url);
+  // HTTP/1.0: o servidor manda o corpo inteiro, sem "Transfer-Encoding: chunked" (que este laço de
+  // leitura crua não decodifica) e fecha a conexão no fim (sem esperar o timeout do keep-alive)
+  http.useHTTP10(true);
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(8000);
   int code = http.GET();
+  nhTlsConfere(tls, code, "panel");
   if (code != 200) {
     Serial.printf("[panel] HTTP %d %s\n", code, code > 0 ? http.getString().c_str() : "");
     http.end();
     return -1;
   }
   WiFiClient *s = http.getStreamPtr();
-  int len = http.getSize();                       // -1 = chunked
+  int len = http.getSize();                       // -1 = sem Content-Length: lê até o servidor fechar
   size_t n = 0;
   unsigned long t0 = millis();
-  while (http.connected() && (len < 0 || (int)n < len) && n < HTTP_BUF - 1 && millis() - t0 < 8000) {
+  while ((http.connected() || s->available()) && (len < 0 || (int)n < len) && n < HTTP_BUF - 1 && millis() - t0 < 8000) {
     size_t avail = s->available();
     if (!avail) { delay(5); continue; }
     n += s->readBytes(httpBuf + n, min(avail, HTTP_BUF - 1 - n));
@@ -105,11 +114,13 @@ static int fetchPanel() {
 
 // GET /panel/plan → a mesma planta do app (cômodos, paredes e posição dos aparelhos)
 static bool fetchPlan() {
+  NetworkClientSecure tls;
   HTTPClient http;
-  http.begin(GATEWAY_BASE "/panel/plan?floor=0");
+  nhHttpsBegin(http, tls, GATEWAY_BASE "/panel/plan?floor=0");
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(8000);
   int code = http.GET();
+  nhTlsConfere(tls, code, "planta");
   if (code != 200) { Serial.printf("[planta] HTTP %d\n", code); http.end(); return false; }
   String body = http.getString();
   http.end();
@@ -143,11 +154,15 @@ static int brightnessNow() {
 }
 
 // ---------------- tarefa de rede ----------------
+// Agendamento sempre por DIFERENÇA (millis() - último >= intervalo): o millis() de 32 bits dá a volta
+// a cada 49,7 dias e "millis() >= próximo" quebra perto da virada (planta baixada sem parar, painel parado).
 static void netTask(void *) {
-  unsigned long lastOk = 0, nextPoll = 0, nextPlan = 0, planFailAt = 0;
-  bool ntp = false, online = false;
+  unsigned long lastOk = 0, lastPoll = 0, lastPlan = 0, planFailAt = 0;
+  unsigned long pollEvery = 0, planEvery = 0;     // 0 = já, na próxima volta
+  bool ntp = false, online = false, planFailed = false;
   int lastBright = -1;
   for (;;) {
+    nhRedeBatida();                                // sinal de vida para o loop() (nhRedeConfere)
     if (WiFi.status() != WL_CONNECTED) {
       online = false;
       UiConn c; fillConn(c, false, lastOk ? (millis() - lastOk) / 1000 : 0);
@@ -162,35 +177,38 @@ static void netTask(void *) {
     UiCmd cmd;
     while (xQueueReceive(cmdQ, &cmd, 0) == pdTRUE) {
       postCommand(cmd);
-      nextPoll = 0;                                // mostra o resultado logo
+      pollEvery = 0;                               // mostra o resultado logo
     }
-    if (PAINEL_MODO == PAINEL_MODO_CORREDOR && millis() >= nextPlan) {
+    if (PAINEL_MODO == PAINEL_MODO_CORREDOR && millis() - lastPlan >= planEvery) {
       bool ok = fetchPlan();
 #if USE_DISPLAY
       if (ok) ui_set_plan(netPlan);
 #endif
+      planFailed = !ok;
       if (!ok) planFailAt = millis();
-      nextPlan = millis() + (ok ? PLAN_MS : PLAN_RETRY_MS);
+      lastPlan = millis();
+      planEvery = ok ? PLAN_MS : PLAN_RETRY_MS;
     }
-    if (millis() >= nextPoll) {
+    if (millis() - lastPoll >= pollEvery) {
       int n = fetchPanel();
+      lastPoll = millis();
       if (n > 0 && pm_parse(httpBuf, n, netModel)) {
         online = true;
         lastOk = millis();
 #if USE_DISPLAY
         ui_set_model(netModel);
 #endif
-        nextPoll = millis() + POLL_MS;
+        pollEvery = POLL_MS;
         // planta alterada no app (Editor de Planta / DXF) → baixa de novo já na próxima volta
         if (PAINEL_MODO == PAINEL_MODO_CORREDOR && pm_plan_changed(netModel, netPlan) &&
-            (!planFailAt || millis() - planFailAt >= PLAN_RETRY_MS) && nextPlan > millis()) {
+            (!planFailed || millis() - planFailAt >= PLAN_RETRY_MS) && planEvery != 0) {
           Serial.printf("[planta] mudou no app (%s → %s): atualizando\n", netPlan.sig[0] ? netPlan.sig : "-", netModel.ps);
-          nextPlan = millis();
+          planEvery = 0;
         }
       } else {
         online = false;
         if (n > 0) Serial.println("[panel] resposta inválida");
-        nextPoll = millis() + POLL_FAIL_MS;
+        pollEvery = POLL_FAIL_MS;
       }
       UiConn c; fillConn(c, online, lastOk ? (millis() - lastOk) / 1000 : 0);
 #if USE_DISPLAY
@@ -252,9 +270,12 @@ void setup() {
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   xTaskCreatePinnedToCore(netTask, "net", 12288, nullptr, 1, nullptr, 0);
+  nhWdtInicia();
 }
 
 void loop() {
+  nhWdtAlimenta();            // watchdog (nh_tls.h): loop travado por 15 s → reinício
+  nhRedeConfere(true);        // tarefa de rede parada por 3 min → reinicia (aqui a rede é a função inteira)
   handleSerial();
   delay(20);
 }

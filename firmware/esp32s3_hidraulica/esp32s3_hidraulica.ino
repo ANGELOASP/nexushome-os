@@ -13,9 +13,15 @@
 //
 // Linguagem: C++ (framework Arduino para ESP32, core 2.x ou 3.x).
 // Placa na Arduino IDE: "ESP32S3 Dev Module".
-// Bibliotecas: só as do core (WiFi, HTTPClient). O protocolo Modbus RTU
+// Bibliotecas: só as do core (WiFi, HTTPClient, Preferences). O protocolo Modbus RTU
 // (CRC16, funções 01/03/04/05/0F) está implementado aqui mesmo, sem
-// dependências externas.
+// dependências externas. A lógica de decisão (vazão, regras, travas) fica em
+// hid_logic.h, testável no PC com g++ (tests/hidraulica-firmware.test.mjs).
+//
+// Falha segura (relé ENERGIZADO = válvula FECHADA): por isso o estado travado
+// (alarmes, pânico e válvulas) fica na NVS e volta antes do primeiro comando
+// aos relés, e o estado completo das 8 bobinas é reenviado a cada 30 s e
+// conferido lendo as bobinas de volta (função 01).
 //
 // Endereços do barramento (item 2.5 do memorial) — 9600 8N1 em todos:
 //   Slave 1 = Contadora 1 (DI1 Cozinha, DI2 Banheiro 1, DI3 Banheiro 2, DI4 Área Serviço)
@@ -38,9 +44,13 @@
 
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <Preferences.h>
 #include <math.h>
 #include <time.h>
 #include "ui.h"
+#include "hid_logic.h"
+// #define NEXUS_TLS_INSEGURO 1   // SÓ diagnóstico: HTTPS sem verificar o certificado (ver nh_tls.h)
+#include "nh_tls.h"             // HTTPS verificado (pacote de CAs do core) + watchdog
 
 // ---------------- Tela touch (SpotPear/Waveshare ESP32-S3-Touch-LCD-4.3B) ----------------
 // 1 = mostra a interface da caixa d'água (ui.cpp). 0 = sem tela (outra placa ESP32-S3).
@@ -111,6 +121,9 @@ const char* DEVICE_VALVE_GERAL  = "a3333333-3333-4333-8333-333333333333";  // V�
 // Waveshare Modbus RTU Relay 8-CH (wiki Waveshare): bobinas 0x0000..0x0007, funções 01/05/0F,
 // 0xFF00 = liga, 0x0000 = desliga. Endereço de fábrica 0x01 — mude para 4 antes de ligar ao barramento.
 #define RELAY_COIL_BASE     0x0000
+#define RELAY_REFRESH_MS    30000    // reenvia as 8 bobinas (placa reiniciada volta com tudo desligado = tudo ABERTO)
+#define RELAY_READBACK      true     // confere as bobinas (função 01) depois de cada escrita
+#define RELAY_FAIL_ALERT    3        // escritas sem confirmação seguidas até o alerta para o app (~3 s)
 
 // ---------------- Calibragem (item 3.1) ----------------
 float K_PULSES_PER_LITER[7] = { 4.5f, 4.5f, 4.5f, 4.5f, 4.5f, 4.5f,   // DN40: 4–5 pulsos/L (calibrar)
@@ -131,8 +144,9 @@ const char* VALVE_NAME[8] = { "Ramal 1 (Cozinha)", "Ramal 2 (Banheiro 1)", "Rama
 #define LEAK_DROP_FRACTION     0.10f      // queda > 10% da capacidade...
 #define LEAK_WINDOW_MS         180000UL   // ...em menos de 180 s
 #define LEAK_METERED_RATIO     0.30f      // e o medido pelos 7 ramais < 30% da queda → rompimento
-#define EXT_FLOW_MIN_LPH       6.0f       // abaixo disso considera "sem fluxo" no ramal externo
-#define EXT_CONTINUOUS_MS      3600000UL  // 60 min de fluxo ininterrupto
+#define EXT_QUIET_MS           60000UL    // 1 min sem nenhum pulso no ramal externo = fluxo parou
+#define EXT_CONTINUOUS_MS      3600000UL  // 60 min de fluxo ininterrupto (nenhum minuto sem pulso)
+#define FLOW_WINDOW_MS         60000UL    // vazão = pulsos acumulados na janela deslizante de 60 s
 #define PANIC_BUTTON_PIN       0          // botão BOOT: segurar 2 s = pânico (só sem tela: na 4.3B o GPIO0 é do LCD)
 #define COMMAND_POLL_MS        5000       // busca comandos do app (GET /iot-gateway/commands)
 
@@ -155,6 +169,7 @@ uint16_t mbCrc(const uint8_t* buf, size_t len) {
 }
 
 void mbSend(uint8_t* frame, size_t lenNoCrc) {
+  nhWdtAlimenta();   // cada transação é curta, mas uma volta com escravos mudos soma dezenas de segundos
   uint16_t crc = mbCrc(frame, lenNoCrc);
   frame[lenNoCrc] = crc & 0xFF;
   frame[lenNoCrc + 1] = crc >> 8;
@@ -215,19 +230,36 @@ bool mbWriteCoil(uint8_t slave, uint16_t addr, bool on) {
 }
 
 // Função 0F: escreve as 8 bobinas da placa de relés de uma vez (bit0 = relé 1).
-// A wiki Waveshare lista 0x0F para as bobinas 0x0000–0x0007; se a placa recusar, cai para
-// oito comandos 0x05 (um por relé) — mais lento, mas ainda < 3 s para o pânico.
+// A wiki Waveshare lista 0x0F para as bobinas 0x0000–0x0007; se a placa RECUSAR (exceção Modbus),
+// cai para oito comandos 0x05 (um por relé) — mais lento, mas ainda < 3 s para o pânico. Placa muda
+// (sem resposta) não cai para os oito comandos: seriam ~4 s de espera a cada nova tentativa.
 bool mbWriteCoils8(uint8_t slave, uint16_t addr, uint8_t bits) {
   uint8_t req[12] = { slave, 0x0F, (uint8_t)(addr >> 8), (uint8_t)addr, 0x00, 0x08, 0x01, bits };
   uint8_t resp[8];
+  bool refused = false;
   for (int attempt = 0; attempt <= MB_RETRIES; attempt++) {
     mbSend(req, 8);
-    if (mbReceive(resp, 8, slave, 0x0F) > 0) return true;
+    int r = mbReceive(resp, 8, slave, 0x0F);
+    if (r > 0) return true;
+    if (r == -2) { refused = true; break; }
     delay(20);
   }
+  if (!refused) return false;
   bool ok = true;
   for (int i = 0; i < 8; i++) ok &= mbWriteCoil(slave, addr + i, bits & (1 << i));
   return ok;
+}
+
+// Função 01: lê as 8 bobinas (bit0 = relé 1) — confere se a placa ficou com o que foi pedido.
+bool mbReadCoils8(uint8_t slave, uint16_t addr, uint8_t &bits) {
+  uint8_t req[8] = { slave, 0x01, (uint8_t)(addr >> 8), (uint8_t)addr, 0x00, 0x08 };
+  uint8_t resp[6];
+  for (int attempt = 0; attempt <= MB_RETRIES; attempt++) {
+    mbSend(req, 6);
+    if (mbReceive(resp, 6, slave, 0x01) > 0 && resp[1] == 0x01 && resp[2] == 1) { bits = resp[3]; return true; }
+    delay(20);
+  }
+  return false;
 }
 
 // ---- seleção automática da ordem RX/TX do RS-485 ----
@@ -292,41 +324,158 @@ Snapshot snap;                         // copiado pela tarefa de telemetria
 portMUX_TYPE snapMux = portMUX_INITIALIZER_UNLOCKED;
 
 uint32_t lastPulses[7];
+uint32_t cumPulses[7];                 // pulsos acumulados desde o boot (contagem própria, sem os saltos de contadora zerada)
 bool     havePulses = false;
 float    totalL[7] = {0};
 float    flowLph[7] = {0};
-unsigned long lastPoll = 0, lastCountAt = 0;
+FlowWindow flowWin;                    // janela deslizante de 60 s para a vazão (hid_logic.h)
+unsigned long lastPoll = 0;
 
-bool valveOpen[8];                     // estado desejado (true = aberta)
-bool relaysOk = false;
+bool valveOpen[8];                     // estado desejado (true = aberta) — persiste na NVS
+bool relaysOk = false;                 // última escrita aceita E confirmada pela leitura das bobinas
+bool relayDirty = true;                // falta enviar/confirmar o estado das bobinas
+unsigned long lastRelayWrite = 0;
+RelayWatch relayWatch = { 0, false, false };
 
-float tankVol[TANK_SAMPLES];           // volume do reservatório a cada TANK_SAMPLE_MS
-float tankMetered[TANK_SAMPLES];       // litros medidos acumulados no mesmo instante
-bool  tankValid[TANK_SAMPLES];
+TankSample tank[TANK_SAMPLES];         // volume + litros medidos + instante, a cada TANK_SAMPLE_MS
 int   tankHead = 0;
 unsigned long lastTankSample = 0;
 float levelMm = NAN, volumeL = NAN;
 
-unsigned long extFlowSince = 0;        // início do fluxo contínuo no ramal externo (0 = parado)
-bool alarmBurst = false, alarmExternal = false, panicActive = false;
+ExtFlow extFlow = {};                  // fluxo contínuo no ramal externo (nenhum minuto sem pulso)
+bool alarmBurst = false, alarmExternal = false, panicActive = false;   // persistem na NVS
+
+// ============================================================
+// Alertas para o app (o loop enfileira, a tarefa de telemetria envia — mesmo padrão da T3)
+// ============================================================
+#define ALERT_SLOTS 8
+struct PendingAlert { uint32_t id; char severity[10]; char message[240]; };
+PendingAlert alertQ[ALERT_SLOTS];
+int alertCount = 0;
+uint32_t alertSeq = 0;
+
+void raiseAlert(const char* severity, const char* fmt, ...) {
+  char msg[240];
+  va_list ap; va_start(ap, fmt); int n = vsnprintf(msg, sizeof(msg), fmt, ap); va_end(ap);
+  if (n >= (int)sizeof(msg)) {         // cortou: não deixa um caractere UTF-8 pela metade (JSON inválido)
+    size_t len = strlen(msg);
+    while (len && ((uint8_t)msg[len - 1] & 0xC0) == 0x80) len--;
+    if (len && (uint8_t)msg[len - 1] >= 0xC0) len--;
+    msg[len] = 0;
+  }
+  for (char *p = msg; *p; p++) if (*p == '"' || *p == '\\') *p = '\'';   // vai cru no JSON
+  Serial.printf("[alerta %s] %s\n", severity, msg);
+  bool critical = !strcmp(severity, "critical");
+  portENTER_CRITICAL(&snapMux);
+  if (alertCount >= ALERT_SLOTS && critical) {
+    // fila cheia: um crítico toma o lugar do aviso mais antigo que não é crítico
+    for (int a = 0; a < alertCount; a++) {
+      if (strcmp(alertQ[a].severity, "critical")) {
+        memmove(alertQ + a, alertQ + a + 1, sizeof(PendingAlert) * (alertCount - a - 1));
+        alertCount--;
+        break;
+      }
+    }
+  }
+  if (alertCount < ALERT_SLOTS) {
+    PendingAlert &a = alertQ[alertCount];
+    a.id = ++alertSeq;
+    strncpy(a.severity, severity, sizeof(a.severity) - 1);
+    a.severity[sizeof(a.severity) - 1] = 0;
+    strncpy(a.message, msg, sizeof(a.message) - 1);
+    a.message[sizeof(a.message) - 1] = 0;
+    alertCount++;
+  }
+  portEXIT_CRITICAL(&snapMux);
+}
+
+// ============================================================
+// Persistência (NVS): alarmes, pânico e válvulas sobrevivem a um reinício
+// ------------------------------------------------------------
+// Um único valor de 16 bits (hid_logic.h), gravado só quando muda (borda) para não gastar a flash.
+// Sem isto, um reinício no meio de um rompimento reabria as 8 válvulas no setup().
+// ============================================================
+Preferences prefs;
+uint16_t savedState = 0xFFFF;          // último valor gravado (0xFFFF = nenhum: nunca é um estado válido)
+
+void saveState() {
+  uint16_t v = hidPackState(valveOpen, alarmBurst, alarmExternal, panicActive);
+  if (v == savedState) return;
+  prefs.putUShort("estado", v);
+  savedState = v;
+}
+
+void loadState() {
+  uint16_t v = prefs.getUShort("estado", HID_STATE_DEFAULT);
+  hidUnpackState(v, valveOpen, alarmBurst, alarmExternal, panicActive, VALVE_GERAL, VALVE_EXTERNA);
+  savedState = v;
+  saveState();                         // a trava do alarme corrigiu alguma válvula: grava a versão coerente
+  if (alarmBurst || alarmExternal || panicActive)
+    Serial.printf("[boot] alarme travado restaurado da NVS: rompimento=%d externo=%d pânico=%d — só \"Rearmar\" libera\n",
+                  alarmBurst, alarmExternal, panicActive);
+}
 
 // ============================================================
 // Válvulas
 // ============================================================
-bool applyValves() {
-  uint8_t bits = 0;
+void closedValveNames(char *out, size_t n) {
+  out[0] = 0;
+  bool all = true;
+  for (int i = 0; i < 8; i++) all &= !valveOpen[i];
+  if (all) { snprintf(out, n, "todas as 8"); return; }
   for (int i = 0; i < 8; i++) {
-    bool energize = RELAY_ENERGIZED_CLOSES ? !valveOpen[i] : valveOpen[i];
-    if (energize) bits |= (1 << i);
+    if (valveOpen[i]) continue;
+    size_t len = strlen(out);
+    snprintf(out + len, n - len, "%s%s", len ? ", " : "", VALVE_NAME[i]);
   }
-  relaysOk = mbWriteCoils8(SLAVE_RELAYS, RELAY_COIL_BASE, bits);
-  if (!relaysOk) Serial.println("[relés] FALHA ao comandar a placa (slave 4) — verifique o barramento");
-  return relaysOk;
+}
+
+// Envia o estado completo das 8 bobinas e confere lendo de volta (função 01). Sem confirmação o
+// estado fica "sujo" e o loop tenta de novo na próxima volta; RELAY_FAIL_ALERT falhas seguidas
+// viram alerta para o app (crítico se alguma válvula deveria estar fechada: pela fiação X7, relé
+// desenergizado = válvula ABERTA).
+bool applyValves() {
+  uint8_t bits = hidRelayBits(valveOpen, RELAY_ENERGIZED_CLOSES);
+  lastRelayWrite = millis();
+  bool ok = mbWriteCoils8(SLAVE_RELAYS, RELAY_COIL_BASE, bits);
+  if (!ok) {
+    Serial.println("[relés] FALHA ao comandar a placa (slave 4) — verifique o barramento");
+  } else if (RELAY_READBACK) {
+    uint8_t got = 0;
+    if (!mbReadCoils8(SLAVE_RELAYS, RELAY_COIL_BASE, got)) {
+      ok = false;
+      Serial.println("[relés] escrita aceita, mas a leitura das bobinas (função 01) não respondeu");
+    } else if (got != bits) {
+      ok = false;
+      Serial.printf("[relés] bobinas divergem: pedido 0x%02X, lido 0x%02X\n", bits, got);
+    }
+  }
+  if (ok != relaysOk) Serial.printf("[relés] placa das válvulas (slave 4): %s\n", ok ? "confirmada" : "SEM CONFIRMAÇÃO");
+  relaysOk = ok;
+  relayDirty = !ok;                    // falhou: tenta de novo na próxima volta do loop
+
+  char names[160];
+  switch (hidRelayStep(relayWatch, ok, hidAnyClosed(valveOpen), RELAY_FAIL_ALERT)) {
+    case RW_CRITICAL:
+      closedValveNames(names, sizeof(names));
+      raiseAlert("critical", "Água: válvula não confirmou fechamento — sem o relé ela REABRE pela fiação. Verifique a "
+                             "placa de relés (slave 4) e o barramento C. Deveriam estar fechadas: %s.", names);
+      break;
+    case RW_WARN:
+      raiseAlert("warning", "Água: a placa de relés das válvulas (slave 4) não confirma os comandos. Verifique o barramento C.");
+      break;
+    case RW_RECOVERED:
+      raiseAlert("info", "Água: a placa de relés das válvulas voltou a confirmar os comandos.");
+      break;
+    default: break;
+  }
+  return ok;
 }
 
 void setValve(int idx, bool open, const char* why) {
   if (idx < 0 || idx > 7) return;
   valveOpen[idx] = open;
+  saveState();                         // grava antes de comandar: um reinício no meio não perde a decisão
   applyValves();
   Serial.printf("[válvula] %s → %s (%s)\n", VALVE_NAME[idx], open ? "ABERTA" : "FECHADA", why);
 }
@@ -335,17 +484,19 @@ void setValve(int idx, bool open, const char* why) {
 void panicCloseAll() {
   for (int i = 0; i < 8; i++) valveOpen[i] = false;
   panicActive = true;
+  saveState();
   unsigned long t0 = millis();
   bool ok = false;
   for (int i = 0; i < 3 && !ok && millis() - t0 < 2500; i++) ok = applyValves();
   Serial.printf("[PÂNICO] fechar todas as válvulas: %s em %lu ms\n", ok ? "OK" : "FALHOU", millis() - t0);
 }
 
-// Libera alarmes e reabre tudo (só por comando explícito do usuário).
+// Libera alarmes e reabre tudo (só por comando explícito do usuário) — e limpa o que foi gravado.
 void resetAll() {
   alarmBurst = alarmExternal = panicActive = false;
-  extFlowSince = 0;
+  extFlow = ExtFlow{};
   for (int i = 0; i < 8; i++) valveOpen[i] = true;
+  saveState();
   applyValves();
   Serial.println("[reset] alarmes liberados, válvulas abertas");
 }
@@ -417,40 +568,32 @@ float meteredTotal() { float s = 0; for (int i = 0; i < 7; i++) s += totalL[i]; 
 // ============================================================
 // Regras de segurança
 // ============================================================
-void checkBurstRule(bool countersOk) {
+void checkBurstRule(bool countersOk, uint32_t now) {
   if (alarmBurst || isnan(volumeL)) return;
-  float nowMet = meteredTotal();
-  // maior volume (e o medido naquele instante) dentro da janela de 180 s
-  float peak = volumeL, metAtPeak = nowMet;
-  bool any = false;
-  for (int i = 0; i < TANK_SAMPLES; i++) {
-    if (!tankValid[i]) continue;
-    any = true;
-    if (tankVol[i] > peak) { peak = tankVol[i]; metAtPeak = tankMetered[i]; }
-  }
-  if (!any) return;
-  float drop = peak - volumeL;
-  float metered = nowMet - metAtPeak;
-  if (drop > LEAK_DROP_FRACTION * TANK_CAPACITY_L) {
-    if (!countersOk) {
-      // sem os contadores não dá para distinguir consumo de rompimento: avisa e não corta
-      Serial.printf("[segurança] queda de %.0f L sem leitura dos medidores — corte suspenso\n", drop);
-      return;
+  // maior volume (e o medido naquele instante) entre as amostras dos últimos 180 s (com carimbo de tempo)
+  BurstEval e = hidBurstEval(tank, TANK_SAMPLES, now, LEAK_WINDOW_MS, volumeL, meteredTotal());
+  BurstVerdict v = hidBurstVerdict(e, countersOk, TANK_CAPACITY_L, LEAK_DROP_FRACTION, LEAK_METERED_RATIO);
+  if (v == BV_SUSPENDED) {
+    // sem os contadores não dá para distinguir consumo de rompimento: avisa e não corta
+    static unsigned long lastWarn = 0;
+    static bool warned = false;
+    if (!warned || hidElapsed(now, lastWarn, 60000)) {
+      warned = true; lastWarn = now;
+      Serial.printf("[segurança] queda de %.0f L sem leitura dos medidores — corte suspenso\n", e.drop);
     }
-    if (metered < LEAK_METERED_RATIO * drop) {
-      alarmBurst = true;
-      setValve(VALVE_GERAL, false, "rompimento de adutora: nível caiu sem consumo nos ramais");
-      Serial.printf("[ALARME] queda %.0f L em ≤180 s, medido só %.0f L\n", drop, metered);
-    }
+  } else if (v == BV_ALARM) {
+    alarmBurst = true;
+    setValve(VALVE_GERAL, false, "rompimento de adutora: nível caiu sem consumo nos ramais");
+    Serial.printf("[ALARME] queda %.0f L em ≤180 s, medido só %.0f L\n", e.drop, e.metered);
   }
 }
 
-void checkExternalRule() {
+// Fluxo contínuo na área externa (ramal 7): nenhum minuto sem pulso por 60 min. `readOk` = houve
+// leitura nova das contadoras; sem ela (falha Modbus) a contagem só pausa, não zera.
+void checkExternalRule(bool readOk, uint32_t extPulses, uint32_t now) {
+  uint32_t continuousMs = hidExtStep(extFlow, readOk, extPulses, now, EXT_QUIET_MS);
   if (alarmExternal) return;
-  bool flowing = flowLph[6] >= EXT_FLOW_MIN_LPH;
-  if (!flowing) { extFlowSince = 0; return; }
-  if (!extFlowSince) extFlowSince = millis();
-  if (millis() - extFlowSince >= EXT_CONTINUOUS_MS) {
+  if (continuousMs >= EXT_CONTINUOUS_MS) {
     alarmExternal = true;
     setValve(VALVE_EXTERNA, false, "vazamento externo: fluxo contínuo por 60 min");
   }
@@ -462,8 +605,9 @@ void checkExternalRule() {
 // Retorna o código HTTP (200 = ok) ou -1 sem Wi-Fi/dispositivo.
 int postTelemetry(const char* deviceId, const char* metric, float value, const char* statusJson, const char* tsIso = nullptr) {
   if (!deviceId || !deviceId[0] || WiFi.status() != WL_CONNECTED) return -1;
+  NetworkClientSecure tls;             // antes do http: o http é destruído primeiro
   HTTPClient http;
-  http.begin(GATEWAY_URL);
+  nhHttpsBegin(http, tls, GATEWAY_URL);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(5000);
@@ -474,6 +618,7 @@ int postTelemetry(const char* deviceId, const char* metric, float value, const c
   else snprintf(body, sizeof(body), "{\"device_id\":\"%s\",\"metric_type\":\"%s\",\"value\":%.2f%s%s}",
                 deviceId, metric, value, statusJson ? ",\"status\":" : "", statusJson ? statusJson : "");
   int code = http.POST(body);
+  nhTlsConfere(tls, code, "iot");
   if (code != 200) Serial.printf("[iot] %s → HTTP %d %s\n", metric, code, code > 0 ? http.getString().c_str() : "");
   http.end();
   return code;
@@ -486,15 +631,17 @@ static bool retryable(int code) { return code <= 0 || code >= 500; }
 // Lote só com "alerts" (readings vazio); "source":"agua" identifica o módulo.
 int postAlert(const char* severity, const char* message) {
   if (WiFi.status() != WL_CONNECTED) return -1;
+  NetworkClientSecure tls;
   HTTPClient http;
-  http.begin(GATEWAY_URL);
+  nhHttpsBegin(http, tls, GATEWAY_URL);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(5000);
-  char body[360];
+  char body[480];
   snprintf(body, sizeof(body), "{\"readings\":[],\"alerts\":[{\"severity\":\"%s\",\"message\":\"%s\"}],\"source\":\"agua\"}",
            severity, message);
   int code = http.POST(body);
+  nhTlsConfere(tls, code, "iot");
   if (code != 200) Serial.printf("[iot] alerta → HTTP %d\n", code);
   http.end();
   return code;
@@ -513,6 +660,30 @@ void publishAlarmEdges(bool burst, bool external, bool panic) {   // (bools: o p
     if (*a.sent) continue;
     int code = postAlert("critical", a.msg);
     if (code == 200 || (code > 0 && !retryable(code))) *a.sent = true;
+  }
+}
+
+// Alertas enfileirados pelo loop (raiseAlert): envia do mais antigo ao mais novo. Só sai da fila com
+// HTTP 200 ou recusa definitiva (4xx); sem rede/5xx fica para o próximo ciclo (5 s). Remove pelo id,
+// porque o loop pode ter reordenado a fila (crítico tomando o lugar de um aviso) durante o POST.
+void flushAlerts() {
+  for (int n = 0; n < ALERT_SLOTS; n++) {
+    PendingAlert a;
+    bool have = false;
+    portENTER_CRITICAL(&snapMux);
+    if (alertCount) { a = alertQ[0]; have = true; }
+    portEXIT_CRITICAL(&snapMux);
+    if (!have) return;
+    int code = postAlert(a.severity, a.message);
+    if (code != 200 && retryable(code)) return;
+    portENTER_CRITICAL(&snapMux);
+    for (int i = 0; i < alertCount; i++) {
+      if (alertQ[i].id != a.id) continue;
+      memmove(alertQ + i, alertQ + i + 1, sizeof(PendingAlert) * (alertCount - i - 1));
+      alertCount--;
+      break;
+    }
+    portEXIT_CRITICAL(&snapMux);
   }
 }
 
@@ -570,6 +741,7 @@ int valveForDevice(const char *id) {
 // Parser mínimo (sem biblioteca JSON): para cada device_id, lê o "open" que vem depois.
 void pollCommands() {
   if (WiFi.status() != WL_CONNECTED) return;
+  NetworkClientSecure tls;
   HTTPClient http;
   // só os comandos dos dispositivos deste painel (várias casas no mesmo projeto)
   String url = String(GATEWAY_URL) + "/commands?devices=";
@@ -577,10 +749,11 @@ void pollCommands() {
   auto addId = [&](const char *id) { if (id && id[0]) { if (!first) url += ","; url += id; first = false; } };
   for (int i = 0; i < 7; i++) addId(DEVICE_RAMAL[i]);
   addId(DEVICE_VALVE_GERAL);
-  http.begin(url);
+  nhHttpsBegin(http, tls, url);
   http.addHeader("x-device-key", DEVICE_SECRET);
   http.setTimeout(5000);
   int code = http.GET();
+  nhTlsConfere(tls, code, "cmd");
   if (code != 200) {
     if (code > 0) Serial.printf("[cmd] HTTP %d %s\n", code, http.getString().c_str());
     http.end();
@@ -608,10 +781,11 @@ void telemetryTask(void*) {
   bool wasOnline = false;
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(COMMAND_POLL_MS));
+    nhRedeBatida();                    // sinal de vida para o loop() (nhRedeConfere)
     bool online = WiFi.status() == WL_CONNECTED;
     if (online && !wasOnline) configTime(0, 0, "pool.ntp.org", "time.google.com");   // relógio para a fila offline
     wasOnline = online;
-    if (online) { pollCommands(); flushOfflineQueue(); }
+    if (online) { flushAlerts(); pollCommands(); flushOfflineQueue(); }
     if (millis() - lastPublish < PUBLISH_INTERVAL_MS) continue;
     lastPublish = millis();
     Snapshot s;
@@ -647,8 +821,13 @@ void handleSerial() {
     char c = Serial.read();
     if (c != '\n' && c != '\r') { line += c; continue; }
     line.trim(); line.toLowerCase();
-    if (line.startsWith("abrir ")) setValve(line.substring(6).toInt() - 1, true, "comando serial");
-    else if (line.startsWith("fechar ")) setValve(line.substring(7).toInt() - 1, false, "comando serial");
+    // abrir/fechar vão pela MESMA fila dos toques na tela: respeitam a trava do alarme/pânico
+    if (line.startsWith("abrir ") || line.startsWith("fechar ")) {
+      bool open = line.startsWith("abrir ");
+      int v = line.substring(open ? 6 : 7).toInt() - 1;
+      if (v < 0 || v > 7) Serial.println("[serial] use abrir N / fechar N com N de 1 a 8");
+      else submitRequest(UiRequest{ UI_REQ_SET_VALVE, (int8_t)v, open, false });
+    }
     else if (line == "panico") submitRequest(UiRequest{ UI_REQ_PANIC, -1, false, false });
     else if (line == "reset") submitRequest(UiRequest{ UI_REQ_RESET, -1, true, false });
     else if (line.startsWith("dump ")) mbDump((uint8_t)line.substring(5).toInt());
@@ -656,6 +835,8 @@ void handleSerial() {
       Serial.printf("nível %.0f mm · %.0f L · relés %s · RS485 %s · alarmes: rompimento=%d externo=%d pânico=%d\n",
                     levelMm, volumeL, relaysOk ? "ok" : "FALHA", rs485Swapped ? "invertido" : "normal",
                     alarmBurst, alarmExternal, panicActive);
+      Serial.printf("  área externa: fluxo contínuo há %lu min · alertas na fila: %d\n",
+                    (unsigned long)((extFlow.active ? extFlow.accMs : 0) / 60000UL), alertCount);
       for (int i = 0; i < 7; i++) Serial.printf("  ramal %d: %.1f L/h · total %.1f L\n", i + 1, flowLph[i], totalL[i]);
       Serial.printf("  fila offline: %d leituras · %lu descartadas · relógio %s\n", qCount, (unsigned long)qDropped, timeSynced() ? "ok" : "sem NTP");
     }
@@ -688,8 +869,12 @@ void setup() {
   if (RS485_DE_PIN >= 0) { pinMode(RS485_DE_PIN, OUTPUT); digitalWrite(RS485_DE_PIN, LOW); }
   rs485Begin();
 
-  for (int i = 0; i < 8; i++) valveOpen[i] = true;   // estado seguro: abastecimento normal
-  for (int i = 0; i < TANK_SAMPLES; i++) tankValid[i] = false;
+  // Estado travado ANTES do primeiro comando aos relés: um reinício no meio de um rompimento/pânico
+  // mantém as válvulas fechadas (NVS vazia = abastecimento normal, tudo aberto).
+  prefs.begin("hidraulica", false);
+  loadState();
+  for (int i = 0; i < TANK_SAMPLES; i++) tank[i].valid = false;
+  hidFlowReset(flowWin);
   delay(500);                                         // escravos terminam o boot
   rs485AutoDetect();
   applyValves();
@@ -698,6 +883,9 @@ void setup() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);              // não bloqueia: a segurança roda mesmo sem Wi-Fi
   xTaskCreatePinnedToCore(telemetryTask, "telemetria", 8192, nullptr, 1, nullptr, 0);
   Serial.println("[boot] automação hidráulica iniciada — comandos: abrir N | fechar N | panico | reset | status");
+  // Watchdog só agora: o estado travado (NVS) já foi restaurado e aplicado acima, então um reinício pelo
+  // watchdog passa de novo por loadState() antes do primeiro applyValves() — não reabre a água.
+  nhWdtInicia();
 }
 
 #if USE_DISPLAY
@@ -719,6 +907,8 @@ void refreshScreen(bool countersOk, bool sondaOk) {
 #endif
 
 void loop() {
+  nhWdtAlimenta();            // watchdog (nh_tls.h): loop travado por 15 s → reinício seguro (NVS)
+  nhRedeConfere(false);
   handleSerial();
   checkPanicButton();
   processRequests();          // toques na tela e comandos do app (antes da leitura: resposta rápida)
@@ -727,23 +917,29 @@ void loop() {
   if (now - lastPoll < POLL_INTERVAL_MS) return;
   lastPoll = now;
 
-  // 1) vazão: pulsos acumulados → litros e L/h
-  uint32_t pulses[7];
+  // 0) relés: reenvia se a última escrita não foi confirmada e, a cada 30 s, o estado completo
+  //    (placa reiniciada/brownout volta com as bobinas desligadas = válvulas ABERTAS pela fiação)
+  if (relayDirty || hidElapsed(now, lastRelayWrite, RELAY_REFRESH_MS)) applyValves();
+
+  // 1) vazão: pulsos acumulados → litros; L/h pela janela deslizante de 60 s
+  uint32_t pulses[7], delta[7] = {0};
   bool countersOk = readCounters(pulses);
+  bool haveDelta = false;                                 // leitura nova com diferença válida (não a 1ª)
   if (countersOk) {
     if (havePulses) {
-      float dtH = (now - lastCountAt) / 3600000.0f;
       for (int i = 0; i < 7; i++) {
         uint32_t d = pulses[i] - lastPulses[i];          // subtração sem sinal cobre o estouro de 32 bits
         if (d > 100000) d = 0;                            // contador zerado/reiniciado: ignora o salto
-        float liters = d / K_PULSES_PER_LITER[i];
-        totalL[i] += liters;
-        flowLph[i] = dtH > 0 ? liters / dtH : 0;
+        delta[i] = d;
+        cumPulses[i] += d;
+        totalL[i] += d / K_PULSES_PER_LITER[i];
       }
+      haveDelta = true;
     }
     memcpy(lastPulses, pulses, sizeof(pulses));
-    lastCountAt = now;
     havePulses = true;
+    hidFlowPush(flowWin, now, cumPulses);
+    for (int i = 0; i < 7; i++) flowLph[i] = hidFlowLph(flowWin, i, FLOW_WINDOW_MS, K_PULSES_PER_LITER[i]);
   } else {
     for (int i = 0; i < 7; i++) flowLph[i] = 0;
     Serial.println("[contadores] sem resposta (slave 1/2)");
@@ -764,13 +960,11 @@ void loop() {
   }
 
   // 3) regras de segurança
-  checkBurstRule(countersOk);
-  checkExternalRule();
-  if (sondaOk && now - lastTankSample >= TANK_SAMPLE_MS) {
+  checkBurstRule(countersOk, now);
+  checkExternalRule(haveDelta, delta[6], now);
+  if (sondaOk && hidElapsed(now, lastTankSample, TANK_SAMPLE_MS)) {
     lastTankSample = now;
-    tankVol[tankHead] = volumeL;
-    tankMetered[tankHead] = meteredTotal();
-    tankValid[tankHead] = true;
+    tank[tankHead] = TankSample{ volumeL, meteredTotal(), (uint32_t)now, true };
     tankHead = (tankHead + 1) % TANK_SAMPLES;
   }
 

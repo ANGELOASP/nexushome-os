@@ -68,13 +68,14 @@ export function splitBatch(readings: unknown, nowMs = Date.now()) {
   return { rows, statuses: [...merged].map(([device_id, status]) => ({ device_id, status })), errors };
 }
 
-export type AlertRow = { severity: "info" | "warning" | "critical"; message: string; source_module: string };
+export type AlertRow = { severity: "info" | "warning" | "critical"; message: string; source_module: string; device_id?: string };
 export const MAX_ALERTS = 10;
 const SEVERITIES = new Set(["info", "warning", "critical"]);
 
 /**
  * Alertas que o firmware levanta (ex.: circuito desarmado por sobrecarga) — vão para a
  * tabela alerts; os críticos geram push no celular (notify-alert). Inválidos são ignorados.
+ * `device_id` (opcional, uuid) liga o alerta ao aparelho (coluna alerts.device_id, migração 027).
  */
 export function parseAlerts(alerts: unknown, source = "eletrica"): AlertRow[] {
   if (!Array.isArray(alerts)) return [];
@@ -84,6 +85,7 @@ export function parseAlerts(alerts: unknown, source = "eletrica"): AlertRow[] {
     const severity = String(it.severity ?? "");
     const message = String(it.message ?? "").trim().slice(0, 300);
     if (!SEVERITIES.has(severity) || !message) return [];
-    return [{ severity: severity as AlertRow["severity"], message, source_module: source }];
+    const deviceId = String(it.device_id ?? "");
+    return [{ severity: severity as AlertRow["severity"], message, source_module: source, ...(UUID.test(deviceId) ? { device_id: deviceId } : {}) }];
   });
 }
