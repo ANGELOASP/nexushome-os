@@ -83,8 +83,8 @@ Migrações **001 a 026 aplicadas** pelo usuário no Supabase (025 = quadro unif
 
 ## Pendências conhecidas (do lado do usuário)
 
-- v2.18 (auditoria, `.cartographer/` fora do Git): rodar a **027**; publicar `iot-gateway`, `notify-alert`, `smartthings-proxy`
-  e `tuya-proxy`; criar o secret **`IOT_OWNER_ID`** (uuid do dono) e, na Vercel, `VITE_VAPID_PUBLIC_KEY`; regravar os
+- v2.18 (auditoria, `.cartographer/` fora do Git): funções publicadas pelo conector em 21/out/2026 (`iot-gateway` v15,
+  `notify-alert` v11, `smartthings-proxy` v9, `tuya-proxy` v9; todas com `verify_jwt` desligado). Falta: rodar a **027**; criar o secret **`IOT_OWNER_ID`** (uuid do dono) e, na Vercel, `VITE_VAPID_PUBLIC_KEY`; regravar os
   firmwares (HTTPS verificado + watchdog; na T1 conferir se a placa de relés aceita a leitura de volta, senão `RELAY_READBACK false`).
   O cadastro do app continua aberto por decisão do dono: todo acesso com service role precisa filtrar por dono.
 - Edge Functions publicadas pelo conector: `iot-gateway` em 15/out/2026 (versão 14 no Supabase, código v2.16: `/panel`,
