@@ -6,8 +6,8 @@
   <meta name="description" content="NexusHome OS — sistema operacional de casa inteligente em tempo real. Projeto sem fins lucrativos." />
   <title>NexusHome OS — Central de Controle</title>
 
-  <!-- Tailwind CSS (CDN) -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind CSS (CDN, versão fixa; o CDN não manda CORS, então sem SRI) -->
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -23,13 +23,13 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
   <!-- Three.js r128 + OrbitControls (CDN, global THREE) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" integrity="sha384-CI3ELBVUz9XQO+97x6nwMDPosPR5XvsxW2ua7N1Xeygeh1IxtgqtCkGfQY9WWdHu" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js" integrity="sha384-wagZhIFgY4hD+7awjQjR4e2E294y6J2HSnd8eTNc15ZubTeQeVRZwhQJ+W6hnBsf" crossorigin="anonymous"></script>
 
-  <!-- Supabase JS v2 (CDN) -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Supabase JS (CDN, versão exata + SRI: uma minor nova não entra sem deploy) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js" integrity="sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK" crossorigin="anonymous"></script>
 
-  <!-- Configuração local (gitignored; ver js/config.example.js) -->
+  <!-- Configuração local (gitignored; ver js/config.example.js) — só no `npm run dev`: o build tira esta tag (vite.config.js) -->
   <script src="js/config.js"></script>
 
   <link rel="stylesheet" href="css/styles.css" />

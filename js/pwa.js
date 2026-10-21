@@ -107,8 +107,24 @@ async function toggleNotifications() {
   localNotify({ title: 'NexusHome', body: 'Teste: as notificações estão funcionando.', tag: 'nh-test', severity: 'info' });
 }
 
+/**
+ * Chave PÚBLICA VAPID: localStorage → js/config.js (só no dev) → build (VITE_VAPID_PUBLIC_KEY, variável
+ * da Vercel). Como a URL/chave anon do Supabase, é pública por natureza; a privada fica nos secrets.
+ */
+export function resolveVapidKey({ storage, cfg = {}, env = {} } = {}) {
+  let local = '';
+  try { local = storage?.getItem('nh_vapid_public_key') || ''; } catch { /* storage bloqueado */ }
+  return String(local || cfg?.VAPID_PUBLIC_KEY || env?.VITE_VAPID_PUBLIC_KEY || '').trim();
+}
+
 function vapidKey() {
-  try { return (localStorage.getItem('nh_vapid_public_key') || window.NEXUSHOME_CONFIG?.VAPID_PUBLIC_KEY || '').trim(); } catch { return ''; }
+  try {
+    return resolveVapidKey({
+      storage: window.localStorage,
+      cfg: window.NEXUSHOME_CONFIG || {},
+      env: { VITE_VAPID_PUBLIC_KEY: import.meta.env?.VITE_VAPID_PUBLIC_KEY },
+    });
+  } catch { return ''; }
 }
 
 function b64ToBytes(b64) {
@@ -137,12 +153,24 @@ async function subscribePush() {
   }
 }
 
+/**
+ * Logout: cancela o push DESTE navegador e apaga a linha em push_subscriptions (ainda com a sessão,
+ * por causa do RLS); desliga também as notificações locais. Num aparelho compartilhado o próximo
+ * usuário não recebe os alertas do anterior. Nunca segura o logout por mais de `ms`.
+ */
+export async function disablePushOnLogout(ms = 4000) {
+  try { localStorage.setItem(NOTIFY_KEY, '0'); } catch { /* noop */ }
+  syncNotifyBtn();
+  await Promise.race([unsubscribePush(), new Promise((r) => setTimeout(r, ms))]);
+}
+
 async function unsubscribePush() {
   try {
     const r = reg || (await navigator.serviceWorker?.getRegistration?.());
     const sub = await r?.pushManager?.getSubscription();
     if (!sub) return;
-    if (state.mode === 'live') await client.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+    // a linha do banco é melhor esforço: o navegador cancela de qualquer jeito
+    if (state.mode === 'live') { try { await client.from('push_subscriptions').delete().eq('endpoint', sub.endpoint); } catch { /* sem cliente/rede */ } }
     await sub.unsubscribe();
   } catch { /* noop */ }
 }

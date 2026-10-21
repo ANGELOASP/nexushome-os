@@ -231,13 +231,16 @@ class MockQueryBuilder {
       this._client._afterWrite(this._table);
       return { data: out, error: null };
     }
+    // como o PostgREST (pg-safeupdate): update/delete sem filtro é recusado
+    if ((this._op === 'update' || this._op === 'delete') && !this._filters.length) {
+      return { data: null, error: { code: '21000', message: `${this._op.toUpperCase()} requires a WHERE clause` } };
+    }
     if (this._op === 'update') {
       const updated = [];
       rows.forEach((row) => {
         if (!this._match(row)) return;
-        if (this._payload.status && row.status) {
-          this._payload = { ...this._payload, status: { ...row.status, ...this._payload.status } };
-        }
+        // jsonb (ex.: status) é SUBSTITUÍDO como no Postgres; quem quer mesclar manda o objeto
+        // já mesclado (device-status.js) ou usa a rpc da 027 no banco real
         Object.assign(row, clone(this._payload));
         updated.push(clone(row));
         this._client._emitRealtime(this._table, 'UPDATE', row);
@@ -272,7 +275,8 @@ class MockChannel {
     this._subs = [];
   }
   on(_event, filter, cb) {
-    this._subs.push({ table: filter?.table, cb });
+    // guarda o tipo (INSERT/UPDATE/DELETE/*): resolver um alerta (UPDATE) não pode cair no ouvinte de INSERT
+    this._subs.push({ table: filter?.table, event: String(filter?.event || '*').toUpperCase(), cb });
     return this;
   }
   subscribe(statusCb) {
@@ -435,7 +439,7 @@ export class MockSupabaseClient {
     };
     this._channels.forEach((ch) =>
       ch._subs.forEach((s) => {
-        if (!s.table || s.table === table) {
+        if ((!s.table || s.table === table) && (s.event === '*' || s.event === eventType)) {
           try { s.cb(payload); } catch (e) { console.error('[mock realtime]', e); }
         }
       }));

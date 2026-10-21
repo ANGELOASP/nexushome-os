@@ -10,16 +10,16 @@
 //                      PASSWORD_RECOVERY → showResetView
 // ============================================================
 
-import { state, on, emit } from './state.js';
+import { state, on, emit, resetState } from './state.js';
 import { createNexusClient } from './supabase-client.js';
 import { toast } from './toasts.js';
 import { initAuthUI, showLogin, hideLogin, showResetView } from './auth.js';
-import { initScene3D, selectRoom } from './scene3d.js';
+import { initScene3D, selectRoom, setRenderActive } from './scene3d.js';
 import { initFloorplan, loadRooms, subscribeRooms, loadWalls, subscribeWalls, loadOpenings, subscribeOpenings, loadFurniture, subscribeFurniture } from './floorplan.js';
 import { initDevicesPanel } from './panels/devices.js';
 import { initRoomPanel } from './panels/room-panel.js';
 import { initScenesPanel, loadScenes, subscribeScenes } from './panels/scenes.js';
-import { initPwa } from './pwa.js';
+import { initPwa, disablePushOnLogout } from './pwa.js';
 import { initMobileNav, isMobileUI, setTab } from './mobile-nav.js';
 import { loadDevicePins } from './device-pins-store.js';
 import { initMonitorPanel, loadInitialMonitorData, subscribeTelemetry, updateHealthBadge } from './panels/monitor.js';
@@ -35,6 +35,9 @@ let sceneReady = false;
 let activeChannels = [];      // canais realtime para teardown no logout
 let entering = false;
 let recoveryPending = false;  // link de recuperação de senha aberto (bloqueia enterApp)
+
+// segredos das integrações gravados neste navegador (smartthings.js / tuya.js): saem no logout
+const INTEGRATION_KEYS = ['nh_smartthings_token', 'nh_smartthings_links', 'nh_tuya_creds', 'nh_tuya_links'];
 
 /** Selo do cabeçalho: verde "Supabase Live" com backend real, âmbar "Demo" no modo demonstração. */
 function updateConnectionBadge() {
@@ -58,7 +61,7 @@ async function boot() {
 
   // UI de login pronta imediatamente (fica sob o overlay de loading)
   const clientReady = createNexusClient();
-  initAuthUI({ getClient: () => clientReady, onPasswordUpdated });
+  initAuthUI({ getClient: () => clientReady, onPasswordUpdated, beforeLogout: disablePushOnLogout });
   initFloorplan({ getClient: () => clientReady });
 
   // conexão: Supabase real ou Modo Demonstração (transparente)
@@ -135,29 +138,28 @@ async function enterApp(user) {
     await loadOpenings(client);
     await loadFurniture(client);
 
-    // painéis e cena são inicializados uma única vez
+    // painéis e cena são inicializados uma única vez (mesmo se um falhar: repetir duplicaria os ouvintes)
     if (!panelsReady) {
-      initDevicesPanel(client);
-      initAutomationsPanel(client);
-      initScenesPanel(client);
-      initPwa(client);
-      initRoomPanel(client);
-      initMonitorPanel(client);
-      initSmartThingsPanel(client);
-      initTuyaPanel(client);
       panelsReady = true;
+      [initDevicesPanel, initAutomationsPanel, initScenesPanel, initPwa, initRoomPanel, initMonitorPanel, initSmartThingsPanel, initTuyaPanel]
+        .forEach((init) => {
+          try { init(client); } catch (err) { console.error('[painel] falha ao iniciar', init.name, err); }
+        });
     }
 
-    // carga inicial
+    // carga inicial: lista vazia também substitui (nunca herda a casa do login anterior);
+    // os integrados (st-/tuya-) que os painéis acabaram de pôr no estado continuam
     const { data: devices, error } = await client.from('devices').select('*');
-    if (!error && devices?.length) {
-      state.devices = devices;
+    if (!error) {
+      state.devices = [...(devices || []), ...state.devices.filter((d) => d.virtual)];
       emit('devices-changed', state.devices);
+    } else {
+      console.warn('[devices] falha na carga inicial', error.message);
     }
     await Promise.all([loadAutomations(), loadScenes(), loadInitialMonitorData(), loadDevicePins(client)]);
 
     // realtime (re)assinatura
-    activeChannels.forEach((ch) => { try { client.removeChannel?.(ch); } catch { /* noop */ } });
+    dropChannels();
     activeChannels = [...subscribeTelemetry(), ...subscribeAutomations(), ...subscribeScenes(), ...subscribeRooms(client), ...subscribeWalls(client), ...subscribeOpenings(client), ...subscribeFurniture(client)];
 
     // cena 3D
@@ -174,6 +176,7 @@ async function enterApp(user) {
         toast('Visualização 3D indisponível', 'O painel de controle continua funcional.', 'warning');
       }
     }
+    setRenderActive(true);   // o logout pausa o loop de render
     state.devices.forEach((d) => sceneApi?.applyDeviceState(d));
 
     // simulador de telemetria (somente no modo demo, e só após o login)
@@ -186,9 +189,24 @@ async function enterApp(user) {
     }
 
     updateHealthBadge();
+  } catch (err) {
+    // sem isto a classe `authenticated` ficava ligada e o próximo SIGNED_IN parava no guarda do topo
+    console.error('[app] falha ao abrir a central', err);
+    document.body.classList.remove('authenticated');
+    document.getElementById('user-chip')?.classList.add('hidden');
+    showLogin();
+    toast('Erro ao abrir a central', err?.message || String(err), 'critical');
   } finally {
     entering = false;
   }
+}
+
+/** Remove os canais realtime (removeChannel devolve promise: a rejeição não pode escapar). */
+function dropChannels() {
+  activeChannels.forEach((ch) => {
+    try { Promise.resolve(client.removeChannel?.(ch)).catch(() => {}); } catch { /* noop */ }
+  });
+  activeChannels = [];
 }
 
 // ------------------------------------------------------------
@@ -196,17 +214,27 @@ async function enterApp(user) {
 // ------------------------------------------------------------
 
 function leaveApp() {
-  activeChannels.forEach((ch) => { try { client.removeChannel?.(ch); } catch { /* noop */ } });
-  activeChannels = [];
+  const wasIn = document.body.classList.contains('authenticated');
+  dropChannels();
   client.stopSimulation?.();
   teardownSmartThings(); // encerra o polling de 30 s do painel SmartThings
   teardownTuya();        // idem: polling e deriva demo do painel Tuya
+  disablePushOnLogout(); // logout por outra via (sessão expirada): ao menos este navegador para de receber
+  setRenderActive(false);
+
+  // aparelho compartilhado: o próximo login não herda a casa, os alertas nem os segredos do anterior
+  if (sceneApi) selectRoom(null); else if (state.selectedRoom) emit('room-selected', null);
+  resetState();
+  try { INTEGRATION_KEYS.forEach((k) => localStorage.removeItem(k)); } catch { /* storage bloqueado */ }
 
   document.body.classList.remove('authenticated');
   document.getElementById('user-chip')?.classList.add('hidden');
   setTab('casa');
   showLogin();
   toast('Sessão encerrada', 'Você saiu do NexusHome OS.', 'info');
+  // painéis (SmartThings, Tuya, editor, monitor) guardam caches em memória do módulo:
+  // recarregar garante que nada do usuário anterior sobreviva na mesma aba
+  if (wasIn) setTimeout(() => location.reload(), 800);   // só quem estava dentro (evita laço no boot)
 }
 
 // ------------------------------------------------------------
@@ -273,8 +301,9 @@ function wireCollapsiblePanels() {
     const panel = document.getElementById(btn.dataset.collapseTarget);
     const header = btn.closest('.panel-header');
     const toggle = (ev) => {
-      // cliques em controles dentro do cabeçalho (ex.: selo) não recolhem
-      if (ev?.target?.closest?.('a, input, select, textarea') ) return;
+      // cliques em controles dentro do cabeçalho (ex.: selo, "+ Dispositivo") não recolhem; o chevron sim
+      const t = ev?.target;
+      if (t?.closest?.('a, input, select, textarea, button') && !t.closest('[data-collapse-target]')) return;
       if (!panel || isMobileUI()) return;   // no celular cada aba mostra os painéis abertos
       setPanelCollapsed(panel, !panel.classList.contains('panel-collapsed'));
       savePanelState();
@@ -285,6 +314,8 @@ function wireCollapsiblePanels() {
       header.setAttribute('role', 'button');
       header.setAttribute('tabindex', '0');
       header.addEventListener('keydown', (e) => {
+        // só com o foco no próprio cabeçalho: Enter num botão de dentro dispara o botão
+        if (e.target !== header) return;
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); }
       });
     }

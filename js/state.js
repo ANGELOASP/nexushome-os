@@ -109,6 +109,36 @@ export const state = {
   stConnected: false,      // painel SmartThings com token válido (demo conta como conectado)
 };
 
+/**
+ * Logout: zera os dados do usuário. Num aparelho compartilhado o próximo login
+ * não pode herdar a casa do anterior (a carga dele pode vir vazia ou falhar).
+ * Avisa os ouvintes para a cena 3D e os painéis se esvaziarem.
+ */
+export function resetState() {
+  state.devices = [];
+  state.automations = [];
+  state.alerts = [];
+  state.rooms = [];
+  state.walls = [];
+  state.openings = [];
+  state.furniture = [];
+  state.scenes = [];
+  state.devicePins = {};
+  state.selectedRoom = null;
+  state.health = 'safe';
+  state.lastTelemetry = { energy_watts: 0, water_flow_lph: 0, temperature: null, humidity: null };
+  state.stReadings = {};
+  state.stConnected = false;
+  emit('devices-changed', state.devices);
+  emit('automations-changed', state.automations);
+  emit('alerts-changed', state.alerts);
+  emit('scenes-changed', state.scenes);
+  emit('rooms-changed', state.rooms);
+  emit('walls-changed', state.walls);
+  emit('openings-changed', state.openings);
+  emit('furniture-changed', state.furniture);
+}
+
 // ---- mini pub/sub -------------------------------------------------------
 const listeners = new Map(); // event -> Set<fn>
 
