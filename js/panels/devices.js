@@ -10,6 +10,7 @@ import { sensorReadings, batteryView } from '../sensor-readings.js';
 import { toast, escapeHtml } from '../toasts.js';
 import { SOURCES, LEGACY_TYPES, defaultStatus } from '../device-catalog.js';
 import { ARMED_LABEL } from '../device-actions.js';
+import { patchDeviceStatus } from '../device-status.js';
 
 let client = null;
 let listEl = null;
@@ -22,7 +23,7 @@ const openMenus = new Set();          // ids com o menu ⋯ aberto (sobrevive ao
 
 export function registerVirtualRenderer(prefix, fn) {
   virtualRenderers.set(prefix, fn);
-  if (listEl) render();
+  if (listEl) render(true);
 }
 
 function virtualRenderer(d) {
@@ -61,7 +62,7 @@ export function initDevicesPanel(nexusClient) {
   render();
 
   on('devices-changed', scheduleRender);   // o quadro elétrico manda ~34 atualizações juntas: um redesenho por quadro
-  on('rooms-changed', render); // planta editada → reagrupa os dispositivos
+  on('rooms-changed', () => render(true)); // planta editada → reagrupa os dispositivos
   on('room-selected', (room) => highlightRoom(room));
   initAddForm();
 }
@@ -148,18 +149,74 @@ function scheduleRender() {
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run); else setTimeout(run, 16);
 }
 
-function render() {
+// Redesenho por cartão (F5): a telemetria chega a cada poucos segundos e refazer a lista
+// inteira perdia o foco dos botões e custava o painel todo. Cada cartão guarda uma
+// assinatura; só os que mudaram são recriados. A estrutura (cômodos e ordem) muda pouco:
+// quando muda, a lista é refeita.
+const cardCache = new Map();   // id -> { sig, el }
+let layoutSig = '';
+
+/** Assinatura do cartão nativo: tudo que renderDevice lê do dispositivo. */
+function cardSig(d) {
+  return JSON.stringify([d.name, d.room, d.type, d.is_online, d.status || null, d.hw ?? null, d.lighting ?? null, openMenus.has(d.id)]);
+}
+
+/** Cria o cartão; virtuais (desenhados pelo painel da integração) comparam o HTML. */
+function buildCard(d) {
+  const el = virtualRenderer(d)?.(d) || (d.virtual ? null : renderDevice(d));
+  if (!el) return null;
+  return { el, sig: d.virtual ? el.outerHTML : cardSig(d) };
+}
+
+/** Controle focado dentro de um cartão → seletor para focar o equivalente no cartão novo. */
+function focusKey(card) {
+  const a = document.activeElement;
+  if (!a || !card.contains(a)) return null;
+  const ctl = a.closest('[data-ctl]');
+  if (!ctl) return null;
+  return `[data-ctl="${CSS.escape(ctl.dataset.ctl)}"]${ctl.dataset.val != null ? `[data-val="${CSS.escape(ctl.dataset.val)}"]` : ''}`;
+}
+
+function render(force = false) {
   if (!listEl) return;
   const devices = state.devices.filter(listable);
-  listEl.innerHTML = '';
 
   // cômodos da planta + eventuais grupos órfãos (cômodo renomeado/excluído)
   const names = getRoomNames();
   const orphans = [...new Set(devices.map((d) => d.room).filter((r) => r && !names.includes(r)))];
-  for (const room of [...names, ...orphans]) {
-    const roomDevices = devices.filter((d) => d.room === room);
-    if (!roomDevices.length) continue;
+  const groups = [...names, ...orphans]
+    .map((room) => [room, devices.filter((d) => d.room === room)])
+    .filter(([, list]) => list.length);
+  const layout = JSON.stringify([names, groups.map(([room, list]) => [room, list.map((d) => d.id)])]);
 
+  if (!force && layout === layoutSig) {
+    // mesma estrutura: troca só os cartões cuja assinatura mudou (mantém a ordem e o foco)
+    for (const [, list] of groups) {
+      for (const d of list) {
+        const prev = cardCache.get(d.id);
+        if (!d.virtual && prev && prev.sig === cardSig(d)) continue;
+        const next = buildCard(d);
+        if (!next && !prev?.el) continue;   // virtual que segue sem cartão
+        // cartão que surgiu ou sumiu (virtual sem dados ainda): refaz a lista
+        if (!next || !prev?.el?.isConnected) { render(true); return; }
+        if (prev.sig === next.sig) continue;   // virtual com o mesmo HTML
+        const fk = focusKey(prev.el);
+        prev.el.replaceWith(next.el);
+        if (fk) next.el.querySelector(fk)?.focus({ preventScroll: true });
+        cardCache.set(d.id, next);
+      }
+    }
+    updateActiveCounts();
+    return;
+  }
+
+  // estrutura nova: refaz a lista (tentando devolver o foco ao mesmo controle)
+  let focus = null;
+  for (const [id, c] of cardCache) { const fk = c.el && focusKey(c.el); if (fk) { focus = [id, fk]; break; } }
+  layoutSig = layout;
+  cardCache.clear();
+  listEl.innerHTML = '';
+  for (const [room, roomDevices] of groups) {
     const group = document.createElement('div');
     group.className = 'device-room-group';
     group.dataset.room = room;
@@ -171,12 +228,15 @@ function render() {
       <div class="device-room-body space-y-2"></div>`;
     const body = group.querySelector('.device-room-body');
     roomDevices.forEach((d) => {
-      const card = virtualRenderer(d)?.(d) || (d.virtual ? null : renderDevice(d));
-      if (card) body.appendChild(card);
+      const c = buildCard(d);
+      if (!c) { cardCache.set(d.id, { sig: null, el: null }); return; }
+      body.appendChild(c.el);
+      cardCache.set(d.id, c);
     });
     group.querySelector('.device-room-header').addEventListener('click', () => emit('ui-select-room', room));
     listEl.appendChild(group);
   }
+  if (focus) cardCache.get(focus[0])?.el.querySelector(focus[1])?.focus({ preventScroll: true });
   updateActiveCounts();
 }
 
@@ -440,7 +500,7 @@ async function moveDevice(device, room) {
   } catch (err) {
     console.error('[devices] falha ao mover', err);
     toast('Não foi possível mover o dispositivo', err.message, 'critical');
-    render();
+    render(true);   // volta o seletor ao cômodo atual
   }
 }
 
@@ -469,10 +529,12 @@ export async function updateStatus(device, patch, toastMsg, toastType = 'success
   const merged = { ...(current.status || {}), ...patch };
   upsertDevice({ ...current, status: merged });   // otimista: UI + 3D reagem já
   try {
-    // grava o status MESCLADO: update({status: patch}) substituía a coluna inteira no Supabase
-    // (perdia brilho/cor, as leituras do quadro elétrico e a marca in_total do total da casa)
-    const { error } = await client.from('devices').update({ status: merged }).eq('id', device.id);
+    // grava só o patch (027: o banco mescla); sem a 027, o status mesclado no cliente —
+    // update({status: patch}) substituía a coluna inteira (perdia brilho/cor, leituras, in_total)
+    const { status, error } = await patchDeviceStatus(client, device.id, patch, { merged });
     if (error) throw new Error(error.message);
+    // o banco devolve o status real (com o que o firmware relatou nesse meio-tempo)
+    if (status && status !== merged) upsertDevice({ ...(getDevice(device.id) || current), status });
     if (toastMsg) toast(toastMsg, device.name, toastType);
   } catch (err) {
     console.error('[devices] falha ao atualizar', err);

@@ -45,6 +45,9 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+/** Nenhuma chamada externa segura a instância além disso. */
+const TIMEOUT_MS = 10_000;
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -53,26 +56,49 @@ function json(body: unknown, status = 200): Response {
 }
 
 /**
- * Exige um usuário LOGADO. A plataforma já valida a assinatura do JWT
- * (deploy SEM --no-verify-jwt); aqui rejeitamos o JWT da chave anon
- * (role "anon"), que também é um JWT válido e está no frontend.
+ * Exige um usuário LOGADO. 1) rejeita sem custo o JWT da chave anon (role "anon", que
+ * também é válido e está no frontend); 2) v2.18: confirma a sessão no Auth
+ * (GET /auth/v1/user) — a assinatura é validada lá, e não só por verify_jwt na publicação
+ * (um deploy com verify_jwt desligado aceitaria um JWT forjado). Falha de rede → recusa.
  */
-function isAuthenticatedUser(req: Request): boolean {
-  const m = /^Bearer\s+([\w-]+)\.([\w-]+)\.[\w-]+$/.exec(req.headers.get("authorization") ?? "");
+async function isAuthenticatedUser(req: Request): Promise<boolean> {
+  const authorization = req.headers.get("authorization") ?? "";
+  const m = /^Bearer\s+([\w-]+)\.([\w-]+)\.[\w-]+$/.exec(authorization);
   if (!m) return false;
   try {
     const b64 = m[2].replace(/-/g, "+").replace(/_/g, "/");
     const claims = JSON.parse(atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4)));
-    return claims?.role === "authenticated";
+    if (claims?.role !== "authenticated") return false;
+  } catch {
+    return false;
+  }
+  const url = Deno.env.get("SUPABASE_URL");
+  const anon = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!url || !anon) {
+    console.warn("[smartthings-proxy] SUPABASE_URL/SUPABASE_ANON_KEY ausentes: JWT só decodificado (depende de verify_jwt)");
+    return true;
+  }
+  try {
+    const res = await fetch(`${url}/auth/v1/user`, {
+      headers: { apikey: anon, Authorization: authorization },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    await res.body?.cancel();
+    return res.ok;
   } catch {
     return false;
   }
 }
 
+/** 204/205/304 não podem ter corpo (new Response lançaria TypeError → 500): vira 200. */
+function bodyStatus(status: number): number {
+  return status === 204 || status === 205 || status === 304 ? 200 : status;
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Método não suportado" }, 405);
-  if (!isAuthenticatedUser(req)) return json({ error: "Login necessário" }, 401);
+  if (!(await isAuthenticatedUser(req))) return json({ error: "Login necessário" }, 401);
 
   // --- autenticação: PAT vem do navegador do usuário ----------
   const token = (req.headers.get("x-smartthings-token") ?? "").trim();
@@ -118,6 +144,7 @@ serve(async (req: Request) => {
       body: method === "POST" && body.payload !== undefined
         ? JSON.stringify(body.payload)
         : undefined,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (err) {
     console.error("[smartthings-proxy] falha de rede upstream:", (err as Error)?.message ?? err);
@@ -129,10 +156,10 @@ serve(async (req: Request) => {
 
   // resposta upstream pode ser vazia ou não-JSON: tratar com cuidado
   const text = await upstream.text();
-  if (!text) return json({ ok: upstream.ok }, upstream.status);
+  if (!text) return json({ ok: upstream.ok }, bodyStatus(upstream.status));
   try {
-    return json(JSON.parse(text), upstream.status);
+    return json(JSON.parse(text), bodyStatus(upstream.status));
   } catch {
-    return json({ error: "Resposta não-JSON da SmartThings", raw: text.slice(0, 500) }, upstream.status);
+    return json({ error: "Resposta não-JSON da SmartThings", raw: text.slice(0, 500) }, bodyStatus(upstream.status));
   }
 });

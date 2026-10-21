@@ -58,3 +58,14 @@ export function houseWaterFlow(latest, now = Date.now()) {
   if (total) return total[1].v;
   return fresh.reduce((sum, [, r]) => sum + r.v, 0);
 }
+
+/**
+ * Válvula geral de água (botão de emergência): pelo id fixo do projeto; sem ela,
+ * a primeira válvula com "geral" no nome. Nunca a válvula de gás nem um ramal.
+ */
+export function mainWaterValve(devices) {
+  const list = (devices || []).filter((d) => d?.type === 'valve');
+  return list.find((d) => d.id === WATER_TOTAL_ID)
+    || list.find((d) => /geral/i.test(d.name || '') && !/g[aá]s/i.test(d.name || '') && !d.virtual)
+    || null;
+}

@@ -2,16 +2,33 @@
 -- NexusHome OS — seed da planta "RESIDENCIA" (importada de DXF)
 -- 9 cômodos internos + Área Externa, 129 paredes, térreo.
 --
--- ATENÇÃO: SUBSTITUI toda a planta atual (apaga rooms e walls e insere
--- estes). Dispositivos, telemetria e alertas não são tocados; os
+-- ATENÇÃO: SUBSTITUI a planta atual da conta MAIS ANTIGA do projeto (a mesma
+-- regra da 018): apaga os rooms e walls dela (e os sem dono) e insere estes,
+-- já com o dono. As plantas das outras contas não são tocadas. Sem a 018
+-- (tabelas sem owner_id) substitui a planta inteira, como antes.
+-- Dispositivos, telemetria e alertas não são tocados; os
 -- dispositivos continuam ligados aos cômodos pelo NOME ("Sala de Estar",
 -- "Quarto Principal", "Cozinha", "Área Externa" foram mantidos).
 -- Execute DEPOIS das migrações 001–008. Em transação: ou entra tudo ou nada.
 -- ============================================================
 begin;
 
-delete from public.walls;
-delete from public.rooms;
+-- com a 018 (isolamento por dono): o SQL Editor não tem login, então só a planta
+-- da conta mais antiga é substituída (e as linhas sem dono, invisíveis no app).
+-- As openings das paredes apagadas vão junto (on delete cascade).
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'rooms' and column_name = 'owner_id') then
+    execute $q$delete from public.walls
+                where owner_id is null or owner_id = (select id from auth.users order by created_at limit 1)$q$;
+    execute $q$delete from public.rooms
+                where owner_id is null or owner_id = (select id from auth.users order by created_at limit 1)$q$;
+  else
+    delete from public.walls;
+    delete from public.rooms;
+  end if;
+end $$;
 
 insert into public.rooms (id, name, pos_x, pos_z, size_x, size_z, color, sort_order, floor, kind, points) values
   ('6f0ce1d7-07d6-4fac-a635-df75c4e9e001', 'Cozinha', 2.3, -2.825, 3.65, 6, '#fbbf24', 1, 0, 'cozinha', '[[-1.675,-3],[1.825,-2.95],[1.825,3],[-1.675,2.95],[-1.675,2.2],[-1.825,2.3],[-1.825,-2.25],[-1.675,-2.15]]'::jsonb),
@@ -155,5 +172,18 @@ insert into public.walls (id, floor, x1, z1, x2, z2, th, sort_order) values
   ('f01c30e8-5415-4f4c-a95f-46bc5045821b', 0, 4.125, -6.25, 4.275, -6.25, 0.08, 127),
   ('5b856487-a92c-48d4-9b14-32a9b784b7fc', 0, 4.275, -6.25, 4.275, -4.768, 0.08, 128),
   ('34219861-61d2-4672-acfe-97534b45af23', 0, 4.125, -6.25, 4.125, -5.975, 0.08, 129);
+
+-- dono: as únicas linhas sem dono agora são as deste seed (as antigas sem dono
+-- foram apagadas acima) — vão para a conta mais antiga
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'rooms' and column_name = 'owner_id') then
+    execute $q$update public.rooms set owner_id = (select id from auth.users order by created_at limit 1)
+                where owner_id is null$q$;
+    execute $q$update public.walls set owner_id = (select id from auth.users order by created_at limit 1)
+                where owner_id is null$q$;
+  end if;
+end $$;
 
 commit;

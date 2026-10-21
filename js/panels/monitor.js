@@ -8,7 +8,7 @@ import { state, on, emit, upsertDevice, prependAlert, allDevicesOff, getDevice }
 import { toast, escapeHtml } from '../toasts.js';
 import { Sparkline, animateNumber } from '../charts.js';
 import { updateStatus } from './devices.js';
-import { houseWatts, houseWaterFlow, energyBands, energyBand } from '../energy.js';
+import { houseWatts, houseWaterFlow, energyBands, energyBand, mainWaterValve } from '../energy.js';
 
 const LEAK_WINDOW_MS = 30000;
 
@@ -30,7 +30,8 @@ export function initMonitorPanel(nexusClient) {
   document.getElementById('alerts-list')?.addEventListener('click', onAlertAction);
 
   on('alerts-changed', renderAlerts);
-  on('device-changed', (d) => { if (d?.type === 'valve') syncEmergencyButton(d.status?.open !== false); });
+  // só a válvula geral mexe no botão (fechar o gás ou um ramal não é "geral fechada")
+  on('device-changed', (d) => { if (d?.type === 'valve' && d.id === mainWaterValve(state.devices)?.id) syncEmergencyButton(d.status?.open !== false); });
   on('telemetry', ({ metric, value, deviceId }) => handleTelemetry(metric, value, deviceId));
 }
 
@@ -200,8 +201,9 @@ async function onAlertAction(e) {
 
 async function emergencyShutoff() {
   const btn = document.getElementById('btn-emergency');
-  const valve = state.devices.find((d) => d.type === 'valve');
-  if (!valve) { toast('Válvula não encontrada', '', 'critical'); return; }
+  // a geral pelo id do projeto (há 9 válvulas: geral, ramais e a de gás)
+  const valve = mainWaterValve(state.devices);
+  if (!valve) { toast('Válvula geral não encontrada', '', 'critical'); return; }
 
   btn?.classList.add('btn-pressed');
   setTimeout(() => btn?.classList.remove('btn-pressed'), 300);
@@ -245,7 +247,7 @@ export async function loadInitialMonitorData() {
   if (lt.humidity != null) animateNumber(document.getElementById('stat-hum'), lt.humidity, { suffix: '%' });
   updateHealthBadge();
 
-  const valve = state.devices.find((d) => d.type === 'valve');
+  const valve = mainWaterValve(state.devices);
   if (valve) syncEmergencyButton(valve.status?.open !== false);
 }
 

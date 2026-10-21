@@ -39,6 +39,19 @@ export function nearestWall(walls, x, z, maxD = SNAP_WALL) {
   return { ...best, ux, uz, nx: nx * side, nz: nz * side, fx, fz };
 }
 
+/**
+ * Lado da parede em que está o ponto, mesmo que o clique caia além da ponta
+ * (porta/janela junto ao canto): t limitado a [0, len]. null se a parede tem comprimento 0.
+ */
+function wallSide(wl, x, z) {
+  const p = projectOnWall(wl, x, z);
+  if (!p.len) return null;
+  const t = Math.max(0, Math.min(p.len, p.t));
+  const ux = (wl.x2 - wl.x1) / p.len, uz = (wl.z2 - wl.z1) / p.len;
+  const side = ((x - wl.x1) * -uz + (z - wl.z1) * ux) >= 0 ? 1 : -1;
+  return { wl, ...p, t, ux, uz, nx: -uz * side, nz: ux * side, fx: wl.x1 + ux * t, fz: wl.z1 + uz * t };
+}
+
 /** Coloca na face da parede, virado para dentro do cômodo. */
 function onWall(hit, y, along = hit.t) {
   const th = Number(hit.wl.th) || 0.15;
@@ -118,14 +131,16 @@ export function mountDevice(entry, x, z, ctx = {}) {
     case 'window': {
       const hit = nearestOpening(walls, ctx.openings, 'window', x, z);
       if (!hit) return { ...base, ok: false, note: 'sem janela por perto — clique junto a uma janela' };
-      const side = nearestWall([hit.wl], x, z, 5);
+      const side = wallSide(hit.wl, x, z);
+      if (!side) return { ...base, ok: false, note: 'parede da janela sem comprimento' };
       const pos = onWall(side, hit.o.top + 0.05, hit.c);
       return { ...base, ...pos, width: r3(hit.o.b - hit.o.a + 0.2), note: 'sobre a janela' };
     }
     case 'door': {
       const hit = nearestOpening(walls, ctx.openings, 'door', x, z);
       if (!hit) return { ...base, ok: false, note: 'sem porta por perto — clique junto a uma porta' };
-      const side = nearestWall([hit.wl], x, z, 5);
+      const side = wallSide(hit.wl, x, z);
+      if (!side) return { ...base, ok: false, note: 'parede da porta sem comprimento' };
       // lado da maçaneta: oposto à dobradiça
       const latch = hit.o.hinge === 'end' ? hit.o.a + 0.1 : hit.o.b - 0.1;
       const along = entry.model === 'lock' ? latch : (hit.o.a + hit.o.b) / 2;

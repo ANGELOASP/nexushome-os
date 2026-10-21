@@ -50,7 +50,13 @@ export function initDxfImport({ getContext, apply }) {
   document.getElementById('dxf-layers-walls')?.addEventListener('click', () => setLayers(looksLikeWallLayer));
   [ui.unit, ui.th, ui.optWalls, ui.optRooms, ui.optCenter].forEach((el) => el.addEventListener('input', refresh));
   ui.apply.addEventListener('click', doApply);
-  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isOpen()) { e.stopPropagation(); close(); } }, true);
+  // com o modal aberto, nenhum atalho do editor por trás (Delete, Backspace, V, W, Ctrl+Z...) recebe a tecla;
+  // sem preventDefault, digitar nos campos e ativar botões continua funcionando
+  window.addEventListener('keydown', (e) => {
+    if (!isOpen()) return;
+    e.stopPropagation();
+    if (e.key === 'Escape') close();
+  }, true);
 }
 
 function isOpen() { return modal?.classList.contains('modal-open'); }

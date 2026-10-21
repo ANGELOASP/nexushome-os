@@ -72,7 +72,7 @@ function render() {
       return `<li class="rp-dev" data-row="${escapeHtml(d.id)}">
         <span class="rp-dev-dot ${onNow ? 'rp-on' : ''}"></span>
         <span class="rp-dev-name">${escapeHtml(d.name)}<small>${d.vendor ? `${d.vendor === 'smartthings' ? 'Samsung' : d.vendor === 'tuya' ? 'Tuya' : 'Integrado'} · ` : ''}${escapeHtml(TYPE_LABEL[d.type] || d.type)}${sw ? ` · ${label}` : ''}</small></span>
-        ${sw ? `<button type="button" class="rp-dev-btn ${onNow ? 'rp-dev-btn-on' : ''}" data-dev="${escapeHtml(d.id)}" aria-pressed="${onNow}">${d.type === 'valve' ? (onNow ? 'Fechar' : 'Abrir') : (onNow ? 'Desligar' : 'Ligar')}</button>` : ''}
+        ${sw ? `<button type="button" class="rp-dev-btn ${onNow ? 'rp-dev-btn-on' : ''}" data-dev="${escapeHtml(d.id)}" aria-pressed="${onNow}">${d.type === 'valve' || d.type === 'gate' ? (onNow ? 'Fechar' : 'Abrir') : (onNow ? 'Desligar' : 'Ligar')}</button>` : ''}
       </li>`;
     }).join('')
     : '<li class="rp-empty">Nenhum dispositivo neste cômodo.</li>';
@@ -91,7 +91,10 @@ function render() {
   const sceneHtml = scenes.map((sc) => `<button type="button" class="rp-scene ${sceneMatches(sc, state.devices) ? 'rp-scene-on' : ''}" data-scene="${escapeHtml(sc.id)}" title="Ativar cena">${sceneIcon(sc.icon)}${escapeHtml(sc.name)}</button>`).join('')
     + '<button type="button" class="rp-scene" data-act="new-scene" title="Criar cena para este cômodo">+ Cena</button>';
 
-  const firstDev = devices.find((d) => SWITCHABLE.has(d)) || devices[0];
+  // alvo pré-selecionado da nova regra: só aparelho real (o servidor faz `device_id::uuid`)
+  // ou um Samsung vinculado (st-<id> vira alvo SmartThings no modal); nunca outro virtual
+  const ruleOk = (d) => !d.virtual || String(d.id).startsWith('st-');
+  const firstDev = devices.find((d) => !d.virtual && SWITCHABLE.has(d)) || devices.find((d) => !d.virtual) || devices.find(ruleOk);
   const html = `
     <div class="rp-head">
       <div class="min-w-0">
@@ -119,7 +122,7 @@ function render() {
       ${historyHtml(devices)}
     </div>
     <div class="rp-foot">
-      <button type="button" class="rp-add" data-act="new-rule" ${firstDev ? `data-dev="${escapeHtml(firstDev.id)}"` : 'disabled title="Cadastre um dispositivo neste cômodo primeiro"'}>+ Nova automação neste cômodo</button>
+      <button type="button" class="rp-add" data-act="new-rule" ${firstDev ? `data-dev="${escapeHtml(firstDev.id)}"` : devices.length ? '' : 'disabled title="Cadastre um dispositivo neste cômodo primeiro"'}>+ Nova automação neste cômodo</button>
     </div>`;
   if (html !== lastHtml) { panel.innerHTML = html; lastHtml = html; }
   if (!panel.classList.contains('room-panel-open')) {

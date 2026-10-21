@@ -35,6 +35,9 @@
 // Variáveis de ambiente (configuradas via `supabase secrets set`):
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY  (provisionadas automaticamente)
 //   IOT_DEVICE_SECRET                        (segredo compartilhado com o firmware)
+//   IOT_OWNER_ID                             (v2.18, recomendado: uuid do usuário dono da casa —
+//        filtra /panel* e grava owner_id nos alertas do lote. Sem ele: "a única conta com
+//        dispositivos"; com 0 ou 2+ contas as rotas /panel* respondem 503)
 //
 // SEGURANÇA:
 //   · A SERVICE_ROLE KEY ignora o RLS por design — é o que permite à
@@ -53,7 +56,14 @@ import { parseReadingTs } from "./ts.ts";
 import { ALLOWED_METRICS, METRICS_025, alertSource, parseAlerts, splitBatch } from "./batch.ts";
 import { buildSnapshot, validateCommand, type Device } from "./panel.ts";
 import { buildPlan } from "./plan.ts";
+import {
+  OWNER_HINT, alertRowsFor, deviceIdRejected, inCandidateOrder, isUuid, parseDeviceFilter,
+  resolveOwner, rpcMissing, withoutDeviceId,
+} from "./owner.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+/** Versão do app (package.json) — devolvida pelo health para diagnóstico. */
+const APP_VERSION = "2.18.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -86,7 +96,7 @@ serve(async (req: Request) => {
   const wantsPlan = req.method === "GET" && url.pathname.endsWith("/panel/plan");
   const wantsPanelCommand = req.method === "POST" && url.pathname.endsWith("/panel/command");
   if (req.method === "GET" && !wantsCommands && !wantsPanel && !wantsPlan) {
-    return json({ ok: true, service: "nexushome-iot-gateway", version: 11, path: url.pathname });
+    return json({ ok: true, service: "nexushome-iot-gateway", version: APP_VERSION, path: url.pathname });
   }
   if (req.method !== "POST" && !wantsCommands && !wantsPanel && !wantsPlan) return json({ error: "Método não suportado" }, 405);
 
@@ -108,32 +118,46 @@ serve(async (req: Request) => {
   );
 
   // --- telas de parede (v2.16): resumo da casa e comandos ---------
-  if (wantsPanel) return await handlePanel(supabase, url);
-  if (wantsPlan) return await handlePlan(supabase, url);
-  if (wantsPanelCommand) return await handlePanelCommand(supabase, req);
+  // v2.18: só a casa do dono (IOT_OWNER_ID ou a única conta com aparelhos) — o service
+  // role ignora o RLS, então sem dono definido as telas não leem nem acionam nada
+  if (wantsPanel || wantsPlan || wantsPanelCommand) {
+    const o = await getOwner(supabase);
+    if (!o.owner) {
+      console.error(`[iot-gateway] dono indefinido (${o.reason}) — /panel recusado`);
+      return json({ error: `Dono da casa indefinido (${o.reason}): ${OWNER_HINT}` }, 503);
+    }
+    if (wantsPanel) return await handlePanel(supabase, url, o.owner);
+    if (wantsPlan) return await handlePlan(supabase, url, o.owner);
+    return await handlePanelCommand(supabase, req, o.owner);
+  }
 
   // --- comandos pendentes para o ESP32 (app → válvulas) ---------
   if (wantsCommands) {
     // ?devices=uuid1,uuid2 (v2.7): só os comandos dos dispositivos DESTE painel —
-    // com várias casas no projeto, um ESP32 não consome os comandos de outro
-    const only = (new URL(req.url).searchParams.get("devices") ?? "")
-      .split(",").map((x) => x.trim()).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+    // com várias casas no projeto, um ESP32 não consome os comandos de outro.
+    // v2.18: parâmetro presente mas sem nenhum uuid válido → lista vazia (antes: sem filtro,
+    // e a tela consumia os comandos de TODAS as outras)
+    const only = parseDeviceFilter(url.searchParams.get("devices"));
+    if (only.none) return json({ commands: [] });
     let q = supabase
       .from("device_commands")
       .select("id, device_id, command")
       .eq("status", "pending");
-    if (only.length) q = q.in("device_id", only);
+    if (only.ids.length) q = q.in("device_id", only.ids);
     const { data: cmds, error: cmdErr } = await q.order("created_at").limit(20);
     if (cmdErr) return json({ error: `Falha ao ler comandos (migração 013 aplicada?): ${cmdErr.message}` }, 500);
-    const ids = (cmds ?? []).map((c) => c.id);
-    if (ids.length) {
-      const { error: updErr } = await supabase
-        .from("device_commands")
-        .update({ status: "delivered", delivered_at: new Date().toISOString() })
-        .in("id", ids);
-      if (updErr) return json({ error: `Falha ao marcar comandos: ${updErr.message}` }, 500);
-    }
-    return json({ commands: cmds ?? [] });
+    const ids = (cmds ?? []).map((c: { id: unknown }) => c.id);
+    if (!ids.length) return json({ commands: [] });
+    // v2.18: marcação atômica — o UPDATE só pega o que ainda está "pending" e devolve as
+    // linhas que ELE marcou; dois polls sobrepostos nunca entregam o mesmo comando
+    const { data: claimed, error: updErr } = await supabase
+      .from("device_commands")
+      .update({ status: "delivered", delivered_at: new Date().toISOString() })
+      .in("id", ids)
+      .eq("status", "pending")
+      .select("id, device_id, command");
+    if (updErr) return json({ error: `Falha ao marcar comandos: ${updErr.message}` }, 500);
+    return json({ commands: inCandidateOrder(cmds ?? [], claimed ?? []) });
   }
 
   // --- validação do payload -----------------------------------
@@ -151,6 +175,7 @@ serve(async (req: Request) => {
   const value = Number(body.value);
 
   if (!deviceId) return json({ error: "device_id é obrigatório" }, 400);
+  if (!isUuid(deviceId)) return json({ error: "device_id inválido" }, 400);
   if (!ALLOWED_METRICS.has(metricType)) {
     return json({ error: `metric_type inválido. Use: ${[...ALLOWED_METRICS].join(", ")}` }, 400);
   }
@@ -171,7 +196,7 @@ serve(async (req: Request) => {
 
   // opcional: o firmware pode atualizar o status do dispositivo
   // (ex.: medidor publica {"watts": X} para o painel 3D reagir)
-  if (!replayed && body.status && typeof body.status === "object") {
+  if (!replayed && body.status && typeof body.status === "object" && !Array.isArray(body.status)) {
     // migração 013: device_report_status grava o estado reportado sem gerar comando de volta (eco)
     const { error: rpcErr } = await supabase.rpc("device_report_status", { p_device: deviceId, p_patch: body.status });
     if (!rpcErr) return json({ ok: true, device_id: deviceId, metric_type: metricType, value });
@@ -228,28 +253,52 @@ async function handleBatch(supabase: any, readings: unknown[], alerts?: unknown,
   results.forEach((r: { error?: { message: string } | null }, i: number) => {
     if (r.error) errors.push({ index: -1, error: `status de ${statuses[i].device_id}: ${r.error.message}` });
   });
-  const alertRows = parseAlerts(alerts, alertSource(source));
-  if (alertRows.length) {
-    const { error } = await supabase.from("alerts").insert(alertRows);
+  const parsed = parseAlerts(alerts, alertSource(source));
+  if (parsed.length) {
+    // v2.18: owner_id explícito (o gatilho da 018 só acerta com uma única conta) e
+    // device_id do item (027); sem dono resolvido grava como antes
+    const o = await getOwner(supabase);
+    const alertRows = alertRowsFor(parsed, o.owner);
+    let { error } = await supabase.from("alerts").insert(alertRows);
+    if (error && alertRows.some((a) => a.device_id) && deviceIdRejected(error)) {
+      // sem a migração 027 (coluna alerts.device_id) ou aparelho inexistente: grava sem o vínculo
+      error = (await supabase.from("alerts").insert(withoutDeviceId(alertRows))).error;
+    }
     if (error) errors.push({ index: -1, error: `alertas: ${error.message}` });
   }
-  return json({ ok: true, rows: rowsSaved.length, statuses: statuses.length, alerts: alertRows.length, errors }, errors.length ? 207 : 200);
+  return json({ ok: true, rows: rowsSaved.length, statuses: statuses.length, alerts: parsed.length, errors }, errors.length ? 207 : 200);
+}
+
+// ---- dono da casa (v2.18) -----------------------------------------------------
+// deno-lint-ignore no-explicit-any
+function getOwner(supabase: any) {
+  return resolveOwner(Deno.env.get("IOT_OWNER_ID"), async () => {
+    // até dois owner_id distintos: basta saber se é 0, 1 ou "mais de 1"
+    const first = await supabase.from("devices").select("owner_id").not("owner_id", "is", null).limit(1);
+    if (first.error) throw new Error(first.error.message);
+    const a = first.data?.[0]?.owner_id;
+    if (!a) return [];
+    const other = await supabase.from("devices").select("owner_id")
+      .not("owner_id", "is", null).neq("owner_id", a).limit(1);
+    if (other.error) throw new Error(other.error.message);
+    return other.data?.[0]?.owner_id ? [a, other.data[0].owner_id] : [a];
+  });
 }
 
 // ---- telas de parede (v2.16) -------------------------------------------------
 // deno-lint-ignore no-explicit-any
-async function handlePanel(supabase: any, url: URL): Promise<Response> {
+async function handlePanel(supabase: any, url: URL, owner: string): Promise<Response> {
   const room = url.searchParams.get("room") ?? "";
   const limit = Number(url.searchParams.get("limit") ?? "80");
   // ?plan=0 (painel do corredor): junta a assinatura da planta do andar → o painel
   // baixa a planta de novo assim que ela muda no Editor de Planta do app
   const planFloor = url.searchParams.has("plan") ? Number(url.searchParams.get("plan") || "0") : null;
   const [devs, alerts, plan] = await Promise.all([
-    supabase.from("devices").select(planFloor === null ? "id, name, type, room, status, is_online" : "*"),
+    supabase.from("devices").select(planFloor === null ? "id, name, type, room, status, is_online" : "*").eq("owner_id", owner),
     supabase.from("alerts").select("severity, message, created_at, resolved")
-      .eq("resolved", false).gte("created_at", new Date(Date.now() - 86400000).toISOString())
+      .eq("owner_id", owner).eq("resolved", false).gte("created_at", new Date(Date.now() - 86400000).toISOString())
       .order("created_at", { ascending: false }).limit(20),
-    planFloor === null ? null : loadPlanRows(supabase),
+    planFloor === null ? null : loadPlanRows(supabase, owner),
   ]);
   if (devs.error) return json({ error: `Falha ao ler dispositivos: ${devs.error.message}` }, 500);
   const snap = buildSnapshot(devs.data ?? [], alerts.data ?? [], { room, limit: Number.isFinite(limit) ? limit : 80 });
@@ -261,19 +310,19 @@ async function handlePanel(supabase: any, url: URL): Promise<Response> {
 }
 
 // deno-lint-ignore no-explicit-any
-function loadPlanRows(supabase: any) {
+function loadPlanRows(supabase: any, owner: string) {
   return Promise.all([
-    supabase.from("rooms").select("*"),
-    supabase.from("walls").select("floor, x1, z1, x2, z2"),
+    supabase.from("rooms").select("*").eq("owner_id", owner),
+    supabase.from("walls").select("floor, x1, z1, x2, z2").eq("owner_id", owner),
   ]).then(([rooms, walls]) => ({ rooms, walls }));
 }
 
 // deno-lint-ignore no-explicit-any
-async function handlePlan(supabase: any, url: URL): Promise<Response> {
+async function handlePlan(supabase: any, url: URL, owner: string): Promise<Response> {
   const floor = Number(url.searchParams.get("floor") ?? "0");
   const [{ rooms, walls }, devs] = await Promise.all([
-    loadPlanRows(supabase),
-    supabase.from("devices").select("*"),
+    loadPlanRows(supabase, owner),
+    supabase.from("devices").select("*").eq("owner_id", owner),
   ]);
   if (rooms.error) return json({ error: `Falha ao ler a planta: ${rooms.error.message}` }, 500);
   // sem a 006 (paredes) a planta sai só com os cômodos
@@ -281,18 +330,30 @@ async function handlePlan(supabase: any, url: URL): Promise<Response> {
 }
 
 // deno-lint-ignore no-explicit-any
-async function handlePanelCommand(supabase: any, req: Request): Promise<Response> {
+async function handlePanelCommand(supabase: any, req: Request, owner: string): Promise<Response> {
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ error: "JSON inválido" }, 400); }
   const id = String(body?.device_id ?? "");
-  const { data: dev } = /^[0-9a-f-]{36}$/i.test(id)
-    ? await supabase.from("devices").select("id, name, type, room, status, is_online").eq("id", id).maybeSingle()
-    : { data: null };
+  // aparelho de outra conta = "não encontrado" (404), igual a um id inexistente
+  const { data: dev, error: devErr } = isUuid(id)
+    ? await supabase.from("devices").select("id, name, type, room, status, is_online")
+      .eq("id", id).eq("owner_id", owner).maybeSingle()
+    : { data: null, error: null };
+  if (devErr) return json({ error: `Falha ao ler o aparelho: ${devErr.message}` }, 500);
   const v = validateCommand(body, dev as Device | null);
   if (v.error) return json({ error: v.error }, v.status ?? 400);
+  // v2.18: device_patch_status (027) faz `status || patch` no banco — não sobrescreve um
+  // device_report_status concorrente (watts/temp) e o gatilho continua enfileirando o comando
+  const rpc = await supabase.rpc("device_patch_status", { p_device: id, p_patch: v.patch });
+  if (!rpc.error) {
+    const fresh = rpc.data && typeof rpc.data === "object" && !Array.isArray(rpc.data) ? rpc.data : null;
+    return json({ ok: true, device_id: id, status: fresh ?? { ...((dev as Device).status ?? {}), ...v.patch } });
+  }
+  if (!rpcMissing(rpc.error)) return json({ error: `Falha ao acionar: ${rpc.error.message}` }, 500);
+  // sem a migração 027: read-modify-write (comportamento anterior)
   const status = { ...((dev as Device).status ?? {}), ...v.patch };
   // update comum (não device_report_status): o gatilho enfileira o comando para a tela do quadro
-  const { error } = await supabase.from("devices").update({ status }).eq("id", id);
+  const { error } = await supabase.from("devices").update({ status }).eq("id", id).eq("owner_id", owner);
   if (error) return json({ error: `Falha ao acionar: ${error.message}` }, 500);
   return json({ ok: true, device_id: id, status });
 }

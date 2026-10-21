@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Testa as migrações 007 (automações), 023 (circuitos elétricos), 024 (biblioteca ampliada), 025 (quadro unificado) e 026 (iluminação) num Postgres descartável.
+# Testa as migrações 007 (automações), 023 (circuitos elétricos), 024 (biblioteca ampliada), 025 (quadro unificado), 026 (iluminação) e 027 (auditoria, sem a 018) num Postgres descartável.
 # Uso: DATABASE_URL=postgres://... tests/sql/run.sh   (use um banco VAZIO de teste,
 # NUNCA o de produção: o script cria tabelas e insere dados).
 set -euo pipefail
@@ -47,4 +47,11 @@ done
 $P -f tests/sql/unificado.test.sql
 $P -c "delete from alerts; update automations set is_active = false, last_met = null, last_fired_at = null"
 $P -f tests/sql/automations.test.sql
+# 027 (auditoria) sem a 018/020/auth (2x: idempotente): pula o que depende de dono e as regras antigas seguem valendo
+for m in 027_auditoria 027_auditoria; do
+  $P -f "supabase/migrations/$m.sql" 2>&1 | grep -v NOTICE || true
+done
+$P -c "delete from alerts; update automations set is_active = false, last_met = null, last_fired_at = null"
+$P -f tests/sql/automations.test.sql
+$P -f tests/sql/auditoria_sem_dono.test.sql
 echo "OK — testes SQL passaram"
