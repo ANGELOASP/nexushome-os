@@ -48,11 +48,12 @@ struct UiState {
   bool valveOpen, valveKnown, gasCut, gasLatched, valveCmdClosed;
   // exaustores
   bool fanOn[UI_FANS], fanAuto[UI_FANS];
+  bool fanBlocked[UI_FANS];           // gás na casa: o exaustor não é ligado nem desligado
   uint16_t fanManualLeftS[UI_FANS];
   // alarme
   uint8_t armed;                      // 0 desarmado · 1 em casa · 2 ausente
   bool triggered;
-  uint8_t trigZone;                   // 1 porta de entrada · 2 porta de serviço · 4 presença
+  uint8_t trigZone;                   // 1 porta de entrada · 2 porta de serviço · 4 presença · 8 sabotagem (módulo mudo)
   uint16_t exitLeftS, entryLeftS;
   // fontes e sirenes
   bool sirens, panic, acFail, battLow, auxOk;

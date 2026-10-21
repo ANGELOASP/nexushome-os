@@ -179,20 +179,24 @@ HardwareSerial RS485(1);
 #if BUS_VIA_GATEWAY
 WiFiClient gw;
 uint16_t mbTid = 0;              // número da transação Modbus TCP (confere a resposta certa)
-unsigned long gwRetryAt = 0, gwDownSince = 0;
+unsigned long gwFailAt = 0, gwDownSince = 0;   // tempos por diferença (millis() - início): aguentam a virada
+bool gwWaiting = false;                        // falhou há pouco: espera GW_RETRY_MS antes de tentar de novo
 bool gwAlerted = false;
+#define GW_RETRY_MS 3000UL
 
 // Conecta (ou reconecta) ao gateway; sem Wi-Fi ou logo após uma falha, não insiste.
 bool gwConnect() {
   if (gw.connected()) return true;
-  if (WiFi.status() != WL_CONNECTED || millis() < gwRetryAt) return false;
+  if (WiFi.status() != WL_CONNECTED || (gwWaiting && millis() - gwFailAt < GW_RETRY_MS)) return false;
+  gwWaiting = false;
   gw.stop();
   if (gw.connect(GATEWAY_IP, GATEWAY_PORT, 1500)) {
     gw.setNoDelay(true);
     Serial.printf("[gateway] conectado a %s:%d (%s)\n", GATEWAY_IP, GATEWAY_PORT, GATEWAY_MBAP ? "Modbus TCP" : "RTU sobre TCP");
     return true;
   }
-  gwRetryAt = millis() + 3000;
+  gwFailAt = millis();
+  gwWaiting = true;
   Serial.printf("[gateway] sem conexão com %s:%d\n", GATEWAY_IP, GATEWAY_PORT);
   return false;
 }
@@ -418,11 +422,26 @@ Preferences prefs;
 struct PendingAlert { char severity[10]; char message[160]; };
 PendingAlert alertQ[ALERT_SLOTS];
 int alertCount = 0;
+int alertInFlight = 0;                // os primeiros N da fila estão no POST em andamento
+volatile bool urgentPublish = false;  // alerta crítico: publica já na próxima volta da telemetria
+// Mesma política da tela de segurança (T3): com a fila cheia, um crítico (desarme por sobrecarga...)
+// toma o lugar do aviso mais antigo que não é crítico — nunca é descartado por causa de avisos.
 void raiseAlert(const char* severity, const char* fmt, ...) {
   char msg[160];
   va_list ap; va_start(ap, fmt); vsnprintf(msg, sizeof(msg), fmt, ap); va_end(ap);
   Serial.printf("[alerta %s] %s\n", severity, msg);
+  bool critical = !strcmp(severity, "critical");
   portENTER_CRITICAL(&stateMux);
+  if (alertCount >= ALERT_SLOTS && critical) {
+    for (int a = 0; a < alertCount; a++) {
+      if (strcmp(alertQ[a].severity, "critical")) {
+        memmove(alertQ + a, alertQ + a + 1, sizeof(PendingAlert) * (alertCount - a - 1));
+        alertCount--;
+        if (a < alertInFlight) alertInFlight--;   // já está no POST em andamento: não remover outro no lugar dele
+        break;
+      }
+    }
+  }
   if (alertCount < ALERT_SLOTS) {
     strncpy(alertQ[alertCount].severity, severity, sizeof(alertQ[0].severity) - 1);
     alertQ[alertCount].severity[sizeof(alertQ[0].severity) - 1] = 0;
@@ -431,6 +450,7 @@ void raiseAlert(const char* severity, const char* fmt, ...) {
     alertCount++;
   }
   portEXIT_CRITICAL(&stateMux);
+  if (critical) urgentPublish = true;
 }
 
 bool hasRelay(int i) { return CIRCUITS[i].board >= 0 && CIRCUITS[i].board < BOARD_COUNT && CIRCUITS[i].ch >= 1; }
@@ -674,8 +694,10 @@ void publishBatch() {
   memcpy(snap, cs, sizeof(CircuitState) * CIRCUIT_COUNT);
   tW = totalW; tKwh = totalKwh; okN = metersOk;
   nAlerts = alertCount;
+  alertInFlight = nAlerts;
   memcpy(alerts, alertQ, sizeof(PendingAlert) * nAlerts);
   portEXIT_CRITICAL(&stateMux);
+  urgentPublish = false;
 
   unsigned long now = millis();
   bool logged[MAX_CIRCUITS] = { false };
@@ -748,16 +770,19 @@ void publishBatch() {
   body += '}';
 
   int code = httpPost(body);
+  portENTER_CRITICAL(&stateMux);
   if (code == 200 || code == 207) {
-    portENTER_CRITICAL(&stateMux);
     for (int i = 0; i < CIRCUIT_COUNT; i++) if (logged[i]) { cs[i].loggedW = snap[i].watts; cs[i].loggedAt = now; }
-    // remove só os alertas enviados (o loop pode ter acrescentado outros nesse meio-tempo)
-    int rest = alertCount - nAlerts;
-    if (rest > 0) memmove(alertQ, alertQ + nAlerts, sizeof(PendingAlert) * rest);
+    // remove só os alertas enviados (o loop pode ter acrescentado outros nesse meio-tempo, e um
+    // crítico pode ter tomado o lugar de um aviso já enviado: alertInFlight já desconta esse caso)
+    int sent = alertInFlight;
+    int rest = alertCount - sent;
+    if (rest > 0) memmove(alertQ, alertQ + sent, sizeof(PendingAlert) * rest);
     alertCount = rest > 0 ? rest : 0;
-    portEXIT_CRITICAL(&stateMux);
-    if (logTotal) totalLoggedAt = now;
   }
+  alertInFlight = 0;
+  portEXIT_CRITICAL(&stateMux);
+  if ((code == 200 || code == 207) && logTotal) totalLoggedAt = now;
 }
 
 int circuitForDevice(const char* id) {
@@ -810,7 +835,7 @@ void telemetryTask(void*) {
     vTaskDelay(pdMS_TO_TICKS(COMMAND_POLL_MS));
     if (WiFi.status() != WL_CONNECTED) continue;
     pollCommands();
-    if (millis() - lastPublish < PUBLISH_INTERVAL_MS) continue;
+    if (millis() - lastPublish < PUBLISH_INTERVAL_MS && !urgentPublish) continue;
     lastPublish = millis();
     vTaskDelay(pdMS_TO_TICKS(400));   // o loop aplica os comandos recém-chegados antes do retrato
     publishBatch();

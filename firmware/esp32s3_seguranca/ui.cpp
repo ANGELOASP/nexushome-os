@@ -287,6 +287,11 @@ static void onRoom(lv_event_t *e) {
   else
     snprintf(body, sizeof(body), "Agora: %s, manual por mais %u min (umidade %s).\nDepois volta ao automático.",
              s.fanOn[f] ? "ligado" : "desligado", (unsigned)((s.fanManualLeftS[f] + 59) / 60), hum);
+  if (s.fanBlocked[f]) {
+    showModalN(title, body, "BLOQUEADO: gás detectado. Nenhum exaustor é ligado nem desligado até o gás sair e o "
+               "corte ser rearmado.", C_ALARM, 0, nullptr, nullptr, nullptr);
+    return;
+  }
   static const char *const labels[3] = { "Desligar", "Ligar", "Auto" };
   const lv_color_t colors[3] = { C_BTN_WARN, C_BTN_GO, C_TAB_ON };
   const UiRequest reqs[3] = { UiRequest{ UI_REQ_FAN, (int16_t)f, false, 0, false }, UiRequest{ UI_REQ_FAN, (int16_t)f, true, 1, false },
@@ -542,7 +547,8 @@ static void fmtLel(char *out, size_t n, float lel) {
 }
 
 static const char *zoneName(uint8_t z) {
-  return z == 1 ? "porta de entrada" : z == 2 ? "porta da cozinha/serviço" : z == 4 ? "presença" : "zona";
+  return z == 1 ? "porta de entrada" : z == 2 ? "porta da cozinha/serviço" : z == 4 ? "presença"
+       : z == 8 ? "sabotagem (módulo sem resposta)" : "zona";
 }
 
 // título do cabeçalho e nível (o problema mais grave vence; entre iguais, o último da lista)
@@ -642,8 +648,10 @@ static void updateRooms(const UiState &s) {
     if (R.smoke >= 0 && s.smoke[r]) { bg = C_ALARM_BG; bd = C_ALARM; nc = C_ALARM; snprintf(b, sizeof(b), "%s", R.heat ? "CALOR!" : "FUMAÇA!"); }
     else if (R.hasDoor && s.doorOpen[r]) { bd = C_WARN; nc = C_WARN; snprintf(b, sizeof(b), "porta aberta"); }
     else if (R.fan >= 0 && R.fan < UI_FANS) {
-      snprintf(b, sizeof(b), "%s\n%s", s.fanOn[R.fan] ? "ligado" : "desligado", s.fanAuto[R.fan] ? "automático" : "manual (30 min)");
-      if (s.fanOn[R.fan]) { bd = C_ENERGY; nc = C_ENERGY; }
+      snprintf(b, sizeof(b), "%s\n%s", s.fanOn[R.fan] ? "ligado" : "desligado",
+               s.fanBlocked[R.fan] ? "BLOQUEADO (gás)" : s.fanAuto[R.fan] ? "automático" : "manual (30 min)");
+      if (s.fanBlocked[R.fan]) { bd = C_WARN; nc = C_WARN; }
+      else if (s.fanOn[R.fan]) { bd = C_ENERGY; nc = C_ENERGY; }
     }
     setBox(rTile[r], bg, bd);
     setText(rNote[r], b);

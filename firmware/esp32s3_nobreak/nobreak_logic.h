@@ -95,6 +95,21 @@ inline bool batteryDischarging(bool gridPresent, bool balance, bool powersOk,
   return false;
 }
 
+// Sentido a usar NESTA volta, separando "sem rede" de "sem leitura":
+//   · o PZEM da rede respondeu agora  → decide pela leitura (gridSamplePresent + batteryDischarging);
+//   · não respondeu e a falta já foi CONFIRMADA pelo filtro (gridFail, 5 s) → descarga;
+//   · não respondeu e a falta não está confirmada → DIR_UNKNOWN: uma falha Modbus isolada com a
+//     rede presente NÃO pode virar "descarga" (inverteria o sinal da corrente de carga e derivaria
+//     o SoC). Quem chama não integra a corrente nesta volta (o tempo fica para a próxima).
+enum BattDir : int8_t { DIR_UNKNOWN = -1, DIR_CHARGE = 0, DIR_DISCHARGE = 1 };
+inline int8_t batteryDirection(bool gridAnswered, float gridV, bool gridFail, float minV, bool balance,
+                               bool powersOk, float gridW, float outW, float marginW) {
+  if (gridAnswered)
+    return batteryDischarging(gridSamplePresent(true, gridV, minV), balance, powersOk, gridW, outW, marginW)
+               ? DIR_DISCHARGE : DIR_CHARGE;
+  return gridFail ? DIR_DISCHARGE : DIR_UNKNOWN;
+}
+
 // ============================================================
 // 3) Estado de carga (SoC) por contagem de Ah, com recalibração
 // ============================================================

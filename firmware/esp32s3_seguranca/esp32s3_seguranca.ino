@@ -10,9 +10,15 @@
 //     do retorno — sem comando o relé nunca mexe (o interruptor de parede manda)   §8 X4, §9
 //   · supervisiona o gás (transmissores 50 e 51): pré-alarme ≥ 10 % LEL, corte ≥ 20 % LEL
 //     (Relay 91 CH7 + sirenes) TRAVADO até o rearme na tela. O corte de verdade é POR FIO
-//     (AL2 em série com a válvula NF); com gás NADA é ligado (nem exaustor, nem luz)  §10.1
+//     (AL2 em série com a válvula NF). Com gás (pré-alarme ou corte travado):          §10.1
+//       - a LUZ DA ÁREA do vazamento não é comutada (nem acende, nem apaga) — GAS_BLOCK_AREA_LIGHTS;
+//         as luzes das outras áreas continuam normais;
+//       - os EXAUSTORES (KE1/KE2), em qualquer área, ficam como estão: não ligam nem desligam
+//         (nem pela umidade, nem pelo app/tela) até o gás sair e o corte ser rearmado
 //   · fumaça/térmico (93), portas (93), presença (92), pânico e fonte F2 (91)       §8 X6, §10
 //   · alarme da casa (desarmado / em casa / ausente) com atraso de entrada de 30 s   §10.3
+//     armado, módulo de portas (93) — ou de presença (92) no "ausente" — mudo por
+//     ALARM_TAMPER_MS = disparo por sabotagem (sirenes + alerta crítico)
 //   · exaustores dos banheiros pela umidade dos XY-MD02 85 e 86                       §10.4
 //   · publica tudo no NexusHome (iot-gateway, POST em lote a cada 15 s, "source":"seguranca")
 //     e recebe os comandos do app (GET /iot-gateway/commands a cada 5 s)              §15
@@ -136,6 +142,7 @@
 #define GAS_SIREN_MS        0UL       // gás: 0 = tocam até o rearme ou "Silenciar"
 #define ALARM_EXIT_MS       60000UL   // atraso de saída ao armar (para sair sem disparar)
 #define ALARM_ENTRY_MS      30000UL   // atraso de entrada na porta de entrada (93/DI7)
+#define ALARM_TAMPER_MS     10000UL   // armado: 93 (portas) — e 92 (presença) no "ausente" — mudo por 10 s = sabotagem
 #define ALARM_PRESENCE_MASK 0xFF      // presenças que disparam no "ausente" (bit 0 = 92/DI1). Ex.: 0x7F tira a Área Externa
 #define FAN_ON_HUM          75.0f     // UR > 75 % liga
 #define FAN_OFF_HUM         60.0f     // UR < 60 % desliga
@@ -429,6 +436,7 @@ uint16_t noticeSeq = 0;
 struct PendingAlert { char severity[10]; char message[160]; };
 PendingAlert alertQ[ALERT_SLOTS];
 int alertCount = 0;
+int alertInFlight = 0;                // os primeiros N da fila estão no POST em andamento
 volatile bool urgentPublish = false;  // alerta crítico: publica já na próxima volta da telemetria
 
 void raiseAlert(const char* severity, const char* fmt, ...) {
@@ -443,6 +451,7 @@ void raiseAlert(const char* severity, const char* fmt, ...) {
       if (strcmp(alertQ[a].severity, "critical")) {
         memmove(alertQ + a, alertQ + a + 1, sizeof(PendingAlert) * (alertCount - a - 1));
         alertCount--;
+        if (a < alertInFlight) alertInFlight--;   // já está no POST em andamento: não remover outro no lugar dele
         break;
       }
     }
@@ -506,10 +515,32 @@ uint32_t boardBits(int b) {
 
 void markAux() { boardDirty[1] = true; }
 
+bool fansGasBlocked();
+// Gás na casa: nem esta reescrita pode comutar um exaustor. Se o módulo 91 reiniciou (bobinas
+// zeradas), reescrever "ligado" LIGARIA o motor no meio do vazamento. Lê as bobinas (função 01)
+// e mantém os canais dos exaustores exatamente como estão de fato (o retrato passa a mostrar isso).
+uint32_t auxBitsGasSafe(uint32_t bits) {
+  if (!fansGasBlocked()) return bits;
+  uint32_t cur = 0;
+  if (!mbReadBits(BOARDS[1].slave, 0x01, RELAYD_COIL_BASE, 8, cur, 1)) return bits;   // mudo: a escrita também falha
+  for (int f = 0; f < FAN_COUNT; f++) {
+    uint32_t m = 1UL << (FANS[f].ch - 1);
+    bool on = cur & m;
+    bits = (bits & ~m) | (cur & m);
+    if (on != fanSt[f].on) {
+      fanSetOn(fanSt[f], on, millis());
+      Serial.printf("[exaustor] %s: bobina encontrada %s com gás — mantida assim\n", FANS[f].name, on ? "LIGADA" : "desligada");
+    }
+  }
+  return bits;
+}
+
 void applyOutputs(bool force) {
   for (int b = 0; b < BOARD_COUNT; b++) {
     if (!force && !boardDirty[b]) continue;
-    bool ok = mbWriteCoils(BOARDS[b].slave, RELAYD_COIL_BASE, 8, boardBits(b));
+    uint32_t bits = boardBits(b);
+    if (b == 1) bits = auxBitsGasSafe(bits);
+    bool ok = mbWriteCoils(BOARDS[b].slave, RELAYD_COIL_BASE, 8, bits);
     if (ok != boardOk[b]) Serial.printf("[relés] %s: %s\n", BOARDS[b].name, ok ? "ok" : "SEM RESPOSTA");
     boardOk[b] = ok;
     boardDirty[b] = !ok;   // falhou: tenta de novo na próxima volta
@@ -685,6 +716,9 @@ void valveCommand(bool open, const char* origem) {
   notice("Corte de gás desligado (%s). Reabra a válvula NA MÃO (rearme mecânico).", origem);
 }
 
+// Gás em qualquer área (pré-alarme, AL2 ou corte travado): exaustores congelados (seg_logic.h).
+bool fansGasBlocked() { return gasBlocksFans(GAS_COUNT, gasSt, gasAl2, gasLatched); }
+
 bool gasAreaAlarm(int g) { return g >= 0 && g < GAS_COUNT && (gasSt[g].warn || gasAl2[g] || (gasLatched && gasSt[g].tripped)); }
 bool lightBlocked(int i) { return GAS_BLOCK_AREA_LIGHTS && gasAreaAlarm(LIGHTS[i].gas); }
 
@@ -793,6 +827,12 @@ void checkSafetyInputs() {
 // ============================================================
 void zoneText(uint8_t zone, char* out, size_t n) {
   if (zone == ZB_FRONT) { snprintf(out, n, "porta de entrada"); return; }
+  if (zone == ZB_TAMPER) {
+    bool s93 = !diOk[MOD_SAFETY], s92 = !diOk[MOD_PRESENCE] && houseAlarm.mode == ARM_AWAY;
+    snprintf(out, n, "sabotagem: %s sem resposta", s93 && s92 ? "módulos 93 (portas) e 92 (presença)"
+                                                    : s92 ? "módulo 92 (presença)" : "módulo 93 (portas)");
+    return;
+  }
   if (zone == ZB_SERVICE) { snprintf(out, n, "porta da cozinha/serviço"); return; }
   snprintf(out, n, "presença");
   size_t len = strlen(out);
@@ -822,13 +862,18 @@ void checkAlarm() {
   bool front = diOk[MOD_SAFETY] && doorIsOpen(SAFETY_DI_FRONT);
   bool service = diOk[MOD_SAFETY] && doorIsOpen(SAFETY_DI_SERVICE);
   bool presence = diOk[MOD_PRESENCE] && (diStable[MOD_PRESENCE] & ALARM_PRESENCE_MASK);
-  AlarmEvent ev = alarmStep(houseAlarm, front, service, presence, millis(), ACFG, sirenActive(SR_INTRUSION));
+  // módulo mudo não é "porta fechada": armado, perder a supervisão por ALARM_TAMPER_MS dispara
+  uint32_t now = millis();
+  bool safetyLost = segLostFor(diOk[MOD_SAFETY], diDownSince[MOD_SAFETY], now, ALARM_TAMPER_MS);
+  bool presenceLost = segLostFor(diOk[MOD_PRESENCE], diDownSince[MOD_PRESENCE], now, ALARM_TAMPER_MS);
+  AlarmEvent ev = alarmStep(houseAlarm, front, service, presence, safetyLost, presenceLost, now, ACFG,
+                            sirenActive(SR_INTRUSION));
   if (ev == AE_NONE) return;
   if (ev == AE_ENTRY_STARTED) {
     notice("Porta de entrada aberta: desarme em %lu s.", (unsigned long)(ALARM_ENTRY_MS / 1000));
     return;
   }
-  char zone[96];
+  char zone[112];
   zoneText(houseAlarm.zone, zone, sizeof(zone));
   sirenStart(SR_INTRUSION);
   raiseAlert("critical", "%s (%s): %s. Sirenes ligadas por %lu min.", ev == AE_RETRIGGER ? "ALARME: novo disparo" : "ALARME DISPARADO",
@@ -844,7 +889,7 @@ void checkFans() {
     int k = mdIndex(ROOMS[FANS[f].room].md);
     bool humOk = k >= 0 && mdOk[k];
     float hum = humOk ? mdHum[k] : 0;
-    if (fanStep(fanSt[f], humOk, hum, now, FCFG)) {
+    if (fanStep(fanSt[f], humOk, hum, now, FCFG, fansGasBlocked())) {
       markAux();
       Serial.printf("[exaustor] %s %s (%s, UR %s)\n", FANS[f].name, fanSt[f].on ? "LIGADO" : "desligado",
                     fanSt[f].manual ? "manual" : "automático", humOk ? String(hum, 0).c_str() : "--");
@@ -854,6 +899,10 @@ void checkFans() {
 
 void fanCommand(int f, int value, const char* origem) {
   if (f < 0 || f >= FAN_COUNT) return;
+  if (fansGasBlocked()) {
+    notice("Exaustor %s bloqueado: gás detectado (nenhum exaustor é ligado nem desligado até o rearme).", FANS[f].name);
+    return;
+  }
   if (value == 2) fanAuto(fanSt[f]);
   else fanManual(fanSt[f], value == 1, millis(), FCFG);
   markAux();
@@ -922,6 +971,7 @@ void updateSnapshot() {
     s.fanOn[f] = fanSt[f].on;
     s.fanAuto[f] = !fanSt[f].manual;
     s.fanManualLeftS[f] = fanSt[f].manual ? (uint16_t)segLeftS(now, fanSt[f].manualUntil) : 0;
+    s.fanBlocked[f] = fansGasBlocked();
   }
   s.armed = houseAlarm.mode;
   s.triggered = houseAlarm.triggered;
@@ -1000,6 +1050,7 @@ void publishBatch() {
   portENTER_CRITICAL(&stateMux);
   memcpy(&snap, &live, sizeof(UiState));
   nAlerts = alertCount;
+  alertInFlight = nAlerts;
   memcpy(alerts, alertQ, sizeof(PendingAlert) * nAlerts);
   portEXIT_CRITICAL(&stateMux);
   urgentPublish = false;
@@ -1007,6 +1058,7 @@ void publishBatch() {
   unsigned long now = millis();
   bool loggedClimate[UI_ROOMS] = { false }, loggedGas[UI_GAS] = { false };
   bool gasHist = !gasHistOffUntil || segReached(now, gasHistOffUntil);
+  if (gasHist) gasHistOffUntil = 0;   // prazo vencido: zera (um prazo velho voltaria a valer "no futuro" após ~24 dias)
   String body, f;
   body.reserve(8000);
   body = "{\"source\":\"seguranca\",\"readings\":[";
@@ -1068,6 +1120,7 @@ void publishBatch() {
     f = "";
     appendBool(f, "on", snap.fanOn[k]);
     appendBool(f, "auto", snap.fanAuto[k]);
+    if (snap.fanBlocked[k]) appendBool(f, "blocked", true);
     addStatus(body, first, FANS[k].uuid, f);
   }
   // alarme
@@ -1100,13 +1153,18 @@ void publishBatch() {
     for (int g = 0; g < GAS_COUNT; g++) loggedGas[g] = false;
     Serial.println("[iot] histórico gas_lel recusado — execute a migração 025 no Supabase (tento de novo em 1 h)");
   }
+  portENTER_CRITICAL(&stateMux);
   if (code == 200 || code == 207) {
-    portENTER_CRITICAL(&stateMux);
-    // remove só os alertas enviados (o loop pode ter acrescentado outros nesse meio-tempo)
-    int rest = alertCount - nAlerts;
-    if (rest > 0) memmove(alertQ, alertQ + nAlerts, sizeof(PendingAlert) * rest);
+    // remove só os alertas enviados (o loop pode ter acrescentado outros nesse meio-tempo, e um
+    // crítico pode ter tomado o lugar de um aviso já enviado: alertInFlight já desconta esse caso)
+    int sent = alertInFlight;
+    int rest = alertCount - sent;
+    if (rest > 0) memmove(alertQ, alertQ + sent, sizeof(PendingAlert) * rest);
     alertCount = rest > 0 ? rest : 0;
-    portEXIT_CRITICAL(&stateMux);
+  }
+  alertInFlight = 0;
+  portEXIT_CRITICAL(&stateMux);
+  if (code == 200 || code == 207) {
     for (int r = 0; r < ROOM_COUNT; r++) if (loggedClimate[r]) climateLoggedAt[r] = now ? now : 1;
     for (int g = 0; g < GAS_COUNT; g++) if (loggedGas[g]) gasLoggedAt[g] = now ? now : 1;
   }
@@ -1208,8 +1266,8 @@ void printStatus() {
     if (mdOk[k]) Serial.printf("  XY-MD02 %u: %.1f °C  %.1f %%\n", ADDR_MD_FIRST + k, mdTemp[k], mdHum[k]);
     else Serial.printf("  XY-MD02 %u: SEM RESPOSTA\n", ADDR_MD_FIRST + k);
   for (int f = 0; f < FAN_COUNT; f++)
-    Serial.printf("  exaustor %s: %s (%s)\n", FANS[f].name, fanSt[f].on ? "LIGADO" : "desligado",
-                  fanSt[f].manual ? "manual" : "automático");
+    Serial.printf("  exaustor %s: %s (%s)%s\n", FANS[f].name, fanSt[f].on ? "LIGADO" : "desligado",
+                  fanSt[f].manual ? "manual" : "automático", fansGasBlocked() ? " (BLOQUEADO: gás)" : "");
   if (houseAlarm.exitActive) Serial.printf("  alarme: atraso de saída, %lu s\n", (unsigned long)segLeftS(now, houseAlarm.exitUntil));
   if (houseAlarm.entryActive) Serial.printf("  alarme: atraso de ENTRADA, %lu s\n", (unsigned long)segLeftS(now, houseAlarm.entryUntil));
 }

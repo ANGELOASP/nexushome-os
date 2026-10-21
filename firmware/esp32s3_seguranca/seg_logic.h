@@ -5,8 +5,9 @@
 // o que elas decidem. Assim dá para testar a lógica no PC com g++ (sem placa):
 //   · three-way com retorno (precisa inverter? confirmou?)
 //   · gás: pré-alarme com histerese e corte travado (latch) até o rearme
-//   · exaustor por umidade (liga > 75 %, desliga < 60 %, mín. 5 min, máx. 60 min, manual 30 min)
-//   · alarme da casa (em casa / ausente, atraso de saída e de entrada)
+//   · exaustor por umidade (liga > 75 %, desliga < 60 %, mín. 5 min, máx. 60 min, manual 30 min),
+//     congelado enquanto houver gás (pré-alarme ou travamento, qualquer área)
+//   · alarme da casa (em casa / ausente, atraso de saída e de entrada, sabotagem = módulo mudo)
 //   · filtro das entradas digitais (2 leituras iguais)
 // Tempos em ms com uint32_t (millis()); as comparações aguentam a virada do contador (~49 dias).
 // ============================================================
@@ -84,6 +85,17 @@ static inline GasEval gasStep(GasTxState &g, bool &latched, bool readOk, float l
 
 // Rearme: só sem gás presente (nenhum transmissor que responde em ≥ pré-alarme ou com AL1/AL2).
 // Transmissor mudo não impede (o AL2 por fio continua na cadeia da válvula).
+// Gás na casa (qualquer área): algum transmissor em pré-alarme/AL2 ou o corte travado.
+// Enquanto for verdade, os EXAUSTORES não são comutados (nem ligam nem desligam): o relé de
+// interface KE1/KE2 comutando a fase do motor é fonte de ignição. (As luzes são bloqueadas só
+// na área do vazamento — isso fica no .ino, GAS_BLOCK_AREA_LIGHTS.)
+static inline bool gasBlocksFans(int n, const GasTxState *g, const bool *al2, bool latched) {
+  if (latched) return true;
+  for (int i = 0; i < n; i++)
+    if (g[i].warn || al2[i]) return true;
+  return false;
+}
+
 static inline bool gasCanRearm(int n, const bool *readOk, const float *lel, const bool *al1, const bool *al2,
                                const GasCfg &cfg) {
   for (int i = 0; i < n; i++)
@@ -122,9 +134,13 @@ static inline void fanManual(FanState &f, bool on, uint32_t now, const FanCfg &c
 static inline void fanAuto(FanState &f) { f.manual = false; }
 
 // Um passo do automático; devolve true se o exaustor mudou.
-static inline bool fanStep(FanState &f, bool humOk, float hum, uint32_t now, const FanCfg &cfg) {
+// gasBlock = gás na casa (gasBlocksFans): o exaustor fica EXATAMENTE como está — não liga nem
+// desliga. O prazo do manual continua correndo; quando o gás sai, o automático decide de novo
+// (e, se já passou do tempo máximo, desliga).
+static inline bool fanStep(FanState &f, bool humOk, float hum, uint32_t now, const FanCfg &cfg, bool gasBlock) {
   bool was = f.on;
   if (f.manual && segReached(now, f.manualUntil)) f.manual = false;
+  if (gasBlock) return false;
   if (f.manual) {
     fanSetOn(f, f.manualOn, now);
     return f.on != was;
@@ -141,7 +157,7 @@ static inline bool fanStep(FanState &f, bool humOk, float hum, uint32_t now, con
 
 // ---------------- Alarme da casa ----------------
 enum ArmMode : uint8_t { ARM_OFF = 0, ARM_HOME = 1, ARM_AWAY = 2 };
-enum AlarmZoneBit : uint8_t { ZB_FRONT = 1, ZB_SERVICE = 2, ZB_PRESENCE = 4 };
+enum AlarmZoneBit : uint8_t { ZB_FRONT = 1, ZB_SERVICE = 2, ZB_PRESENCE = 4, ZB_TAMPER = 8 };
 enum AlarmEvent : uint8_t { AE_NONE = 0, AE_ENTRY_STARTED, AE_TRIGGERED, AE_RETRIGGER };
 
 struct AlarmCfg { uint32_t exitMs, entryMs; };
@@ -168,12 +184,18 @@ static inline void alarmSetMode(AlarmState &a, uint8_t mode, uint32_t now, const
   a.exitUntil = now + cfg.exitMs;
 }
 
-static inline uint8_t alarmMask(const AlarmState &a, bool frontOpen, bool serviceOpen, bool presence) {
+// Supervisão (sabotagem): armado, módulo de entradas mudo NÃO é "porta fechada / sem presença".
+//   safetyLost   = módulo das portas (IO 8CH 93) sem resposta há mais que o limite do .ino
+//   presenceLost = idem para o módulo de presença (IO 8CH 92) — só conta no "ausente"
+// Cortar o cabo do HUB-B ou a alimentação do IO 8CH vira disparo (ZB_TAMPER), não silêncio.
+static inline uint8_t alarmMask(const AlarmState &a, bool frontOpen, bool serviceOpen, bool presence,
+                                bool safetyLost, bool presenceLost) {
   if (a.mode == ARM_OFF) return 0;
   uint8_t m = 0;
   if (frontOpen) m |= ZB_FRONT;
   if (serviceOpen) m |= ZB_SERVICE;
   if (a.mode == ARM_AWAY && presence) m |= ZB_PRESENCE;
+  if (safetyLost || (a.mode == ARM_AWAY && presenceLost)) m |= ZB_TAMPER;
   return m;
 }
 
@@ -181,7 +203,9 @@ static inline uint8_t alarmMask(const AlarmState &a, bool frontOpen, bool servic
 //   em casa: portas · ausente: portas + presença
 //   porta de entrada → atraso de entrada (presença ignorada durante ele: é quem chegou andando)
 //   porta de serviço ou presença (fora do atraso) → disparo imediato
-static inline AlarmEvent alarmStep(AlarmState &a, bool frontOpen, bool serviceOpen, bool presence, uint32_t now,
+//   sabotagem (módulo mudo, ver alarmMask) → disparo imediato, mesmo durante o atraso de entrada
+static inline AlarmEvent alarmStep(AlarmState &a, bool frontOpen, bool serviceOpen, bool presence,
+                                   bool safetyLost, bool presenceLost, uint32_t now,
                                    const AlarmCfg &cfg, bool sirensActive) {
   if (a.mode == ARM_OFF) { a.triggered = false; a.entryActive = false; a.exitActive = false; return AE_NONE; }
   if (a.exitActive) {
@@ -189,13 +213,15 @@ static inline AlarmEvent alarmStep(AlarmState &a, bool frontOpen, bool serviceOp
     a.exitActive = false;
     a.prevMask = 0;
   }
-  uint8_t mask = alarmMask(a, frontOpen, serviceOpen, presence);
+  uint8_t mask = alarmMask(a, frontOpen, serviceOpen, presence, safetyLost, presenceLost);
   AlarmEvent ev = AE_NONE;
   if (!a.triggered) {
     if (a.entryActive) {
       if (mask & ZB_SERVICE) { a.triggered = true; a.zone = ZB_SERVICE; a.entryActive = false; ev = AE_TRIGGERED; }
+      else if (mask & ZB_TAMPER) { a.triggered = true; a.zone = ZB_TAMPER; a.entryActive = false; ev = AE_TRIGGERED; }
       else if (segReached(now, a.entryUntil)) { a.triggered = true; a.zone = ZB_FRONT; a.entryActive = false; ev = AE_TRIGGERED; }
     } else if (mask & ZB_SERVICE) { a.triggered = true; a.zone = ZB_SERVICE; ev = AE_TRIGGERED; }
+    else if (mask & ZB_TAMPER) { a.triggered = true; a.zone = ZB_TAMPER; ev = AE_TRIGGERED; }
     else if (mask & ZB_PRESENCE) { a.triggered = true; a.zone = ZB_PRESENCE; ev = AE_TRIGGERED; }
     else if (mask & ZB_FRONT) {
       a.entryActive = true; a.entryUntil = now + cfg.entryMs; ev = AE_ENTRY_STARTED;
@@ -204,12 +230,17 @@ static inline AlarmEvent alarmStep(AlarmState &a, bool frontOpen, bool serviceOp
   } else {
     uint8_t fresh = (uint8_t)(mask & ~a.prevMask);
     if (fresh && !sirensActive) {
-      a.zone = (fresh & ZB_SERVICE) ? ZB_SERVICE : (fresh & ZB_FRONT) ? ZB_FRONT : ZB_PRESENCE;
+      a.zone = (fresh & ZB_SERVICE) ? ZB_SERVICE : (fresh & ZB_TAMPER) ? ZB_TAMPER : (fresh & ZB_FRONT) ? ZB_FRONT : ZB_PRESENCE;
       ev = AE_RETRIGGER;
     }
   }
   a.prevMask = mask;
   return ev;
+}
+
+// Módulo sem resposta há pelo menos `ms` (downSince = quando ficou offline; 0 = não está).
+static inline bool segLostFor(bool ok, uint32_t downSince, uint32_t now, uint32_t ms) {
+  return !ok && downSince != 0 && segElapsed(now, downSince, ms);
 }
 
 static inline uint32_t segLeftS(uint32_t now, uint32_t deadline) {
